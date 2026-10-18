@@ -85,7 +85,7 @@ The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last releas
 - Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
   Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
 
-## Licences, stores and patents for player engines (checked 2026-10-18; not legal advice)
+## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
   its own files only; LGPL-2.1/3.0 the library's source and our changes, and users must be able to relink (a replaceable dynamic library, or
   our app as objects or source when linked statically), with no terms that forbid modifying or debugging it; GPL makes the whole app GPL,

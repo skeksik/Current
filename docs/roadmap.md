@@ -35,7 +35,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
       and where the token lives
 - [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
 - [x] Current's own code is proprietary: no open-source licence, no LICENSE file (ADR 0009)
-- [ ] Minimum supported server versions (Jellyfin, Seerr)
+- [x] Supported server versions: the latest releases only (Jellyfin 12.2 and Seerr 3.5.0 on 2026-10-18); follow new releases rather than
+      keeping older ones working
 
 Then:
 - [ ] Libraries per ADR 0002, versions checked against Kotlin/CMP: Ktor client, kotlinx.serialization, Koin, Navigation, Coil 3
@@ -120,8 +121,8 @@ behaves exactly as before.
 
 ## Later
 - [ ] Sexual preferences for the adult extension (far future): classify titles by orientation from tags and cast, per-user defaults and an
-      admin-allowed set, a filter, badges on cards and pages, lists that stay full when filtered. The spec is kept privately; decide what runs
-      in the app and what on the server before starting.
+      admin-allowed set, a filter, badges on cards and pages, lists that stay full when filtered. It lives in the app (the extension), not in
+      the request server: the servers only supply each title's tags and performer genders. The spec is kept privately.
 - [ ] Several servers and user switching on one device
 - [ ] Casting (Chromecast), watch-together (Jellyfin SyncPlay)
 - [ ] Apple extras: home-screen widgets (including server admin widgets), a visionOS app

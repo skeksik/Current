@@ -1,6 +1,6 @@
 # 0009: Editions and dependency licences
 
-Status: accepted (2026-10-18). Not legal advice: check with a lawyer before the first commercial or store release.
+Status: accepted (2026-10-18)
 
 ## Context
 Current is meant to be sold and its code may become private. Some features are welcome in app stores, others are not (store rules on adult
