@@ -33,8 +33,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
       or show ASS/PGS, so the web device profile transcodes that audio and burns in or separately renders those subtitles
 - [ ] Web access: Jellyfin allows any origin with header auth (verified); confirm sign-in, images and video from the browser app end to end,
       and where the token lives
-- [ ] Licence for Current, before picking the desktop engine: a permissive licence with an LGPL libmpv keeps every option open; vlcj would
-      make desktop builds GPLv3. Codec patents (HEVC, AAC, AC-3) are a separate question
+- [ ] Licence for Current, before picking the desktop engine. Leaning Apache-2.0: it works in every store and with LGPL engines; vlcj or
+      any GPL build would make the app GPL and keep it out of the App Store (docs/platform-notes.md)
 - [ ] Minimum supported server versions (Jellyfin, Seerr)
 
 Then:

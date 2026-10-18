@@ -85,6 +85,30 @@ The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last releas
 - Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
   Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
 
+## Licences, stores and patents for player engines (checked 2026-10-18; not legal advice)
+- What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
+  its own files only; LGPL-2.1/3.0 the library's source and our changes, and users must be able to relink (a replaceable dynamic library, or
+  our app as objects or source when linked statically), with no terms that forbid modifying or debugging it; GPL makes the whole app GPL,
+  however it links. GPLv2-only code cannot be combined with Apache-2.0 code. LGPLv3/GPLv3 "Installation Information" applies only to software
+  conveyed with a consumer device, not to an app on its own. Sources: https://www.gnu.org/licenses/gpl-faq.html ,
+  https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt , https://www.gnu.org/licenses/lgpl-3.0.txt , https://www.apache.org/licenses/GPL-compatibility.html
+- Stores: the FSF considers the App Store's usage rules incompatible with the GPL, so Apple builds carry no GPL code. LGPL engines ship there in
+  practice (VLCKit, MPVKit's non-GPL products). Google Play, the Microsoft Store (its policies cover open-source licences) and direct downloads
+  accept GPL and LGPL. F-Droid needs FLOSS built from source. All three stores forbid pornographic apps, so store builds leave out the
+  adult extension. Sources: https://developer.apple.com/app-store/review/guidelines/ , https://learn.microsoft.com/en-us/windows/apps/publish/store-policies ,
+  https://f-droid.org/docs/Inclusion_Policy/
+- Apple fallback candidates: MPVKit (LGPLv3 by default, GPL only in its `-GPL` products; static libraries, so relinking means publishing our
+  app as objects or source), VLCKit (LGPL-2.1+), an FFmpeg + VideoToolbox + Metal engine of our own (LGPL). KSPlayer is GPL-3.0 (LGPL only with a
+  paid licence). Sources: https://github.com/mpvkit/MPVKit , https://github.com/videolan/vlckit , https://github.com/kingslay/KSPlayer
+- Android: Media3 is Apache-2.0; its FFmpeg extension decodes audio only (AC-3, E-AC-3, DTS, TrueHD among others); AV1 through dav1d (BSD-2).
+  mpv-android builds GPLv3, so an LGPL libmpv would need our own build. Source: https://github.com/androidx/media/tree/release/libraries
+- Shared pieces: libass (ISC), libplacebo (LGPL-2.1+, can convert Dolby Vision profile 5 and compose profile 7). Without a Dolby licence the
+  safe route is the HDR10/SDR base layer. Sources: https://github.com/libass/libass , https://github.com/haasn/libplacebo
+- Patents are separate from copyright: through OS decoders (VideoToolbox, MediaCodec, Media Foundation) the OS or device maker is the licensee;
+  shipping FFmpeg's own HEVC or AAC decoders makes us the distributor of a decoder, so prefer OS and hardware decoders for those
+  (https://ffmpeg.org/legal.html , https://accessadvance.com/licensing-programs/hevc-advance/ , https://www.via-la.com/licensing-programs/aac/).
+  No Dolby or DTS logos or claims without a licence; neutral codec names (E-AC-3, DTS-HD MA) in the playback info overlay.
+
 ## Jellyfin 12.x (checked 2026-10-18 against a 12.2 server, its OpenAPI and the v12.2 source)
 - Versioning: the release after 10.11 is 12.0 (2026-09-07); tags are `v12.0`..`v12.2`, servers report `12.2.0`.
   Sources: https://jellyfin.org/posts/jellyfin-release-12.0/ , https://github.com/jellyfin/jellyfin/releases/tag/v12.2
