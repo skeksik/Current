@@ -32,27 +32,151 @@ Facts below were read from the linked sources on that date. Re-check before rely
 - Subtitles: a developer forum thread reports native subtitles work with `AVPlayerLayer` but are lost with `AVSampleBufferDisplayLayer`; `AVPlayerItemLegibleOutput` gives attributed text that must be laid out manually.
   This is a user report, not Apple guidance. Source: https://developer.apple.com/forums/thread/700128
 
-## Desktop and web playback
-- vlcj: GPLv3+ (commercial licence available); vlcj 5 requires VLC/LibVLC 4.0+; vlcj 4.x is the stable branch for older VLC. Source: https://github.com/caprica/vlcj
-- mpv: GPLv2+ by default; LGPLv2.1+ only when built without GPL-only files (intended for libmpv). Source: https://github.com/mpv-player/mpv/blob/master/Copyright
-- hls.js: Apache-2.0, needs Media Source Extensions; Safari plays HLS natively. Source: https://github.com/video-dev/hls.js
-- Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline. Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
+## Desktop and web playback (checked 2026-10-18; input for the M1 video spikes)
+**Compose over native video.** Compose Multiplatform 1.12 has no supported way to draw Compose over native video:
+- Desktop: "The Swing component within `SwingPanel` will always be layered above the Compose Multiplatform component". The experimental interop
+  blending flag (`-Dcompose.interop.blending=true`) "cannot overlay another DirectX component" on Windows, which rules out mpv's and VLC's
+  Direct3D output. Sources: https://kotlinlang.org/docs/multiplatform/compose-desktop-swing-interoperability.html ,
+  https://github.com/JetBrains/compose-multiplatform-core/pull/915
+- Web: `HtmlElementView` (`WebElementView` in 1.9 and 1.10) places the HTML element over the canvas, where it takes all input
+  (KDoc in `compose/ui/ui/src/webMain/.../InteropView.web.kt`). Compose for web is Beta.
+  Sources: https://github.com/JetBrains/compose-multiplatform/blob/master/CHANGELOG.md , https://kotlinlang.org/docs/multiplatform/supported-platforms.html
 
-## Service APIs
-- Jellyfin playback info request fields (PlaybackInfoDto): userId, maxStreamingBitrate, startTimeTicks, audioStreamIndex, subtitleStreamIndex, maxAudioChannels, mediaSourceId, liveStreamId,
-  deviceProfile, enableDirectPlay, enableDirectStream, enableTranscoding, allowVideoStreamCopy, allowAudioStreamCopy, autoOpenLiveStream, alwaysBurnInSubtitleWhenTranscoding.
-  Source: https://kotlin-sdk.jellyfin.org/dokka/jellyfin-model/org.jellyfin.sdk.model.api/-playback-info-dto/index.html (Jellyfin Kotlin SDK docs)
-- Jellyfin Kotlin SDK is available for JVM and Android only (LGPL-3.0), so it cannot be used from common code. Source: https://github.com/jellyfin/jellyfin-sdk-kotlin
-- Jellyfin auth: the third-party-hosted page we found shows `Authorization: MediaBrowser Client="..", Device="..", DeviceId="..", Version=".."` (+ `Token=".."`), `POST /Users/AuthenticateByName` with `Username`/`Pw`,
-  and says legacy headers (`X-Emby-Token`, `api_key`) may be disabled. This is NOT the official docs: confirm against the official OpenAPI/docs before coding.
-- Seerr (merger of Overseerr and Jellyseerr): API key goes in the `X-Api-Key` header; cookie auth via `/auth/local` (cookie `connect.sid`). OpenAPI spec:
-  https://raw.githubusercontent.com/seerr-team/seerr/refs/heads/develop/seerr-api.yml . Reference: https://docs.seerr.dev/api/seerr-api/ . The reference page we read did not list discover or request-creation endpoints: read the spec.
-- Stash: GraphQL at `<server>:<port>/graphql` (default `localhost:9999/graphql`); API key in an `ApiKey` header; cookie auth is legacy. Source: https://docs.stashapp.cc/api/
+**Desktop engine candidates** (Windows first), in the order to try them:
+1. libmpv drawn into Compose as a GPU texture, as MediaMP does (https://github.com/open-ani/mediamp, Apache-2.0, pre-1.0, v0.5.2): mpv's
+   D3D11 render API (in mpv master, planned for 0.42) shares frames with Skia's D3D12 device without CPU copies. MediaMP reaches Skiko
+   internals by reflection, and the output is 8-bit SDR.
+2. libmpv in a native child window (`wid`) with our controls in a separate transparent window: the only route that keeps HDR; the controls
+   window must follow the video window (vlcj's docs report lag when dragging or resizing with this pattern:
+   https://capricasoftware.co.uk/tutorials/vlcj/4/overlay).
+3. vlcj 4 + LibVLC 3: mature, but vlcj is GPLv3+ or paid, and rendering into Compose goes through CPU copies (LibVLC calls callback
+   rendering "considerably less efficient").
+- Not suitable: Compose Media Player on Windows (Media Foundation: no MKV/WebM, first audio stream only), JavaFX Media (no MKV, AC-3, DTS),
+  GStreamer's Java bindings (last release 2021), JavaCV (a decoder, not a player).
+
+**Licences**
+- mpv: GPLv2+ by default, LGPL when built with `-Dgpl=false` (https://github.com/mpv-player/mpv/blob/master/Copyright). LGPL Windows
+  `libmpv-2.dll` builds exist: mpv's rolling development builds (https://github.com/mpv-player/mpv/releases/tag/git-release) and
+  https://github.com/zhongfly/mpv-winbuild (`mpv-dev-lgpl`). An app under any licence may load one if it stays a separate, replaceable DLL
+  and we ship its licence and source. MediaMP's own Linux runtime is GPL.
+- vlcj: GPLv3+ or commercial (https://github.com/caprica/vlcj); LibVLC itself is LGPLv2+. Shipping vlcj makes the desktop build GPLv3.
+- FFmpeg: LGPL unless GPL parts are enabled. Patent licensing for HEVC, AAC and AC-3 decoders is a separate question (https://ffmpeg.org/legal.html).
+
+**Windows media keys.** System Media Transport Controls are a WinRT API
+(https://learn.microsoft.com/en-us/windows/apps/develop/media-playback/system-media-transport-controls). libmpv has them built in
+(`--media-controls`, Windows only, off by default for libmpv, since 0.39: https://github.com/mpv-player/mpv/blob/master/DOCS/man/options.rst).
+The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last released in 2024.
+
+**Web video**
+- Candidates: (1) `<video>` (+ hls.js) behind the canvas, shown through a transparent hole drawn with `BlendMode.Clear` (Compose Media
+  Player's web surface does this: https://github.com/kdroidFilter/ComposeMediaPlayer); it relies on undocumented DOM order and Skiko's
+  alpha canvas. (2) Video drawn by Compose through the experimental WebGL render target (`rememberWebGLRenderTarget`, CMP 1.13.0-alpha01+,
+  https://github.com/JetBrains/compose-multiplatform-core/pull/3323): CORS on every media URL, one GPU upload per frame, SDR only.
+  (3) A plain DOM player screen, with controls that are not Compose.
+- HLS: native in Chrome desktop 142+ and Safari, not in Edge or Firefox (caniuse). hls.js (v1.7.3, Apache-2.0) needs Media Source
+  Extensions and CORS on every HLS resource; check `Hls.isSupported()` before relying on native playback (https://github.com/video-dev/hls.js).
+  Kotlin/Wasm can import it as an npm module (`@JsModule`, or `js("import(...)")`: https://kotlinlang.org/docs/wasm-js-interop.html).
+- Direct play in desktop browsers (caniuse; probe at runtime with `canPlayType` and `MediaSource.isTypeSupported`, as jellyfin-web does):
+  MP4/WebM with H.264, VP9 or AV1 (Safari: AV1 with hardware only) and AAC, MP3, Opus or FLAC. HEVC only with hardware decoding
+  (Safari always). MKV in Chromium-based browsers and in Firefox 145+ (which buffers the whole file). No AC-3, E-AC-3, DTS or TrueHD, so
+  those need an audio transcode. Subtitles: WebVTT only; ASS and PGS need burn-in or a JS renderer.
+- CORS: a plain `<video src>` plays cross-origin media without it; fetch (Ktor, image loading), hls.js, WebGL textures and cross-origin
+  `<track>` need it (https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
+- Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
+  Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
+
+## Jellyfin 12.x (checked 2026-10-18 against a 12.2 server, its OpenAPI and the v12.2 source)
+- Versioning: the release after 10.11 is 12.0 (2026-09-07); tags are `v12.0`..`v12.2`, servers report `12.2.0`.
+  Sources: https://jellyfin.org/posts/jellyfin-release-12.0/ , https://github.com/jellyfin/jellyfin/releases/tag/v12.2
+- Spec: https://api.jellyfin.org/openapi/stable/jellyfin-openapi-12.2.json ; every server serves its own at `/api-docs/openapi.json`.
+  Its security scheme does not describe the `MediaBrowser` header format, so generated clients get auth wrong.
+- Auth: only `Authorization: MediaBrowser Client="..", Device="..", DeviceId="..", Version="..", Token=".."` (key names are case-sensitive,
+  values quoted and URL-encoded) and the `ApiKey` query parameter. `X-Emby-Token`, `X-MediaBrowser-Token`, `X-Emby-Authorization` and `api_key`
+  are off by default since 12.0 (`EnableLegacyAuthorization`, https://github.com/jellyfin/jellyfin/pull/15559); live they return 401.
+- Sign-in: `POST /Users/AuthenticateByName` `{Username, Pw}` with the header minus `Token` (400 if Client, Device, DeviceId or Version is
+  missing) returns `AccessToken`, `User.Id`, `ServerId`. Signing in again with the same DeviceId and user revokes the previous token, so keep
+  one random DeviceId per install. Sign-out: `POST /Sessions/Logout`.
+- Quick Connect: `GET /QuickConnect/Enabled`; `POST /QuickConnect/Initiate` returns a 6-digit code (valid 10 minutes) and a secret; poll
+  `GET /QuickConnect/Connect?secret=`; finish with `POST /Users/AuthenticateWithQuickConnect {Secret}`. A signed-in client can approve a
+  code with `POST /QuickConnect/Authorize?code=`.
+- Browsing (the user comes from the token; `userId` is optional): `/UserViews`, `/Items`, `/Items/Latest` (bare array), `/UserItems/Resume`,
+  `/Shows/NextUp`, `/Shows/{id}/Seasons`, `/Shows/{id}/Episodes`, `/Items/{id}`, `/Items/{id}/Similar`, `/Genres`, `/Search/Hints`.
+  The `/Users/{userId}/Items...` routes left the spec in 10.9; they still answer as hidden routes, do not use them.
+  List parameters are comma-separated except `genres`, `tags`, `studios` (`|`); values the server cannot parse are dropped silently;
+  pass `recursive` explicitly (12.x changed its default). Played/favorite: `POST|DELETE /UserPlayedItems/{id}`, `/UserFavoriteItems/{id}`.
+- Images: `/Items/{id}/Images/{type}` needs no auth; with `tag=` the response is cached as immutable. Blurhashes: `ImageBlurHashes[type][tag]`.
+- Provider ids: `ProviderIds["Tmdb"]` is a string and may be missing (most movies on the test server have none), so joins with Seerr cannot rely on it alone.
+- JSON: PascalCase by default, camelCase with `Accept: application/json; profile="CamelCase"`. Ids are 32 hex characters without dashes.
+  Nulls are usually omitted; enums gain values between versions (parse leniently). Ticks are 10,000,000 per second; `0001-01-01` means unset.
+- Playback: `POST /Items/{id}/PlaybackInfo` needs a DeviceProfile (without one there is no `TranscodingUrl`), and `MediaSourceId` for audio and
+  subtitle choices to apply. `SupportsDirectStream` equals `SupportsDirectPlay` in practice. Direct play:
+  `/Videos/{id}/stream.{container}?static=true&mediaSourceId=..&deviceId=..&ApiKey=..` (byte ranges). HLS: use `TranscodingUrl` as given
+  (relative, already contains `ApiKey`; the HLS routes are hidden from the spec since 12.0). Media URLs authenticate with `ApiKey`;
+  trickplay tiles need it, item images do not.
+- Reporting: `POST /Sessions/Playing`, `/Sessions/Playing/Progress` about every 10 s, `/Sessions/Playing/Stopped`, and
+  `/Sessions/Playing/Ping?playSessionId=` while paused. The server stops an HLS transcode after 60 s without progress or ping.
+  `Stopped` without `PositionTicks` marks the item fully watched.
+- Subtitles: delivery `Encode`, `Embed`, `External`, `Hls`, `Drop`; external files at
+  `/Videos/{id}/{mediaSourceId}/Subtitles/{index}[/{startTicks}]/Stream.{vtt|srt|ass|ssa|ttml|json}`.
+- Intro/outro: `/MediaSegments/{id}`, but core ships no segment provider (a plugin must supply them), so expect none.
+  Trickplay: the `Trickplay` field, `/Videos/{id}/Trickplay/{width}/tiles.m3u8` and `{index}.jpg`.
+- CORS: `ServerConfiguration.CorsHosts` (default `["*"]`, not in the UI or docs) allows any origin without credentials. Live preflights return
+  204 with `access-control-allow-origin: *` and echo the requested methods and headers, so a browser app on another origin works with header auth.
+  Source: https://jellyfin.org/docs/general/post-install/networking/ (does not mention CORS); v12.2 source.
+
+## Seerr (checked 2026-10-18 against upstream https://github.com/seerr-team/seerr (develop) and a live server)
+- Spec: https://raw.githubusercontent.com/seerr-team/seerr/refs/heads/develop/seerr-api.yml . Reference: https://docs.seerr.dev/api/seerr-api/ .
+- Requests are validated against the spec before any route runs (`express-openapi-validator` in `server/index.ts`): unknown query parameters
+  get 400, unknown paths 404, no session 401. Send only documented parameters.
+- Session: cookie `connect.sid`, 30 days from sign-in, HttpOnly, SameSite Lax (Strict when CSRF protection is on), `secure: auto` (Secure only
+  when Seerr itself sees HTTPS, see its trust-proxy setting). Source: `server/index.ts`.
+- Sign-in (`server/routes/auth.ts`): `POST /api/v1/auth/jellyfin {username, password}`, `POST /api/v1/auth/local {email, password}`, or Jellyfin
+  Quick Connect through Seerr (`POST /auth/jellyfin/quickconnect/initiate` returns code + secret, `GET .../check?secret=`,
+  `POST .../authenticate {secret}`). Login responses are partial: call `GET /auth/me` after. `POST /auth/logout`.
+  A client already signed in to Jellyfin can approve Seerr's Quick Connect code itself (Jellyfin `POST /QuickConnect/Authorize?code=`), so it
+  never stores a password and can renew the session silently. Not tried end to end yet; needs Quick Connect enabled on Jellyfin.
+- No per-user API tokens. The global API key (`X-Api-Key`) acts as admin and, with `X-API-User: <id>`, as any user
+  (`server/middleware/auth.ts`): never put it in a client.
+- `permissions` is a JSON number bitmask: use `Long`.
+- CORS: none, and OPTIONS preflights fail (405 from the validator). A browser app must be served on the same origin as Seerr's API
+  (reverse proxy) or Seerr needs CORS support (server change). TMDB's image CDN sends `Access-Control-Allow-Origin: *`; `/imageproxy` needs no auth.
+- Shapes: catalogue lists `{page, totalPages, totalResults, results}`; database lists `{pageInfo: {pages, pageSize, results, page}, results}`
+  with `take`/`skip`. Media records carry `jellyfinMediaId` / `jellyfinMediaId4k`; `mediaUrl` is a web link, not a stream (`server/entity/Media.ts`).
+  TMDB image paths are relative: prefix `https://image.tmdb.org/t/p/<size>`.
+- Status values (`server/constants/media.ts`): request 1 pending, 2 approved, 3 declined, 4 failed, 5 completed; media 1 unknown, 2 pending,
+  3 processing, 4 partially available, 5 available, 6 blocklisted, 7 deleted.
+- `GET /api/v1/settings/discover` (the configured Discover rows) is readable by any signed-in user (`server/routes/index.ts`).
+- Gotchas: error bodies come in several shapes (`{message}`, `{message, errors}`, `{status, error}`, `{error}`); `POST /request` can answer
+  202 `{message}` instead of a request; `POST /user/{id}/settings/main` clears fields left out (send the whole object); push is Web Push only.
+
+## Stash v0.31.1 (checked 2026-10-18 against a live server, introspection and the v0.31.1 source, https://github.com/stashapp/stash/tree/v0.31.1)
+- Auth: `ApiKey` header or `?apikey=`. One key per server: full admin, no scopes, no expiry, no users. Without credentials, extensionless
+  media paths redirect (302) to `/login` and `/graphql` or paths with an extension return 401. HEAD returns 405. Docs: https://docs.stashapp.cc/api/
+- **The server copies its API key into every stream URL it returns** (`paths.stream`, `sceneStreams[].url`), however the caller authenticated
+  (`internal/api/urlbuilders/scene.go`). A client that holds Stash stream URLs holds the admin key; they end up in player logs and history.
+- Returned URLs are built from request headers (`X-Forwarded-*`) or `external_host`: rebase them onto the configured server origin.
+- Scenes: `findScene(id)` returns null for an unknown id; for batches use aliased `findScene` (one missing id fails `findScenes(ids:)`).
+  `files[0]` is the primary file every stream uses; choose routes from its `format`, `video_codec`, `audio_codec`, `width`, `height`, never from
+  `sceneStreams[].mime_type` ("Direct stream" and "MKV" always say `video/mp4`). `date` may be partial (`YYYY`, `YYYY-MM`); `captions` is null
+  when empty; `files[].size` is Int64.
+- Streams: `/scene/{id}/stream` serves the raw primary file with byte ranges. Transcodes: `stream.m3u8` (H.264 + AAC in MPEG-TS, 2 s segments,
+  seekable), `stream.mp4` and `stream.webm` (no byte ranges, seek with `?start=`), `stream.mpd`, each with
+  `?resolution=ORIGINAL|FOUR_K|FULL_HD|STANDARD_HD|STANDARD|LOW`; `stream.mkv` (video copied, audio to Opus) for Matroska sources only.
+- Lookup by stash-box id: `scene_filter: {stash_id_endpoint: {endpoint, stash_id, modifier: EQUALS}}` (the endpoint must match exactly);
+  `stash_ids_endpoint` for batches.
+- Resume and plays, as the web player does (`ui/v2.5/src/components/ScenePlayer/track-activity.ts`): `sceneSaveActivity(id, resume_time,
+  playDuration)` every 10 s and on pause/stop (`playDuration` is added, so send seconds since the last save), `sceneAddPlay(id)` once per session.
+- Seek thumbnails: `paths.vtt` + `paths.sprite`; chapters: `scene_markers` or `/scene/{id}/vtt/chapter`; captions: `paths.caption` + `?lang=&type=` (WebVTT).
+- CORS: allow-all, hard-coded (`access-control-allow-origin: *`, methods POST, headers `Apikey, Content-Type`, no credentials); no setting.
+- GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
 ## Not verified (research before depending on it)
-- Windows media-key / System Media Transport Controls integration from the JVM, and which desktop engine to use (libmpv vs VLC) including Compose Desktop embedding.
-- Jellyfin CORS configuration for a browser client on another origin, and whether mixed-content (HTTPS page to HTTP server) is workable; official Jellyfin auth docs.
+- For the video spikes: real 1080p60/4K60 performance of each desktop route (also on hybrid-GPU laptops), interop blending over an OpenGL-rendered video,
+  Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window, the web hole surviving page CSS and CMP updates,
+  HDR on web, how an unpackaged JVM app shows up in Windows media controls, patent licensing for HEVC/AAC/AC-3 decoders, the Ktor engine for wasmJs.
+- Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
+- Sign-in flows end to end: no POST was sent to Jellyfin or Seerr while checking (AuthenticateByName, Quick Connect, PlaybackInfo, reporting).
+- Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine, HTML video), and how they cope with Stash's 302-to-login and mislabelled mime types.
 - Compose Multiplatform web accessibility (screen reader support); the accessibility docs page does not cover web.
-- Seerr discover and request-creation endpoints (read the OpenAPI spec above).
 - Media3 capabilities for the Android fallback (e.g. FFmpeg extension) and licences of any custom Apple fallback engine library.
-- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (it builds on Windows; Apple targets are not built yet).
+- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
