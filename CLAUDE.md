@@ -73,7 +73,8 @@ The player UI is always the app's own (custom controls). Engines are headless: t
 Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
-The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current") and the platform shells. See docs/roadmap.md.
+The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current") and the platform shells.
+Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
 ## Git workflow
 - `main` is always green and protected; never commit to it directly, never force-push.
