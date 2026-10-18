@@ -27,3 +27,6 @@ Every service is optional: the app works with whichever of them you run.
 - [docs/roadmap.md](docs/roadmap.md)
 - [docs/decisions/](docs/decisions/)
 - [CLAUDE.md](CLAUDE.md): project brief for Claude Code
+
+## Copyright
+Copyright (c) 2026 Skeksik. All rights reserved.
