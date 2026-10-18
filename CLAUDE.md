@@ -1,0 +1,80 @@
+# Current
+
+Cross-platform media client. It browses, requests and plays content from **Jellyfin** (library + playback), **Seerr**
+(discover + requests) and **Stash** (scenes via GraphQL). Solo project. Later: play/upload from device, download media by link.
+
+Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
+
+## Two UI codebases, one Kotlin core (ADR 0006)
+- **Apple (iOS, macOS, tvOS): SwiftUI**, native look (Liquid Glass on supported OS versions). One SwiftUI codebase shared across the three, with per-platform adaptation.
+- **Android, Windows (Linux comes free), web: Compose Multiplatform.** Desktop and web look nearly the same.
+- All logic (data, presentation, playback planning) is shared Kotlin and must stay UI-agnostic.
+
+## Layout
+```
+androidApp/   Android application shell (MainActivity -> App())
+desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
+webApp/       Wasm browser shell
+iosApp/       Xcode project (SwiftUI shell). macOS and tvOS Xcode targets/projects are still to be created.
+shared/       Compose umbrella for Android/desktop/web: App(), navigation, DI wiring. NO Apple targets.
+apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
+
+composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop, web)
+core/model                 domain models                      (pure Kotlin)
+core/network               HttpClient, server configuration   (pure Kotlin)
+core/database              cache                              (pure Kotlin)
+core/playback              PlayerEngine interface, capabilities, playback planner (pure Kotlin)
+core/designsystem          Compose theme and components       (Compose only)
+data/{jellyfin,seerr,stash}                                   (pure Kotlin)
+feature/{home,library,requests,player,settings}               presentation only: ViewModel + UI state (pure Kotlin)
+```
+Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports `feature`, `data`, `core` (not Compose).
+Features never depend on each other. **Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
+Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, wasmJs. Compose modules target android, jvm, wasmJs only.
+Every module's `build.gradle.kts` copies the shape of an existing one of the same kind (see `core/model` and `composeUi`). New module: `/new-module`.
+
+## Stack (exact versions in gradle/libs.versions.toml)
+Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
+Planned, not added yet (ADR 0002): Navigation, Koin, Ktor client, kotlinx.serialization, SQLDelight, Coil 3, Media3, SKIE for Swift interop.
+Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
+
+## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)
+```
+./gradlew :desktopApp:run                              # run desktop app
+./gradlew :webApp:wasmJsBrowserDevelopmentRun          # run web app with hot reload
+./gradlew :androidApp:installDebug                     # install on device/emulator
+./gradlew jvmTest                                      # JVM tests in every module
+./gradlew :webApp:wasmJsBrowserDistribution            # production web bundle
+./gradlew :apple:linkDebugFrameworkIosSimulatorArm64   # Apple framework (macOS host only; also ...MacosArm64, ...TvosSimulatorArm64)
+./scripts/check.sh                                     # everything CI runs on this OS
+```
+Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcode; its build phase runs `:apple:embedAndSignAppleFrameworkForXcode`.
+
+## Conventions (target conventions for code yet to be written)
+- `commonMain` first; platform source sets only for truly platform-specific APIs (small `expect`/`actual`, or an interface implemented per platform).
+- Screen = Compose screen in `composeUi` (or SwiftUI view on Apple) + `XViewModel` exposing `StateFlow` in `feature/x`.
+- Repositories return domain models; DTOs stay `internal`. The Jellyfin Kotlin SDK is JVM/Android only, so `data:jellyfin` is hand-written on Ktor.
+- No hardcoded server URLs, tokens or API keys; never log or commit secrets.
+- Do not catch `CancellationException`.
+- Tests with `kotlin.test`; test repositories, planners and ViewModels, not composables.
+- Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only.
+- Do not bump versions casually: Kotlin, CMP, AGP and Gradle are coupled. Use `/update-deps`.
+- Do not name third-party apps that inspired a design in code, docs or commits.
+
+## Playback (ADR 0007)
+The player UI is always the app's own (custom controls). Engines are headless: they play and render to a surface.
+`PlaybackPlanner` (shared Kotlin) picks native engine vs fallback engine vs server transcode. The UI layer (SwiftUI or Compose) renders `PlayerUiState` from `feature/player`.
+
+## Current status
+The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current") and the platform shells. See docs/roadmap.md.
+
+## Git workflow
+- `main` is always green and protected; never commit to it directly, never force-push.
+- One task = one branch (`feat/...`, `fix/...`, `chore/...`) = one PR. Keep PRs small.
+- Commit messages: imperative, short subject, optional body explaining why. No `Co-Authored-By`, `Claude-Session` or "Generated with Claude Code" lines in commits or PR descriptions; commits are authored by the repo owner only.
+- Before a PR run `./scripts/check.sh` and report failures honestly. State what was not verified (e.g. "Apple targets not built on this machine").
+- Record architectural decisions as short ADRs in `docs/decisions/`.
+
+## Working with Claude
+- Non-trivial work: propose a plan first, then implement in small steps.
+- Slash commands: `/new-feature`, `/new-module`, `/check`, `/update-deps`, `/add-playback-engine`. Subagents: `kmp-reviewer`, `api-researcher`.
