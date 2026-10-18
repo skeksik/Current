@@ -24,15 +24,28 @@ engine, then a server remux, then a server transcode. The choice is automatic pe
 The player aims for the functionality of a full-featured custom engine, on every platform as far as the platform allows:
 - **Routes:** automatic per title (native engine, fallback engine, server remux, server HLS transcode) from the server's playback info and the
   engine's capabilities; a quality limit; remembered quality and zoom; buffering and HLS segment-length settings.
-- **Video:** HDR10 and HLG with real HDR output where the display supports it (BT.2020); Dolby Vision through its HDR10/SDR base layer where
-  full Dolby Vision is not available; hardware decoding wherever offered (HEVC, and AV1 on capable hardware) with optimized software AV1 and VP9
-  as fallback; 4K60 at high bitrates without dropped frames.
-- **Audio:** multichannel and spatial audio; passthrough where the platform allows.
-- **Formats without transcoding:** what Jellyfin libraries commonly hold: MKV, MP4, TS, AVI, WebM; H.264, HEVC, AV1, VP9, MPEG-2, VC-1;
-  AAC, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus; subtitles SRT, ASS/SSA, PGS, VobSub, WebVTT.
-- **Subtitles:** embedded and external, text and image-based; appearance settings for text subtitles; a delay offset; preferred audio and
-  subtitle languages; online subtitle search when the server offers it.
-- **Platform:** Picture in Picture; AirPlay on Apple (native player first, a compatible server stream otherwise); Now Playing and media keys.
+- **Video:** hardware decoding wherever offered (H.264 and HEVC; AV1 and VP9 when the hardware has them), software decoding otherwise;
+  4K60 at high bitrates without dropped frames.
+- **HDR:** HDR10 (PQ) and HLG in BT.2020 with real HDR output on capable displays, falling back as the system and display allow. HDR10+ plays
+  as static HDR10 (dynamic metadata is not kept).
+- **Dolby Vision:** full Dolby Vision only through the platform's native player (or a server remux that feeds it); the fallback engine renders
+  a compatible base layer; profiles without one go to the native player or a server HLS stream.
+- **Audio:** the fallback engine decodes everything to PCM, keeping multichannel where the platform and output allow (the system may downmix).
+  E-AC-3 with Atmos plays natively through the platform player when container, device and output allow; TrueHD with Atmos is decoded to PCM
+  and loses its object metadata.
+- **Formats without transcoding:**
+  - Containers: Matroska, WebM, MP4/M4V/M4A/MOV/3GP/3G2, AVI/DivX, MPEG-TS/M2TS, MPEG-PS (MPG, VOB), MPEG video (M2V), FLV, ASF/WMV,
+    Ogg/OGM/OGV, RealMedia, MP3, FLAC, raw AAC, WAV; HLS as the streaming protocol.
+  - Video: H.264, HEVC, AV1, VP9, VP8, MPEG-4 Part 2 (DivX/Xvid), MS-MPEG4 v1-3, MPEG-2, MPEG-1, H.263, FLV1, RealVideo 9/10, SVQ3, VC-1,
+    WMV1-3, Theora, MJPEG (decoder only, not offered for direct play).
+  - Audio: AAC (LC, LATM), AC-3, E-AC-3, TrueHD/MLP, DTS/DTS-HD, MP1/MP2, MP3, Opus, Vorbis, FLAC, ALAC, WMA (Pro, Lossless), PCM
+    (integer and float), WavPack, APE, TTA, TAK, Cook/RealAudio.
+  - Subtitles: SRT/SubRip (SUB converted to WebVTT by the server), ASS/SSA rendered with their own styles (font, size, outline, shadow,
+    position), WebVTT, MP4 text, and image-based PGS, DVD/DVB and XSUB (embedded; sidecar PGS files only offline).
+- **Subtitles:** embedded and external; appearance settings for text subtitles; a delay offset; preferred audio and subtitle languages;
+  online subtitle search when the server offers it.
+- **Platform:** Picture in Picture; AirPlay on Apple (native player first, a compatible server stream otherwise); Now Playing and media keys;
+  chapters in the seek bar; an audio delay setting for external speakers.
 - **Episodes:** auto-skip intros from server segments; auto-play the next episode with a Next Up prompt, timed by the outro segment or a user setting.
 - **Diagnostics:** a playback info overlay (engine, route, protocol, stream type, codecs, resolution, bitrate, frame rate, dynamic range,
   audio track, container) and a problem report whose logs are stripped of secrets.
