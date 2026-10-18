@@ -33,8 +33,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
       or show ASS/PGS, so the web device profile transcodes that audio and burns in or separately renders those subtitles
 - [ ] Web access: Jellyfin allows any origin with header auth (verified); confirm sign-in, images and video from the browser app end to end,
       and where the token lives
-- [ ] Licence for Current, before picking the desktop engine. Leaning Apache-2.0: it works in every store and with LGPL engines; vlcj or
-      any GPL build would make the app GPL and keep it out of the App Store (docs/platform-notes.md)
+- [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
+- [ ] Licence of Current's own code (proprietary if the code goes private and is sold; ADR 0009)
 - [ ] Minimum supported server versions (Jellyfin, Seerr)
 
 Then:
@@ -54,8 +54,9 @@ Done when: sign in and out of Jellyfin on Windows and in the browser, the app re
 ## M2: First usable version: Jellyfin browse and play (Windows desktop, web)
 - [ ] `data:jellyfin`: libraries, items (paging, sort, filter), latest, resume, next up, series/seasons/episodes, details, similar,
       search, images (+ blurhash), played/unplayed, favorites
-- [ ] Home: Continue Watching, Next Up, Latest per library
-- [ ] Library grids, detail screens (movie, series, season, episode), search
+- [ ] Home: Continue Watching, Next Up, Latest per library; users can reorder, hide and add sections
+- [ ] Library grids, detail screens (movie, series, season, episode), search; home videos, playlists, collections, extras (behind the
+      scenes, deleted scenes, interviews), multiple versions and parts; directors and other crew shown and searchable
 - [ ] `core:playback`: `PlayerEngine`, `EngineCapabilities`, `PlaybackPlanner` (Jellyfin playback info + device profile from the
       engine's capabilities: direct play, direct stream, remux or HLS transcode)
 - [ ] `feature:player`: `PlayerController` (resume, progress reporting with pings while paused, audio/subtitle tracks, quality limit,
@@ -104,20 +105,25 @@ behaves exactly as before.
 ## M6: TV
 - [ ] Android TV: D-pad focus, TV layouts, remote keys in the player
 - [ ] tvOS: focus, Siri Remote, custom player vs `AVPlayerViewController` with custom items (docs/platform-notes.md)
-- [ ] Sign-in on TV with Jellyfin Quick Connect
+- [ ] Sign-in on TV with Jellyfin Quick Connect; quick user switching on TV
 
 ## M7: Local and offline
 - [ ] Play local files from the device
 - [ ] Upload to a server, download by link (needs a design: Jellyfin 12.2's API accepts images, subtitles and lyrics, not media files)
-- [ ] Offline downloads and a download manager (cache per ADR 0004; likely none on web)
+- [ ] Offline downloads and a download manager (cache per ADR 0004; likely none on web), with "unplayed only" and automatic download
+      of new episodes
 
 ## M8: Release readiness
 - [ ] R8 rules, signing, icons, desktop installers (MSI, DEB) and updates, web release with setup docs for self-hosters (reverse proxy)
-- [ ] Store builds without restricted extensions; check store policies first
+- [ ] Editions (ADR 0009): Store builds without the adult extension, Full builds for direct sale; licences screen and published LGPL
+      sources with each release; patent review per codec; store policies checked first
 
 ## Later
 - [ ] Sexual preferences for the adult extension (far future): classify titles by orientation from tags and cast, per-user defaults and an
       admin-allowed set, a filter, badges on cards and pages, lists that stay full when filtered. The spec is kept privately; decide what runs
       in the app and what on the server before starting.
 - [ ] Several servers and user switching on one device
-- Not planned yet (ask to add): music, live TV/DVR, books, photos, casting to other devices, watch-together.
+- [ ] Casting (Chromecast), watch-together (Jellyfin SyncPlay)
+- [ ] Apple extras: home-screen widgets (including server admin widgets), a visionOS app
+- Not planned yet (ask to add): music, live TV/DVR and IPTV playlists, books, photos, other media servers (Plex, Emby), managing
+  Radarr/Sonarr directly, custom genre artwork.

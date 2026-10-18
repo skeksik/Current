@@ -63,7 +63,8 @@ Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcod
 - No feature may assume a service exists: read the capabilities state and hide what is unavailable (ADR 0008).
 - Do not catch `CancellationException`.
 - Tests with `kotlin.test`; test repositories, planners and ViewModels, not composables.
-- Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only.
+- Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only. Only permissive or LGPL-2.1 licences;
+  never GPL or AGPL in a distributed build (ADR 0009).
 - Do not bump versions casually: Kotlin, CMP, AGP and Gradle are coupled. Use `/update-deps`.
 - Do not name third-party apps that inspired a design in code, docs or commits.
 
