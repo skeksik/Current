@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew projects:*)",
+      "Bash(./gradlew tasks:*)",
+      "Bash(./gradlew jvmTest:*)",
+      "Bash(./gradlew compileKotlinJvm:*)",
+      "Bash(./gradlew :apple:linkDebugFrameworkIosSimulatorArm64:*)",
+      "Bash(./gradlew :webApp:wasmJsBrowserDistribution:*)",
+      "Bash(./scripts/check.sh)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin HEAD:main:*)",
+      "Bash(git reset --hard:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./local.properties)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.keystore)",
+      "Read(./**/google-services.json)"
+    ]
+  }
+}
