@@ -2,6 +2,7 @@
 
 Cross-platform media client. It browses, requests and plays content from **Jellyfin** (library + playback), **Seerr**
 (discover + requests) and **Stash** (scenes via GraphQL). Solo project. Later: play/upload from device, download media by link.
+Anyone may use it against their own servers: every service is optional, and removable features (adult content first) are extensions (ADR 0008).
 
 Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
 
@@ -27,9 +28,11 @@ core/playback              PlayerEngine interface, capabilities, playback planne
 core/designsystem          Compose theme and components       (Compose only)
 data/{jellyfin,seerr,stash}                                   (pure Kotlin)
 feature/{home,library,requests,player,settings}               presentation only: ViewModel + UI state (pure Kotlin)
+extensions/<name>/         (planned, ADR 0008) removable feature groups: own data, presentation, Compose UI and SwiftUI sources
 ```
 Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports `feature`, `data`, `core` (not Compose).
-Features never depend on each other. **Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
+Features never depend on each other. Core never imports an extension; extensions plug in through extension points (ADR 0008).
+**Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
 Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, wasmJs. Compose modules target android, jvm, wasmJs only.
 Every module's `build.gradle.kts` copies the shape of an existing one of the same kind (see `core/model` and `composeUi`). New module: `/new-module`.
 
@@ -55,6 +58,9 @@ Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcod
 - Screen = Compose screen in `composeUi` (or SwiftUI view on Apple) + `XViewModel` exposing `StateFlow` in `feature/x`.
 - Repositories return domain models; DTOs stay `internal`. The Jellyfin Kotlin SDK is JVM/Android only, so `data:jellyfin` is hand-written on Ktor.
 - No hardcoded server URLs, tokens or API keys; never log or commit secrets.
+- The repo is public: no hostnames, IPs, keys or private server details in code, tests, fixtures, docs or commits. Describe private
+  server forks only generically.
+- No feature may assume a service exists: read the capabilities state and hide what is unavailable (ADR 0008).
 - Do not catch `CancellationException`.
 - Tests with `kotlin.test`; test repositories, planners and ViewModels, not composables.
 - Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only.
