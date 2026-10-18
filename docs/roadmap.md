@@ -34,7 +34,7 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
 - [ ] Web access: Jellyfin allows any origin with header auth (verified); confirm sign-in, images and video from the browser app end to end,
       and where the token lives
 - [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
-- [ ] Licence of Current's own code (proprietary if the code goes private and is sold; ADR 0009)
+- [x] Current's own code is proprietary: no open-source licence, no LICENSE file (ADR 0009)
 - [ ] Minimum supported server versions (Jellyfin, Seerr)
 
 Then:
@@ -115,7 +115,7 @@ behaves exactly as before.
 
 ## M8: Release readiness
 - [ ] R8 rules, signing, icons, desktop installers (MSI, DEB) and updates, web release with setup docs for self-hosters (reverse proxy)
-- [ ] Editions (ADR 0009): Store builds without the adult extension, Full builds for direct sale; licences screen and published LGPL
+- [ ] Editions (ADR 0009): Store builds (adult extension only where a store accepts it), Full builds for direct sale; licences screen and published LGPL
       sources with each release; patent review per codec; store policies checked first
 
 ## Later

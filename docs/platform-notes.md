@@ -94,8 +94,8 @@ The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last releas
   https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt , https://www.gnu.org/licenses/lgpl-3.0.txt , https://www.apache.org/licenses/GPL-compatibility.html
 - Stores: the FSF considers the App Store's usage rules incompatible with the GPL, so Apple builds carry no GPL code. LGPL engines ship there in
   practice (VLCKit, MPVKit's non-GPL products). Google Play, the Microsoft Store (its policies cover open-source licences) and direct downloads
-  accept GPL and LGPL. F-Droid needs FLOSS built from source. All three stores forbid pornographic apps, so store builds leave out the
-  adult extension. Sources: https://developer.apple.com/app-store/review/guidelines/ , https://learn.microsoft.com/en-us/windows/apps/publish/store-policies ,
+  accept GPL and LGPL. F-Droid needs FLOSS built from source. All three stores forbid pornographic apps; a client for the user's own
+  Stash server is nonetheless listed in the US App Store (16+), so the adult extension is decided per store (ADR 0009). Sources: https://developer.apple.com/app-store/review/guidelines/ , https://learn.microsoft.com/en-us/windows/apps/publish/store-policies ,
   https://f-droid.org/docs/Inclusion_Policy/
 - Apple fallback candidates: MPVKit (LGPLv3 by default, GPL only in its `-GPL` products; static libraries, so relinking means publishing our
   app as objects or source), VLCKit (LGPL-2.1+), an FFmpeg + VideoToolbox + Metal engine of our own (LGPL). KSPlayer is GPL-3.0 (LGPL only with a
