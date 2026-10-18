@@ -70,6 +70,7 @@ Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcod
 ## Playback (ADR 0007)
 The player UI is always the app's own (custom controls). Engines are headless: they play and render to a surface.
 `PlaybackPlanner` (shared Kotlin) picks native engine vs fallback engine vs server transcode. The UI layer (SwiftUI or Compose) renders `PlayerUiState` from `feature/player`.
+Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
 The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current") and the platform shells. See docs/roadmap.md.
