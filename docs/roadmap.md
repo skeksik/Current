@@ -1,8 +1,8 @@
 # Roadmap
 
 [x] done, [ ] not started. Each milestone is a vertical slice that ends with something usable; "Done when" is the exit check.
-Draft for discussion, 2026-10-18. Decided: Windows desktop and web first; the first usable version is a Jellyfin client (browse + play);
-anyone may use the app, so services are optional and features removable (ADR 0008). The order after M2 is a proposal.
+Agreed on 2026-10-18: Windows desktop and web first; the first usable version is a Jellyfin client (browse + play); anyone may use the
+app, so services are optional and features removable (ADR 0008). Reorder later milestones as priorities change.
 
 ## Principles
 - Anyone may use Current against their own servers. Every service (Jellyfin, Seerr, Stash) is optional at runtime, and features that
@@ -16,8 +16,9 @@ anyone may use the app, so services are optional and features removable (ADR 000
 - [x] CLAUDE.md, docs, .claude/ setup, CI
 - [x] Wizard demo code and stale folders removed; desktop app runs the placeholder `App()`
 - [x] `jvmTest` and desktop compile pass on Linux (2026-10-18)
-- [ ] Web distribution and Android builds verified
-- [ ] Verify the Apple side on a Mac: `:apple:linkDebugFrameworkIosSimulatorArm64`, macOS and tvOS variants, iOS app builds
+- [x] Web distribution and Android debug builds pass on CI (2026-10-18)
+- [x] Apple frameworks (iOS simulator, macOS, tvOS simulator) link on CI (2026-10-18)
+- [ ] iOS app builds and runs from Xcode on a Mac
 - [ ] Create macOS and tvOS Xcode targets
 - [ ] Ruleset on `main`, CI green
 
