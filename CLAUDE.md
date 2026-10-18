@@ -78,7 +78,9 @@ Plan (docs/roadmap.md): Windows desktop and web first; the first usable version 
 
 ## Git workflow
 - `main` is always green and protected; never commit to it directly, never force-push.
-- One task = one branch (`feat/...`, `fix/...`, `chore/...`) = one PR. Keep PRs small.
+- One task = one branch = one PR. Keep PRs small. Never reuse a branch after its PR is merged.
+- Branch names are `<type>/<topic>`. Type: `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `chore`, or `spike` (an experiment whose PR
+  carries only its ADR or notes). Topic: a few lowercase words joined by hyphens, e.g. `feat/jellyfin-sign-in`, `spike/desktop-video`.
 - Commit messages: imperative, short subject, optional body explaining why. No `Co-Authored-By`, `Claude-Session` or "Generated with Claude Code" lines in commits or PR descriptions; commits are authored by the repo owner only.
 - Before a PR run `./scripts/check.sh` and report failures honestly. State what was not verified (e.g. "Apple targets not built on this machine").
 - Record architectural decisions as short ADRs in `docs/decisions/`.
