@@ -271,12 +271,208 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   paid licence). Sources: https://github.com/mpvkit/MPVKit , https://github.com/videolan/vlckit , https://github.com/kingslay/KSPlayer
 - Android: Media3 is Apache-2.0; its FFmpeg extension decodes audio only (AC-3, E-AC-3, DTS, TrueHD among others); AV1 through dav1d (BSD-2).
   mpv-android builds GPLv3, so an LGPL libmpv would need our own build. Source: https://github.com/androidx/media/tree/release/libraries
-- Shared pieces: libass (ISC), libplacebo (LGPL-2.1+, can convert Dolby Vision profile 5 and compose profile 7). Without a Dolby licence the
-  safe route is the HDR10/SDR base layer. Sources: https://github.com/libass/libass , https://github.com/haasn/libplacebo
+- Shared pieces: libass (ISC), libplacebo (LGPL-2.1+, can convert Dolby Vision profile 5; composes profile 7 only in its unreleased master,
+  see "HDR and Dolby Vision: desktop"). Without a Dolby licence the safe route is the HDR10/SDR base layer.
+  Sources: https://github.com/libass/libass , https://github.com/haasn/libplacebo
 - Patents are separate from copyright: through OS decoders (VideoToolbox, MediaCodec, Media Foundation) the OS or device maker is the licensee;
   shipping FFmpeg's own HEVC or AAC decoders makes us the distributor of a decoder, so prefer OS and hardware decoders for those
   (https://ffmpeg.org/legal.html , https://accessadvance.com/licensing-programs/hevc-advance/ , https://www.via-la.com/licensing-programs/aac/).
   No Dolby or DTS logos or claims without a licence; neutral codec names (E-AC-3, DTS-HD MA) in the playback info overlay.
+
+## HDR and Dolby Vision: Apple, AVPlayer (checked 2026-10-19, documentation only, no device)
+Input for the shared `VideoRangeType` decision (ADR 0007, ADR 0011 "HDR"): what each engine can detect and play.
+- **Device and display.**
+  - `AVPlayer.eligibleForHDRPlayback` (class property; iOS, iPadOS, tvOS 13.4+, macOS 10.15+): "whether the current device can present
+    content to an HDR display". It is one Boolean with no per-format answer. It is not key-value observable; watch
+    `eligibleForHDRPlaybackDidChangeNotification` (posted when a display is connected or disconnected, among other changes).
+  - `AVPlayer.availableHDRModes` (bitfield `hlg`, `hdr10`, `dolbyVision`; iOS, tvOS 11.2+, never on macOS) is deprecated in 26.0: "Use
+    eligibleForHDRPlayback instead". Its page also says Mac Catalyst apps play no HDR on Intel Macs (HLS picks the SDR variant, files are
+    tone-mapped to SDR).
+  - Screen headroom: `UIScreen.potentialEDRHeadroom` / `currentEDRHeadroom` (iOS, tvOS 16+). On macOS,
+    `NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` (10.15+; above 1.0 means EDR, fixed when the `NSScreen` is created)
+    and `maximumExtendedDynamicRangeColorComponentValue` (current value; changes post `didChangeScreenParametersNotification`).
+  - tvOS mode switching:
+    - A custom player sets the window's `AVDisplayManager.preferredDisplayCriteria` from the asset's `preferredDisplayCriteria`. Load it
+      asynchronously; the synchronous property is deprecated in tvOS 16.
+    - `AVPlayerViewController` does this itself (`appliesPreferredDisplayCriteriaAutomatically`).
+    - The TV switches only when the user has turned on Match Content (`isDisplayCriteriaMatchingEnabled`, tvOS 11.3+).
+    - Sample-buffer players build `AVDisplayCriteria(refreshRate:formatDescription:)` (tvOS 17+).
+  - Decoders: `VTIsHardwareDecodeSupported(_:)` (iOS, tvOS 11+, macOS 10.13+) per codec type, e.g. `kCMVideoCodecType_HEVC`,
+    `kCMVideoCodecType_DolbyVisionHEVC`, `kCMVideoCodecType_AV1`.
+  - Media: `AVURLAsset.isPlayableExtendedMIMEType(_:)` takes a MIME type with codecs. `AVMediaCharacteristic.containsHDRVideo` (iOS, tvOS
+    14+, macOS 11+) marks HDR tracks. HLS variants expose `AVAssetVariant.VideoAttributes.videoRange` (`AVVideoRange` `sdr`, `hlg`, `pq`)
+    and `codecTypes` (iOS, tvOS 15+, macOS 12+).
+- **What the HLS Authoring Specification requires** (revision 2025-06-24):
+  - HEVC and AV1 only in fMP4 (rules 1.5, 1.39). HDR HEVC must be HDR10, HLG or Dolby Vision (1.7). `VIDEO-RANGE` is required unless
+    everything is SDR (9.16).
+  - Dolby Vision: profile 5 up to level 7 (1.9). The iOS amendment allows profile 5 or 10 up to level 9 (1.9a); visionOS allows profile 5,
+    and profile 20 (MV-HEVC) for stereo. Profiles 7 and 8 are not mentioned. AirPlay 2 TVs: offer both Dolby Vision and HDR10 (9.24).
+  - Sample entries with parameter sets out of band SHOULD be used: `hvc1` or `dvh1`, not `hev1` or `dvhe` (1.10).
+- **Profile 8 in HLS:** Apple's HLS 2nd edition draft (`draft-pantos-hls-rfc8216bis-22`, May 2026) gives this example for Dolby Vision
+  8.4: `CODECS` with the base layer `hvc1.2.4.L153.b0` and `SUPPLEMENTAL-CODECS` `dvh1.08.07/db4h` (codec, then a compatibility brand).
+- **Profile 8.4 files:** Apple's Dolby Vision guide (2021, iOS 14.1+, written for iPhone camera video in `.mov`):
+  - `AVPlayer` with `AVPlayerLayer`, and `AVSampleBufferDisplayLayer`, play profile 8.4 with no extra code when `eligibleForHDRPlayback`
+    is true.
+  - A `VTDecompressionSession` must keep `kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata` true and use 10-bit buffers
+    (`x420`).
+  - `AVPlayerItem.appliesPerFrameHDRDisplayMetadata` (default true; iOS, tvOS 14+, macOS 11+) turns the per-frame metadata off.
+- **HDR10+:** no Apple document mentions it. AVFoundation, VideoToolbox and the HLS spec name HDR10, HLG and Dolby Vision only.
+- **Containers:** the types AVFoundation opens come from `AVURLAsset.audiovisualContentTypes` (`audiovisualTypes()` is deprecated in
+  27.0). Safari on macOS played no MKV (ADR 0011). macOS 15+ (not iOS or tvOS) has the MediaExtension framework: format readers and
+  decoders embedded in a host app, available to apps that opt in. Dolby Vision from MKV therefore reaches AVPlayer only through a server
+  remux to fMP4 HLS (see "Jellyfin 12.2").
+- Sources: https://developer.apple.com/documentation/avfoundation/avplayer/eligibleforhdrplayback ,
+  https://developer.apple.com/documentation/avfoundation/avplayer/availablehdrmodes ,
+  https://developer.apple.com/documentation/avfoundation/avdisplaycriteria , https://developer.apple.com/documentation/avkit/avdisplaymanager ,
+  https://developer.apple.com/documentation/uikit/uiscreen/potentialedrheadroom ,
+  https://developer.apple.com/documentation/appkit/nsscreen/maximumpotentialextendeddynamicrangecolorcomponentvalue ,
+  https://developer.apple.com/documentation/videotoolbox/vtishardwaredecodesupported(_:) ,
+  https://developer.apple.com/documentation/avfoundation/avplayeritem/appliesperframehdrdisplaymetadata ,
+  https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices ,
+  https://datatracker.ietf.org/doc/draft-pantos-hls-rfc8216bis/ ,
+  https://developer.apple.com/av-foundation/Incorporating-HDR-video-with-Dolby-Vision-into-your-apps.pdf ,
+  https://developer.apple.com/documentation/mediaextension
+
+## HDR and Dolby Vision: Android, Media3 (checked 2026-10-19 against the Android reference and the Media3 1.11.1 source)
+- **Display:**
+  - `Display.getHdrCapabilities().getSupportedHdrTypes()` (API 24) is deprecated in API 34 in favour of `Display.getMode()` and
+    `Mode.getSupportedHdrTypes()` (API 34).
+  - Types: `HDR_TYPE_DOLBY_VISION` (1), `HDR_TYPE_HDR10` (2), `HDR_TYPE_HLG` (3) since API 24, `HDR_TYPE_HDR10_PLUS` (4) since API 29,
+    `HDR_TYPE_HLG_PLUS` (6) since API 37.
+  - `Display.isHdr()` (API 26) answers "any HDR type". `getHdrSdrRatio()` (API 34) gives the HDR/SDR luminance ratio when
+    `isHdrSdrRatioAvailable()`.
+  - `DisplayManager.getHdrConversionMode()` (API 34) returns the user's HDR conversion setting.
+- **Decoders:** `MediaCodecInfo.CodecCapabilities.profileLevels` per MIME type. `CodecProfileLevel` constants:
+  - Dolby Vision: `DolbyVisionProfileDvheStn` (profile 5), `DvheDtb` (7), `DvheSt` (8, API 27), `DvavSe` (9, API 27), `Dvav110` (10, API 30).
+  - HDR: `HEVCProfileMain10HDR10` (API 24), `HEVCProfileMain10HDR10Plus`, `AV1ProfileMain10HDR10`, `AV1ProfileMain10HDR10Plus`,
+    `VP9Profile2HDR10Plus` (API 29), `VP9Profile2HDR` (API 24).
+  - Dolby Vision decoders are `video/dolby-vision`. Media3 also maps two vendor names: `OMX.MS.HEVCDV.Decoder` as `video/hevcdv`, and
+    Realtek's decoders as `video/dv_hevc`.
+- **Media3 1.11.1 (2026-09-10):**
+  - Extractors:
+    - MP4 reads `dvav`, `dva1`, `dvhe`, `dvh1` and `dav1` sample entries and `dvcC`/`dvvC`/`dvwC` boxes.
+    - Matroska reads `dvcC`/`dvvC` from `BlockAdditionMapping`. Both give `video/dolby-vision` with codecs `dvhe.PP.LL`, `dvav...` or
+      `dav1...`, so Dolby Vision in MKV is recognised.
+    - `DolbyVisionConfig` keeps profile and level only, not the base-layer compatibility id.
+    - HLS `SUPPLEMENTAL-CODECS` and DASH `scte214:supplementalCodecs` are parsed to detect Dolby Vision.
+  - Fallback without Dolby Vision (API 26+): `MediaCodecVideoRenderer` checks the *default* display (`isHdr()` and
+    `HDR_TYPE_DOLBY_VISION` through the deprecated `getSupportedHdrTypes()`). If it lacks Dolby Vision, the renderer first tries
+    `MediaCodecUtil.getAlternativeCodecMimeType`:
+    - profiles 4 and 8 → HEVC decoder;
+    - profile 9 → H.264;
+    - profile 10 → AV1, unless the track's colour info is PQ with full range (taken as 10.0, no fallback);
+    - profiles 5 and 7 → no fallback ("not backward compatible" and "deprecated and is not always backward compatible").
+
+    A fallback reports `DECODER_SUPPORT_FALLBACK_MIMETYPE`. The 8.x sub-profiles (8.1, 8.2, 8.4) are not told apart, so the HEVC decoder
+    gets the HDR10, SDR or HLG base layer as is.
+  - Track selection prefers other tracks to Dolby Vision when the display does not support it (release notes, ExoPlayer #8944).
+  - Without a fallback, the renderer uses whatever `video/dolby-vision` decoder the device has. With none, profiles 5, 7 and 10.0 need the
+    server. What a Dolby Vision decoder outputs to a display without Dolby Vision is not documented.
+  - HDR10+:
+    - In-band SEI stays in the HEVC bitstream for the decoder.
+    - Out-of-band metadata (ITU-T T.35 in supplemental data, e.g. WebM) goes to `MediaCodec` as `KEY_HDR10_PLUS_INFO` when the decoder
+      reports out-of-band HDR10+ support (API 29+).
+    - What the screen does with it is up to the device.
+- Sources: https://developer.android.com/reference/android/view/Display.HdrCapabilities ,
+  https://developer.android.com/reference/android/view/Display.Mode , https://developer.android.com/reference/android/view/Display ,
+  https://developer.android.com/reference/android/media/MediaCodecInfo.CodecProfileLevel ,
+  https://github.com/androidx/media/blob/1.11.1/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java ,
+  https://github.com/androidx/media/blob/1.11.1/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/video/MediaCodecVideoRenderer.java ,
+  https://github.com/androidx/media/blob/1.11.1/libraries/container/src/main/java/androidx/media3/container/DolbyVisionConfig.java ,
+  https://github.com/androidx/media/blob/1.11.1/RELEASENOTES.md
+
+## HDR and Dolby Vision: desktop, libmpv with `vo=gpu-next` (checked 2026-10-19 in the source; nothing played)
+Releases at the time: mpv 0.41.0 (2025-12-21), libplacebo v7.360.1 (2026-03-13), FFmpeg 8.1.3 (2026-09-21). Master of mpv and libplacebo
+as of 2026-10-18.
+- **Decoding:** FFmpeg's HEVC decoder parses the RPU (NAL type 62) and attaches `AV_FRAME_DATA_DOVI_METADATA`. It does so in
+  `hevc_frame_start` whether or not a hwaccel such as `d3d11va` decodes the slices. The native AV1 decoder and libdav1d do the same for
+  profile 10. Jellyfin's `EncodingHelper` relies on the same split: "Only native SW decoder, HW accelerator and hevc_rkmpp decoder can
+  parse dovi rpu".
+- **Rendering:** mpv hands the metadata to libplacebo (`pl_map_avdovi_metadata`), which reshapes Dolby Vision in its own shaders
+  (`PL_COLOR_SYSTEM_DOLBYVISION`).
+  - Profile 5 comes out as BT.2020 PQ, or tone-mapped SDR.
+  - For 8.1, 8.4 and 10, the RPU reshaping is applied over the base layer.
+  - The display never receives Dolby Vision: output is HDR10 (`target-colorspace-hint`) or SDR.
+  - `--target-colorspace-hint-mode=source-dynamic` (experimental) sends per-scene luminance as HDR10 metadata and "does not send full
+    HDR10+ or Dolby Vision metadata".
+- **Profile 7 in the releases:**
+  - mpv 0.41.0 maps Dolby Vision metadata only when the RPU's `disable_residual_flag` is set. libplacebo 7.360.1's `pl_map_avframe` has
+    the same rule ("Only automatically map DoVi RPUs that don't require an EL").
+  - Profile 7 therefore plays as its HDR10 base layer: EL and RPU are ignored.
+- **Profile 7 in master (unreleased):**
+  - libplacebo API 364 maps MEL-only RPUs. APIs 366-370 compose FEL through `pl_frame.enhancement_layer` (commit 801b681, "renderer: add
+    support for Dolby Vision FEL merging", authored 2026-05-16, merged 2026-07-01).
+  - mpv master (2026-07-01) splits an EL interleaved as NAL type 63 into a virtual track with FFmpeg's new `dovi_split` bitstream filter.
+    That filter is in FFmpeg master since 2026-05-31; it is not in 8.1.3, nor in jellyfin-ffmpeg 8.1.3-1.
+  - mpv decodes that track with a second decoder and passes the frames as the enhancement layer. It also pairs separate BL and EL tracks
+    (libavformat `AV_STREAM_GROUP_PARAMS_DOLBY_VISION`, 62.19.100+, and `demux_mkv`).
+  - `vf=format:enhancement-layer=no` turns FEL off. `vf=format:dolbyvision=no` strips Dolby Vision metadata, leaving the base layer, and
+    is in 0.41.0. `vf=format:hdr10plus=no` strips HDR10+.
+- **HDR10+:** mpv reads `AV_FRAME_DATA_DYNAMIC_HDR_PLUS` into libplacebo's per-scene HDR metadata. It drives tone mapping (e.g.
+  `tone-mapping=st2094-40`) and, with `source-dynamic`, per-scene HDR10 values. The HDR10+ metadata itself never reaches the display.
+- **Build and licence:**
+  - libplacebo's `dovi` meson feature (default `auto`) enables reshaping and needs FFmpeg's `libavutil/dovi_meta.h` (libavutil
+    57.16.100+).
+  - The optional `libdovi` dependency (1.6.7+; the library of dovi_tool, MIT) adds `pl_hdr_metadata_from_dovi_rpu`: RPU brightness
+    metadata for tone mapping.
+  - Neither needs a Dolby SDK, key or licence file. libplacebo is LGPL-2.1+.
+  - Whether a distributed build that applies Dolby Vision reshaping needs a Dolby licence is a legal question these sources do not answer.
+    ADR 0009 keeps full processing to the Personal edition; the other editions would play the base layer (`dolbyvision=no`).
+  - Profiles 5 and 10.0 have no base layer to fall back on (Jellyfin's `DOVI` range), so without reshaping they need the server.
+- Sources: https://github.com/mpv-player/mpv/blob/v0.41.0/video/mp_image.c , https://github.com/mpv-player/mpv/blob/master/demux/dovi_split.h ,
+  https://github.com/mpv-player/mpv/blob/master/DOCS/man/vf.rst , https://github.com/mpv-player/mpv/blob/master/DOCS/man/options.rst ,
+  https://github.com/haasn/libplacebo/blob/v7.360.1/src/include/libplacebo/utils/libav_internal.h ,
+  https://github.com/haasn/libplacebo/commit/801b6812fb3fcadc7a44ab5f8585d3a1b5302a5f , https://github.com/haasn/libplacebo/blob/master/meson.build ,
+  https://github.com/FFmpeg/FFmpeg/blob/master/doc/bitstream_filters.texi , https://github.com/FFmpeg/FFmpeg/blob/n8.1.3/libavcodec/hevc/hevcdec.c ,
+  https://github.com/quietvoid/dovi_tool
+
+## HDR and Dolby Vision: Jellyfin 12.2 HLS remux (checked 2026-10-19 in the v12.2 source and jellyfin-ffmpeg 8.1.3-1 patches)
+- **Classification** (`MediaStream.cs`, from the stream's Dolby Vision configuration):
+  - profile 5 → `DOVI`;
+  - 8 with compatibility id 1, 4 or 2 → `DOVIWithHDR10`, `DOVIWithHLG` or `DOVIWithSDR` (any other id → `DOVIInvalid`);
+  - 7 → `DOVIWithEL`;
+  - 10 with id 0, 1, 2 or 4 → `DOVI`, `DOVIWithHDR10`, `DOVIWithSDR` or `DOVIWithHLG`.
+  - HDR10+ metadata turns them into `DOVIWithHDR10Plus`, `DOVIWithELHDR10Plus` or `HDR10Plus`.
+  - A base layer whose colour tags do not match its id → `DOVIInvalid`.
+- **Copy or transcode** (`EncodingHelper`, the range types the profile lists for the source codec):
+  - `DOVI` sources are copied only if `DOVI` is listed.
+  - `DOVIWith{HDR10,HLG,SDR}` are copied when the base layer's range is listed, and `HDR10Plus` when `HDR10` is.
+  - Anything else is copied only when the metadata removal it needs is possible.
+- **The Dolby Vision sample entry and configuration box need `DOVI` in the client's list for the output codec** (`DynamicHlsController`,
+  "Only enable Dolby Vision remuxing if the client explicitly declares support for profiles without fallbacks"):
+  - Sample entry: HEVC is copied with `-tag:v dvh1 -strict -2`, except profile 8, which gets `hvc1`; AV1 gets `dav1`. Without `DOVI`, HEVC
+    is tagged `hvc1` and no `-strict` is added for the video.
+  - Configuration box: FFmpeg's mov muxer writes `dvcC`/`dvvC`/`dvwC` only at `-strict unofficial` or lower ("Requires -strict
+    unofficial"). jellyfin-ffmpeg patch 0027 copies the configuration into the HLS segment muxers and validates it (profile against codec,
+    compatibility id against colour tags) before writing the box.
+- **Master playlist** (`DynamicHlsHelper`, video copied):
+  - With `DOVI` listed, profile 5 and 10.0 (`DOVI`) get an extra first variant `CODECS="dvh1.PP.LL"` (or `dav1.PP.LL`), `VIDEO-RANGE=PQ`,
+    before the `hvc1` variant.
+  - Whenever Dolby Vision is copied and not removed, 8.1, 8.4 and 10.x with a base layer get `SUPPLEMENTAL-CODECS="dvh1.PP.LL/db1p"`
+    (HDR10) or `/db4h` (HLG) next to the base-layer `CODECS`. This does not depend on `DOVI` being listed.
+  - SDR-based, profile 5 and profile 7 sources get no supplemental codec.
+  - HDR10+ kept in a copy, without Dolby Vision, gets `SUPPLEMENTAL-CODECS="<codec>/cdm4"`.
+  - Transcodes are always `VIDEO-RANGE=SDR`.
+- **Profile 7: stripped in a remux, not converted.**
+  - For a client that lists `HDR10` but not `DOVIWithEL`, `ShouldRemoveDynamicHdrMetadata` chooses `RemoveDovi`, and the video is still
+    copied. The filter is `hevc_metadata=remove_dovi=1`, or FFmpeg's `dovi_rpu=strip=1` when the patched one is missing.
+  - jellyfin-ffmpeg patch 0061 removes the access unit's last NAL if it is an RPU (62), then the new last NAL if it is EL (63), and
+    drops the configuration record. Upstream `dovi_rpu=strip` deletes the last unit if it is 62 or 63, plus the record.
+  - The result is an HDR10 stream. There is no profile 7 → 8.1 conversion (keep the RPU, drop the EL) in 12.2.
+  - Other removals:
+    - `DOVIInvalid` to a `DOVI` client: Dolby Vision is removed.
+    - `DOVIWithHDR10Plus` to a `DOVI` client: HDR10+ is removed (`hevc_metadata=remove_hdr10plus=1`).
+    - AV1 has matching `av1_metadata` options.
+- **Tone mapping in transcodes:** `DOVI` sources (profile 5) are reshaped only by the software decoder or by NVDEC, VAAPI, D3D11VA,
+  VideoToolbox and RKMPP (FFmpeg 7.1.1+) decoders. VideoToolbox tone mapping is not used for profile 5 ("does not produce correct mapping
+  results").
+- Sources: https://github.com/jellyfin/jellyfin/blob/v12.2/MediaBrowser.Model/Entities/MediaStream.cs ,
+  https://github.com/jellyfin/jellyfin/blob/v12.2/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs ,
+  https://github.com/jellyfin/jellyfin/blob/v12.2/Jellyfin.Api/Controllers/DynamicHlsController.cs ,
+  https://github.com/jellyfin/jellyfin/blob/v12.2/Jellyfin.Api/Helpers/DynamicHlsHelper.cs ,
+  https://github.com/jellyfin/jellyfin-ffmpeg/blob/jellyfin/debian/patches/0061-add-remove-dovi-hdr10plus-bsf.patch ,
+  https://github.com/jellyfin/jellyfin-ffmpeg/blob/jellyfin/debian/patches/0027-pass-dovi-sidedata-to-hlsenc-and-mpegtsenc.patch ,
+  https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/movenc.c
 
 ## Jellyfin 12.x (checked 2026-10-18 against a 12.2 server, its OpenAPI and the v12.2 source)
 - Versioning: the release after 10.11 is 12.0 (2026-09-07); tags are `v12.0`..`v12.2`, servers report `12.2.0`.
@@ -405,4 +601,28 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Compose Multiplatform web accessibility with a real screen reader. The accessibility docs page does not cover web. The web spike saw
   the accessibility tree only through Playwright: buttons and headings present, a closed menu's items left behind (ADR 0011).
 - Media3 capabilities for the Android fallback (e.g. FFmpeg extension) and licences of any custom Apple fallback engine library.
+- HDR and Dolby Vision (the 2026-10-19 sections were read from documentation and source; nothing was played):
+  - Apple:
+    - Whether AVPlayer plays profile 8.1 (only 8.4 files and profiles 5 and 10 in HLS are documented), and how it treats 7 (presumably
+      unsupported).
+    - Whether HDR10+ dynamic metadata is used or dropped.
+    - Whether `hev1`/`dvhe` play at all, or only `hvc1`/`dvh1`.
+    - How to tell Dolby Vision from HDR10 display support once `availableHDRModes` is gone.
+    - Which types `audiovisualContentTypes` lists per OS.
+    - AVPlayer's variant choice with Jellyfin's master playlist (the `dvh1` variant first, then `hvc1`).
+  - Android:
+    - What a device's Dolby Vision decoder outputs on a display without Dolby Vision.
+    - Whether every HEVC decoder ignores RPU NALs (type 62) in Media3's fallback. The release notes list a fixed failure of "some
+      playbacks of Dolby Vision files ... when attempting to use a fallback AVC or HEVC codec".
+    - Behaviour on external displays (Media3 checks only the default display).
+    - What Android TV's HDR conversion setting does to the reported types.
+  - Desktop:
+    - Dolby Vision colours from mpv/libplacebo against a reference (profile 5, 8.1, 8.4, 10).
+    - The cost of the second EL decoder in master, and when mpv, libplacebo and FFmpeg release the profile 7 FEL path.
+    - Whether a distributed build that applies Dolby Vision reshaping needs a Dolby licence (legal question, ADR 0009).
+  - Jellyfin:
+    - Whether a stripped profile 7 stream plays cleanly everywhere. `hevc_metadata=remove_dovi` removes at most one trailing EL NAL per
+      access unit after the RPU, so EL NALs (type 63) earlier in the unit may remain.
+    - The live master playlist and init segment for each profile with and without `DOVI` in the device profile (only the code was read).
+    - Whether `SUPPLEMENTAL-CODECS` without a `dvcC` box (profile 8, `DOVI` not listed) confuses any client.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
