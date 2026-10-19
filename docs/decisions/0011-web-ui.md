@@ -1,6 +1,6 @@
 # 0011: Web UI
 
-Status: proposed (2026-10-19), from the M1 "Web UI" spike. The owner decides after the hand checks below (Chrome, Edge, Firefox).
+Status: proposed (2026-10-19), from the M1 "Web UI" spike. The owner's hand checks (Chrome, Edge, Firefox) are in; the choice is the owner's.
 
 ## Context
 The web app is used every day (M2), so it must behave like a web page: password managers fill the sign-in form, posters are real links
@@ -32,19 +32,21 @@ The spike built the same small app three ways on one shared Kotlin core and comp
 
 ## Comparison
 Measured on Windows 11 with Playwright 1.64.1 and its Chromium 156 (headless), against the test server (Jellyfin 12.2.0) through an API-key
-session (no password typed by the spike), 2026-10-19. "Hand check" rows are for the owner (see Hand checks). Prototypes at `spike/web-ui`.
+session (no password typed by the spike), 2026-10-19. "Owner:" marks the owner's hand checks in Chrome, Edge and Firefox (same day).
+Prototypes at `spike/web-ui`.
 
 | | A: Compose HTML | B: React + TypeScript | C: Compose Wasm + HTML patches |
 |---|---|---|---|
-| Password-manager autofill | Real `<form method=post>` with `autocomplete` url/username/current-password; hand check | Same; hand check | Same form, as one HTML island over the canvas; hand check |
-| Real links | Yes: `<a href>`; middle-click and Ctrl+click opened the item URL in a new tab, a plain click stays in the app, Back works | Yes, same results | Yes, through transparent `<a>` overlays: same results; wheel events had to be handed back to the canvas |
-| Find-in-page | Yes: text is in the DOM | Yes | No: text is on the canvas. `window.find` matched the hidden accessibility copy, so Ctrl+F may count matches it cannot show; hand check |
-| Browser translate | Expected yes (DOM text); hand check | Expected yes; hand check | Expected no (canvas text); hand check |
-| Text selection | Native (triple-click selected the title) | Native | Compose `SelectionContainer`: double-click selected a word, Ctrl+C copied it; no native selection menu |
+| Password-manager autofill | Yes. Real `<form method=post>` with `autocomplete` url/username/current-password; owner: saves and fills | Yes, same | Yes: the same form as one HTML island over the canvas; owner: saves and fills |
+| Real links | Yes: `<a href>`; middle-click and Ctrl+click opened the item URL in a new tab, a plain click stays in the app, Back works; owner: right-click menu works | Yes, same | Partly: transparent `<a>` overlays pass the automated middle-click and Ctrl+click checks (wheel events handed back to the canvas), but owner: the poster's right-click menu does not work |
+| Find-in-page | Yes; owner: found and highlighted | Yes, same | No: owner: Ctrl+F finds words only in the HTML islands, and highlights nothing (`window.find` also matched the hidden accessibility copy) |
+| Browser translate | Yes (owner) | Yes (owner) | No (owner) |
+| Text selection | Native (triple-click selected the title); owner: drag selection works | Native; owner: works | Only in HTML islands (owner). On canvas text, `SelectionContainer` gave a double-clicked word to Ctrl+C in the automated check |
 | Our controls over the video, input reaches them | Yes: DOM overlay, `elementFromPoint` at the buttons is ours; clicks, seek bar and menus work | Yes, same | Yes, after workarounds: `<video>` behind the canvas, root canvas cleared with `BlendMode.Clear`; Compose controls drawn on top get the input |
 | Player behaviour (all automated) | Direct play and server HLS play; Space, ←/→ (10 s), F fullscreen of the player; audio switch re-requests `PlaybackInfo` and resumes at the same second; subtitle switch loads the WebVTT; Media Session title set | Same results | Same results |
 | Keyboard (Tab from the top reaches a poster link) | Yes | Yes | Yes (the overlays are focusable, with a CSS focus ring) |
-| Screen reader (a card in the accessibility tree) | `link "Title 2013"` | `link "Title 2013"` | Links have names but come after all canvas content in DOM order, apart from the card's text; a closed dropdown's items stayed in the tree |
+| Screen reader | `link "Title 2013"` in the accessibility tree; owner: Narrator reads the posters | Same | No: links come after all canvas content in DOM order, apart from the card's text, and a closed dropdown's items stayed in the tree; owner: Narrator reads things that are not on the page |
+| Other problems the owner saw | | | Back from a fullscreen player stayed fullscreen (fixed in the core, below); text is blurry after zooming the page (reproduced, below) |
 | Bundle, gzip, first load | 440 KB (JS 438 KB) | 346 KB (JS 345 KB) | 4.6 MB (Skia Wasm 3.33 MB, app Wasm 1.18 MB, JS 103 KB) |
 | hls.js chunk, loaded on first HLS play | 179 KB | 177 KB | 179 KB |
 | First load, sign-in page shown (cold, median of 3: local / 20 Mbit/s with 40 ms RTT) | 166 ms / 445 ms | 138 ms / 434 ms | 236 ms / 2.48 s |
@@ -67,6 +69,21 @@ per run and the cache disabled.
 - `MediaSource.TranscodeReasons` came back empty; the reasons are in the `TranscodingUrl` query (`TranscodeReasons=`).
 - The Kotlin Gradle plugin fails `kotlinStoreYarnLock` when a new JS module changes a committed `kotlin-js-store/yarn.lock`;
   `kotlinUpgradeYarnLock` (Wasm: `kotlinWasmUpgradeYarnLock`) updates it.
+- A long 4K film (HEVC Main10 HDR10, TrueHD) failed after its first seconds with `hls.js: networkError / fragLoadTimeOut` (owner):
+  - Jellyfin holds a segment request until ffmpeg has written that segment, and hls.js gives up after 10 s without a first byte.
+  - With HEVC through MSE, the server copied the video and transcoded only the audio, at about real time on a server without hardware
+    acceleration: segments were ready 4.6–6.3 s after the request for 3–10 s of video.
+  - Without HEVC (Firefox), the server re-encoded 4K HEVC 10-bit to H.264 in software and had no first segment before the reverse
+    proxy's 504, even when capped at 1080p and 20 Mb/s.
+  - With NVENC enabled on the server, the first segment came after 1–3 s and every later one in 0.1–0.2 s on both routes.
+  - The engine now waits up to 60 s for a segment's first byte, retries, and recovers from fatal network and media errors up to three
+    times before reporting one. A software-only server still cannot transcode 4K in real time; that needs hardware acceleration or a
+    transcode quality limit (ADR 0007, M2).
+- Leaving the player while it was fullscreen kept the page fullscreen in C, whose fullscreen element (the document) outlives the player
+  page. The engine now exits fullscreen when it is released; Back from fullscreen leaves fullscreen in all three (installed Chrome 155).
+- Pages sometimes took seconds to load (owner, on 1 Gbit/s). It was not reproduced afterwards. Lists answered in 17–77 ms and posters in
+  11–42 ms. Cold loads in installed Chrome 155 (headless) were 0.2–0.4 s for the production builds and 0.4 s (A) or 0.9 s (C) for the development
+  builds the owner ran. The likely cause is the server's CPU, busy with the software 4K transcode above.
 - HLS transcodes are pinged every 10 s and stopped when the player page closes inside the app. Closing the tab sends nothing; the server
   stops the job after 60 s without pings. No progress is reported (spike rule), so watch state is untouched.
 
@@ -91,7 +108,12 @@ per run and the cache disabled.
   differs from the canvas's.
 - Accessibility: dropdown items are exposed as buttons, a closed menu's items stayed in the accessibility tree, and link overlays come
   after all canvas content in DOM order.
+- Text is blurry after zooming the page (owner). Reproduced by changing `devicePixelRatio` at runtime: the canvas kept its backing size
+  (1280 px for 1280 CSS px at ratio 2), so the browser upscales it.
 - 4.6 MB to download before the first screen; the slowest builds; an out-of-memory crash of the Kotlin daemon in continuous mode.
+- Development and production Wasm builds share one sync folder in the build (`build/wasm/packages/<module>/kotlin`): running both in one
+  Gradle invocation fails validation, and a production build after a development one shipped the 25 MB development Wasm until
+  `wasmJsProductionExecutableCompileSync --rerun`.
 
 ## Recommendation
 **B (React + TypeScript over the Kotlin core)**, pending the owner's hand checks. Reasons:
@@ -107,8 +129,8 @@ Gradle rebuild before Vite reloads.
 used directly. Its bundle is somewhat larger, its reloads lose state, and it has no component library. Compose HTML is JS-only, with
 Wasm support still in the backlog.
 
-**C is not recommended for the web now.** Every page needed HTML patches for basic web behaviour. Find-in-page and translate cannot work,
-and the accessibility tree is unreliable. It is 13 times the download and has the slowest dev loop. Revisit C when CMP ships autofill
+**C is not recommended for the web now.** Every page needed HTML patches for basic web behaviour, and the owner's checks failed for the
+right-click menu on links, find-in-page, translate, selection of canvas text and Narrator; zoomed text is blurry. It is 13 times the download and has the slowest dev loop. Revisit C when CMP ships autofill
 (CMP-9861, targeted at 1.15) and links (CMP-9997), since sharing Compose screens with Android and desktop is its real advantage.
 
 Consequences of choosing A or B:
@@ -118,23 +140,23 @@ Consequences of choosing A or B:
 - The web engine, probes, storage and router from `webMain` carry over.
 
 ## Hand checks
-For the owner, in Chrome, Edge and Firefox (run steps: Prototype), on each of A, B and C:
-1. Sign in with your account. Does the browser offer to save the password? After signing out, does it fill the form?
-2. Right-click a poster: "Open in new tab" and "Copy link" work. Middle-click opens a tab.
-3. On an item page, Ctrl+F for a word of the overview: is it found and highlighted?
-4. Translate the page (Chrome/Edge built-in, Firefox Translations): does the overview change?
-5. Select part of the overview by dragging, then copy it.
-6. Player:
-   - Space, ←/→ and F work.
-   - Audio and subtitle menus switch tracks.
-   - The controls stay over the video in fullscreen.
-   - The media flyout or keyboard media keys show the title and play/pause.
-7. Narrator (Win+Ctrl+Enter): Tab to a poster. Is its title read?
+Done by the owner on 2026-10-19 in Chrome, Edge and Firefox, on each of A, B and C:
 
-Expected differences per browser:
-- Firefox: no MKV probe, so MKV goes through HLS.
-- Edge: reports AC-3/E-AC-3 as playable, but the profile still transcodes them.
-- Chrome: native HLS is reported "maybe", but hls.js is used wherever MSE exists.
+| Check | A | B | C |
+|---|---|---|---|
+| 1. Password manager saves and fills the sign-in form | yes | yes | yes (the form is HTML) |
+| 2. Poster: right-click "Open in new tab" / "Copy link", middle-click | yes | yes | no right-click menu |
+| 3. Ctrl+F for a word of the overview | found and highlighted | same | finds only words in HTML islands, no highlight |
+| 4. Browser translate | yes | yes | no |
+| 5. Drag-select part of the overview and copy it | yes | yes | only HTML text |
+| 6. Player: keys, audio and subtitle menus, controls in fullscreen, media keys and flyout | yes | yes | yes |
+| 7. Narrator on a poster | reads it | reads it | reads content that is not on the page |
+
+Also reported: in C, Back from a fullscreen player stayed fullscreen, and text was blurry when zoomed. Pages sometimes loaded for a few
+seconds. A long 4K film failed with `fragLoadTimeOut`. Causes and fixes: Problems hit and workarounds.
+
+Expected per-browser differences: Firefox has no MKV probe, so MKV goes through HLS. Edge reports AC-3/E-AC-3 as playable, but the profile
+still transcodes them. Chrome reports native HLS as "maybe", but hls.js is used wherever MSE exists.
 
 ## Licences
 - **Shipped by a prototype**:

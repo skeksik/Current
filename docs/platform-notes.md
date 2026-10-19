@@ -124,8 +124,14 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
   - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the
     subtitle file.
-  - Media Session metadata and action handlers set from Kotlin are present (`navigator.mediaSession.metadata`). The OS media flyout is
-    still a hand check.
+  - Media Session metadata and action handlers set from Kotlin are present (`navigator.mediaSession.metadata`), and the owner saw the title
+    and play/pause in the Windows media flyout.
+  - hls.js gives up on a segment after 10 s without a first byte (`fragLoadTimeOut`), while Jellyfin holds a segment request until ffmpeg
+    has written it. A software-only server re-encoding 4K HEVC 10-bit to H.264 had no first segment before its reverse proxy's 504 (even
+    capped at 1080p, 20 Mb/s); with NVENC, segments came in 0.1–0.2 s. A web engine needs longer first-byte timeouts and error recovery
+    (`startLoad()`, `recoverMediaError()`), and 4K transcodes need hardware acceleration on the server or a quality limit.
+  - Compose for web's canvas did not follow a runtime `devicePixelRatio` change (browser zoom): its backing size stayed at the old ratio,
+    so zoomed text is blurry (owner; reproduced with CDP `Emulation.setDeviceMetricsOverride`, CMP 1.12.1).
 
 ## Web UI options (checked 2026-10-19; input for the M1 web UI spike)
 - **Compose for web draws on a canvas** (Kotlin/Wasm; Beta, while Android, iOS and desktop are Stable:
@@ -187,6 +193,9 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     Kotlin/karma at that commit and pointing yarn at the local copy, or an offline npm option of the Kotlin Gradle plugin.
 - With a committed `kotlin-js-store/yarn.lock`, adding a JS module fails `kotlinStoreYarnLock` ("Lock file was changed") until
   `kotlinUpgradeYarnLock` runs (`kotlinWasmUpgradeYarnLock` for `kotlin-js-store/wasm/yarn.lock`).
+- Development and production Wasm builds of one module share `build/wasm/packages/<module>/kotlin`: running both in one Gradle
+  invocation fails task validation, and a production distribution built after a development one shipped the 25 MB development Wasm
+  until `wasmJsProductionExecutableCompileSync --rerun`.
 - `wasmJsBrowserDevelopmentRun --continuous` once failed with `OutOfMemoryError` in the Kotlin daemon (`kotlin.daemon.jvmargs=-Xmx3072M`)
   after a few incremental builds; `gradlew --stop` and a restart fixed it.
 
@@ -322,8 +331,7 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
 - Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
   used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
-- Web hand checks of ADR 0011 in Chrome, Edge and Firefox: password managers saving and filling each prototype's form, "Copy link",
-  find-in-page, browser translate, drag selection, the OS media flyout, Narrator on the poster links, playback in Firefox.
+- Firefox playback was checked only by hand (Playwright cannot drive a stock Firefox); the ADR 0011 hand checks are recorded there.
 - Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine; HTML video: ADR 0011), and how they cope with Stash's 302-to-login and mislabelled mime types.
 - Compose Multiplatform web accessibility with a real screen reader. The accessibility docs page does not cover web. The web spike saw
   the accessibility tree only through Playwright: buttons and headings present, a closed menu's items left behind (ADR 0011).
