@@ -18,7 +18,7 @@ Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
 androidApp/   Android application shell (MainActivity -> App())
 desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
 webApp/       browser app: Vite + React + TypeScript over the `web` library (ADR 0011); npm, lockfile committed
-iosApp/       Xcode project (SwiftUI shell). macOS and tvOS Xcode targets/projects are still to be created.
+appleApp/     Xcode project Current.xcodeproj: one SwiftUI app target for iOS, macOS and tvOS, minimum OS 26 (ADR 0012)
 shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple or web targets.
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
 web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for the React app: @JsExport facade, History API router. NO Compose.
@@ -55,10 +55,13 @@ npm --prefix webApp run dev                            # run web app (npm ci fir
 npm --prefix webApp run build                          # production web bundle (webApp/build/vite)
 npm --prefix webApp run licences                       # licences of shipped npm packages (ADR 0009)
 ./gradlew :web:jsBrowserDevelopmentLibraryDistribution --continuous  # rebuild the Kotlin library while the dev server runs
-./gradlew :apple:linkDebugFrameworkIosSimulatorArm64   # Apple framework (macOS host only; also ...MacosArm64, ...TvosSimulatorArm64)
+./scripts/build-apple-app.sh                           # Apple app, unsigned, for iOS simulator, macOS, tvOS simulator (macOS host only)
+./gradlew :apple:linkDebugFrameworkIosSimulatorArm64   # Apple framework only (also ...MacosArm64, ...TvosSimulatorArm64)
 ./scripts/check.sh                                     # everything CI runs on this OS
 ```
-Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcode; its build phase runs `:apple:embedAndSignAppleFrameworkForXcode`.
+Apple targets can only be built on a Mac. Open `appleApp/Current.xcodeproj` in Xcode and pick an iOS, Mac or tvOS destination; the build
+phase runs `:apple:embedAndSignAppleFrameworkForXcode`, which links `Shared` for that SDK. To sign for a device, put `TEAM_ID = ...` in the
+gitignored `appleApp/Configuration/Local.xcconfig` (never in `Config.xcconfig`).
 
 ## Conventions (target conventions for code yet to be written)
 - `commonMain` first; platform source sets only for truly platform-specific APIs (small `expect`/`actual`, or an interface implemented per platform).
@@ -82,7 +85,8 @@ The player UI is always the app's own (custom controls). Engines are headless: t
 Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
-The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current"), the platform shells, the
+The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current"), the platform shells (the
+SwiftUI placeholder reads one `Shared` type to prove the framework links), the
 browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 

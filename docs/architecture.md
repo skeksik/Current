@@ -23,7 +23,7 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
 
 ## Overview
 ```
- iosApp / macOS / tvOS (SwiftUI)     androidApp   desktopApp     webApp (React + TypeScript, Vite)
+ appleApp (SwiftUI: iOS/macOS/tvOS) androidApp   desktopApp     webApp (React + TypeScript, Vite)
             |                                \         /                |
          apple (framework "Shared")       shared (App, nav, DI,       web (Kotlin/JS library "current-core",
             |                             chosen extensions)          @JsExport facade, History API router)
@@ -78,7 +78,7 @@ Sources: Jellyfin (the server negotiates routes from a device profile built from
 ## Platforms
 | Platform | UI | Engine (planned) |
 |---|---|---|
-| iOS / macOS / tvOS | SwiftUI | AVPlayer; custom fallback engine later |
+| iOS / macOS / tvOS | SwiftUI, one Xcode target, minimum OS 26 (ADR 0012) | AVPlayer; custom fallback engine later |
 | Android | Compose | Media3 |
 | Windows / Linux | Compose Desktop | libmpv in a child window, our controls in a transparent window (ADR 0010) |
 | Web | React + TypeScript over Kotlin/JS (ADR 0011) | HTML video + hls.js, device profile from browser probes (ADR 0011) |

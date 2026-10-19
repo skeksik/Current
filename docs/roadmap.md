@@ -18,8 +18,8 @@ app, so services are optional and features removable (ADR 0008). Reorder later m
 - [x] `jvmTest` and desktop compile pass on Linux (2026-10-18)
 - [x] Web distribution and Android debug builds pass on CI (2026-10-18)
 - [x] Apple frameworks (iOS simulator, macOS, tvOS simulator) link on CI (2026-10-18)
-- [ ] iOS app builds and runs from Xcode on a Mac
-- [ ] Create macOS and tvOS Xcode targets
+- [x] iOS app builds and runs from Xcode on a Mac (2026-10-19, Xcode 27.1)
+- [x] macOS and tvOS: one app target for all three platforms, minimum OS 26 (2026-10-19, ADR 0012)
 - [ ] Ruleset on `main`, CI green
 
 ## M1: Foundations and Jellyfin sign-in (Windows desktop, web)
