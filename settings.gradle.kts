@@ -59,5 +59,5 @@ include(":apple")
 // Spike prototypes (spike/web-ui), not used by the app; removed before merging
 include(":spikes:web-core")
 include(":spikes:web-html")
-// include(":spikes:web-ts")
+include(":spikes:web-ts")
 // include(":spikes:web-wasm")
