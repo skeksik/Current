@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "paths": {
+      "current-core": [
+        "../web/build/dist/js/productionLibrary/current-core.d.mts",
+        "../web/build/dist/js/developmentLibrary/current-core.d.mts"
+      ],
+      "ws": ["./src/ws-stub.ts"]
+    }
+  },
+  "include": ["src"]
+}

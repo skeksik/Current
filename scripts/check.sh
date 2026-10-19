@@ -9,8 +9,16 @@ echo "==> Unit tests (JVM)"
 echo "==> Desktop app compiles"
 ./gradlew :desktopApp:classes
 
-echo "==> Web build"
-./gradlew :webApp:wasmJsBrowserDistribution
+if ! command -v npm > /dev/null; then
+  echo "npm not found: the web app needs Node.js 22 or newer" >&2
+  exit 1
+fi
+
+echo "==> Web: npm packages and their licences (ADR 0009)"
+(cd webApp && npm ci && npm run licences)
+
+echo "==> Web build (Kotlin library, TypeScript, Vite)"
+(cd webApp && npm run build)
 
 if [ -n "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
   echo "==> Android debug build"

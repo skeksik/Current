@@ -23,12 +23,14 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
 
 ## Overview
 ```
- iosApp / macOS / tvOS (SwiftUI)            androidApp   desktopApp   webApp
-            |                                      \          |         /
-         apple (framework "Shared")                       shared (App, nav, DI, chosen extensions)
-            |                                                  |
-            |                                              composeUi (Compose screens, player UI, video surfaces)
-            |                                                  |
+ iosApp / macOS / tvOS (SwiftUI)     androidApp   desktopApp     webApp (React + TypeScript, Vite)
+            |                                \         /                |
+         apple (framework "Shared")       shared (App, nav, DI,       web (Kotlin/JS library "current-core",
+            |                             chosen extensions)          @JsExport facade, History API router)
+            |                                    |                      |
+            |                                composeUi (Compose screens, |
+            |                                player UI, video surfaces)  |
+            |                                    |                      |
             +------------ feature:* (ViewModels, UI state, PlayerController) ------------+
                                   data:{jellyfin,seerr,stash}
                 core:{model,network,database,playback}      core:designsystem (Compose only)
@@ -43,14 +45,14 @@ Dependencies point down. Features never import each other. Core never imports an
 | `core:model` | Domain models: media identity (service + id), open media kinds, artwork with aspect ratio, users, permissions, request status |
 | `core:network` | `HttpClient` factory per service, server configuration, error model, log redaction |
 | `core:database` | Cache. Web persistence is open (ADR 0004) |
-| `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types |
+| `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
 | `core:designsystem` | Compose theme and components (Android/desktop) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
 | `composeUi` | Compose screens for every feature, custom player controls, per-platform video surface |
 | `shared` | Compose umbrella: `App()`, navigation, DI wiring, the extensions this build includes |
 | `apple` | Static framework `Shared` exporting core/data/feature (and included extensions) to Swift |
-| web umbrella (planned) | Kotlin/JS library with an `@JsExport` facade over the ViewModels, consumed by the React app (ADR 0011) |
+| `web` | Kotlin/JS ES module library `current-core` (with `.d.ts`): an `@JsExport` facade over the ViewModels and the History API router, consumed by the React app in `webApp` (ADR 0011) |
 | `extensions/<name>/*` | Planned. Removable features with their own data, presentation and UI modules |
 
 ## Extension points (ADR 0008)

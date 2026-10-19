@@ -9,49 +9,51 @@ Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
 ## Three UI codebases, one Kotlin core (ADR 0006, ADR 0011)
 - **Apple (iOS, macOS, tvOS): SwiftUI**, native look (Liquid Glass on supported OS versions). One SwiftUI codebase shared across the three, with per-platform adaptation.
 - **Android, Windows (Linux comes free): Compose Multiplatform.**
-- **Web: React + TypeScript (Vite)** over the core compiled to Kotlin/JS, through an `@JsExport` facade (StateFlow -> subscribe/getSnapshot for
-  `useSyncExternalStore`; no exported suspend functions). Desktop and web look nearly the same. Planned in M1: `webApp` is still the Compose
-  Wasm placeholder until then.
+- **Web: React + TypeScript (Vite)** in `webApp/` over the core compiled to Kotlin/JS (the `web` library), through an `@JsExport` facade
+  (StateFlow -> subscribe/getSnapshot for `useSyncExternalStore`; no exported suspend functions). Desktop and web look nearly the same.
 - All logic (data, presentation, playback planning) is shared Kotlin and must stay UI-agnostic.
 
 ## Layout
 ```
 androidApp/   Android application shell (MainActivity -> App())
 desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
-webApp/       browser shell: Compose Wasm placeholder today, the Vite + React + TypeScript app from M1 (ADR 0011)
+webApp/       browser app: Vite + React + TypeScript over the `web` library (ADR 0011); npm, lockfile committed
 iosApp/       Xcode project (SwiftUI shell). macOS and tvOS Xcode targets/projects are still to be created.
-shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple targets. (Web leaves it in M1, ADR 0011.)
+shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple or web targets.
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
+web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for the React app: @JsExport facade, History API router. NO Compose.
 
-composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop, web)
+composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop)
 core/model                 domain models                      (pure Kotlin)
 core/network               HttpClient, server configuration   (pure Kotlin)
 core/database              cache                              (pure Kotlin)
-core/playback              PlayerEngine interface, capabilities, playback planner (pure Kotlin)
+core/playback              PlayerEngine interface, capabilities, playback planner, browser probes (pure Kotlin)
 core/designsystem          Compose theme and components       (Compose only)
 data/{jellyfin,seerr,stash}                                   (pure Kotlin)
 feature/{home,library,requests,player,settings}               presentation only: ViewModel + UI state (pure Kotlin)
 extensions/<name>/         (planned, ADR 0008) removable feature groups: own data, presentation, Compose UI and SwiftUI sources
 ```
-Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports `feature`, `data`, `core` (not Compose).
+Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports and `web` wraps `feature`, `data`, `core` (not Compose).
 Features never depend on each other. Core never imports an extension; extensions plug in through extension points (ADR 0008).
 **Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
-Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, wasmJs (js replaces wasmJs for the web in M1, ADR 0011). Compose modules target
-android, jvm, wasmJs only (wasmJs dropped in M1).
+Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, js (ADR 0011). Compose modules target android and jvm only.
 Every module's `build.gradle.kts` copies the shape of an existing one of the same kind (see `core/model` and `composeUi`). New module: `/new-module`.
 
 ## Stack (exact versions in gradle/libs.versions.toml)
 Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
+Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
 Planned, not added yet (ADR 0002): Navigation, Koin, Ktor client, kotlinx.serialization, SQLDelight, Coil 3, Media3, SKIE for Swift interop.
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
 ## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)
 ```
 ./gradlew :desktopApp:run                              # run desktop app
-./gradlew :webApp:wasmJsBrowserDevelopmentRun          # run web app with hot reload
+npm --prefix webApp run dev                            # run web app (npm ci first; builds the Kotlin library, then Vite)
 ./gradlew :androidApp:installDebug                     # install on device/emulator
 ./gradlew jvmTest                                      # JVM tests in every module
-./gradlew :webApp:wasmJsBrowserDistribution            # production web bundle
+npm --prefix webApp run build                          # production web bundle (webApp/build/vite)
+npm --prefix webApp run licences                       # licences of shipped npm packages (ADR 0009)
+./gradlew :web:jsBrowserDevelopmentLibraryDistribution --continuous  # rebuild the Kotlin library while the dev server runs
 ./gradlew :apple:linkDebugFrameworkIosSimulatorArm64   # Apple framework (macOS host only; also ...MacosArm64, ...TvosSimulatorArm64)
 ./scripts/check.sh                                     # everything CI runs on this OS
 ```
@@ -67,7 +69,8 @@ Apple targets can only be built on a Mac. Open `iosApp/iosApp.xcodeproj` in Xcod
 - No feature may assume a service exists: read the capabilities state and hide what is unavailable (ADR 0008).
 - Do not catch `CancellationException`.
 - Tests with `kotlin.test`; test repositories, planners and ViewModels, not composables.
-- Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only. Only permissive or LGPL-2.1 licences;
+- Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only (npm: `webApp/package.json`, exact
+  versions, then `npm run licences`). Only permissive or LGPL-2.1 licences;
   never GPL or AGPL in a distributed build (ADR 0009).
 - Do not bump versions casually: Kotlin, CMP, AGP and Gradle are coupled. Use `/update-deps`.
 - Do not name third-party apps that inspired a design in code, docs or commits.
@@ -78,7 +81,8 @@ The player UI is always the app's own (custom controls). Engines are headless: t
 Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
-The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current") and the platform shells.
+The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current"), the platform shells, the
+browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
 ## Git workflow

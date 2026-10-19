@@ -1,4 +1,3 @@
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -13,10 +12,16 @@ kotlin {
     tvosArm64()
     tvosSimulatorArm64()
 
-    jvm()
+    jvm {
+        testRuns["test"].executionTask.configure {
+            // The web probe answers recorded in real browsers (ADR 0011) are the fixtures of the probe tests.
+            val webProbes = layout.projectDirectory.dir("../../docs/web-probes")
+            inputs.dir(webProbes).withPropertyName("webProbes").withPathSensitivity(PathSensitivity.RELATIVE)
+            systemProperty("current.webProbes", webProbes.asFile.absolutePath)
+        }
+    }
 
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
+    js {
         browser()
     }
 
