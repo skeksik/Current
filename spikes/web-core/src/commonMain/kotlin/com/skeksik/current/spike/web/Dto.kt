@@ -95,6 +95,7 @@ internal data class MediaStreamDto(
     val isExternal: Boolean = false,
     val deliveryMethod: String? = null,
     val deliveryUrl: String? = null,
+    val videoRangeType: String? = null,
 )
 
 @Serializable

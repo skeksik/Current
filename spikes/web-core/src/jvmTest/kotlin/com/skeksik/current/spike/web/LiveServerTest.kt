@@ -29,7 +29,7 @@ class LiveServerTest {
     private val browsers = mapOf(
         "Edge 155 (recorded probes)" to BrowserProbes.interpret(ProbeFixtures.edge),
         "Chrome 155 (recorded probes)" to BrowserProbes.interpret(ProbeFixtures.chrome),
-        "Firefox-like (Chrome without MKV and HEVC; not recorded)" to BrowserProbes.interpret(ProbeFixtures.firefoxLike),
+        "Firefox 158 (recorded probes)" to BrowserProbes.interpret(ProbeFixtures.firefox),
     )
 
     @Test
@@ -86,6 +86,7 @@ class LiveServerTest {
             pick("ASS subtitles") { s -> s.subs().any { it.codec == "ass" || it.codec == "ssa" } },
             pick("PGS subtitles") { s -> s.subs().any { it.codec == "pgssub" } },
             pick("SRT subtitles") { s -> s.subs().any { it.codec == "subrip" } },
+            pick("4K HDR10 HEVC") { s -> s.mediaStreams.any { it.type == "Video" && it.codec == "hevc" && it.videoRangeType == "HDR10" } },
             pick("Two or more audio tracks") { s -> s.mediaStreams.count { it.type == "Audio" } >= 2 && s.video() == "h264" && s.audio() == "aac" }
                 ?: pick("Two or more audio tracks") { s -> s.mediaStreams.count { it.type == "Audio" } >= 2 },
         )

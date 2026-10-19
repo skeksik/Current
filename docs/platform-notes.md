@@ -120,14 +120,19 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     - HEVC (Main and Main10) through MSE is true with hardware (headed browser; false in headless Chromium).
     - Edge reports AC-3 and E-AC-3 as "probably" (Windows decoders); Chromium does not.
     - `application/vnd.apple.mpegurl` is "maybe" in Chromium 156.
-    - Full probe table recorded in installed Chrome 155 and Edge 155 (headed, hardware decoding; ADR 0011, "Web playback routes"):
+    - Playwright launches Chromium with `--force-color-profile=srgb` by default, so `(dynamic-range: high)` is false even on an HDR
+      display; pass `ignoreDefaultArgs: ['--force-color-profile=srgb']` to test HDR.
+    - Full probe table recorded in installed Chrome 155, Edge 155 and Firefox 158 (ADR 0011, "Web playback routes"):
       - Both: MP4/WebM/MKV with H.264 (High 10 too), HEVC Main/Main10, AV1 8/10-bit, VP9 profiles 0/2, VP8; AAC, MP3, Opus, FLAC,
         Vorbis. No MOV or MPEG-TS through `src`, no DTS or TrueHD anywhere.
       - MSE in fMP4: no MP3 (`mp4a.6B`).
       - `decodingInfo` reports HDR10 (PQ) only for HEVC Main10, not AV1 10-bit or VP9 profile 2, and HLG for none.
       - `decodingInfo` reports 2160p smooth for H.264, HEVC, AV1 and VP9.
       - Edge adds AC-3 and E-AC-3 in `src` and MSE.
-      - Both reported `(dynamic-range: high)` false and `maxChannelCount` 2 on the owner's PC at that time.
+      - With Windows HDR on, Chrome and Edge report `(dynamic-range: high)`. Firefox does not; it has no HDR video output on Windows,
+        though `decodingInfo` says it decodes HDR10 and HLG.
+      - Firefox 158 plays MKV and MOV, HEVC Main/Main10, AV1 and VP9, but not 10-bit H.264, AC-3/E-AC-3, or FLAC in MKV.
+      - `maxChannelCount` was 2 everywhere (stereo output).
   - hls.js loaded with `import('hls.js')` from a `js()` function works in Kotlin/JS (webpack), Kotlin/Wasm (webpack) and Vite. It
     becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
   - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the

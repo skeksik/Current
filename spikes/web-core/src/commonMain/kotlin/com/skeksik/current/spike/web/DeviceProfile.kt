@@ -31,18 +31,25 @@ data class MediaSupport(
 
 /** The probe table. Codec strings are the RFC 6381 forms browsers recognise; levels are high enough for 4K. */
 object BrowserProbes {
-    /** Video codecs by Jellyfin name; a "10" suffix is the 10-bit profile of the same codec. */
+    /**
+     * Video codecs by Jellyfin name; a "10" suffix is the 10-bit profile of the same codec. Where browsers disagree on the codec string,
+     * every spelling is asked (query ids `id`, `id#1`, ...) and any yes counts.
+     */
     private val video = linkedMapOf(
-        "h264" to "avc1.640033", "h26410" to "avc1.6e0033",
-        "hevc" to "hvc1.1.6.L153.B0", "hevc10" to "hvc1.2.4.L153.B0",
-        "av1" to "av01.0.12M.08", "av110" to "av01.0.12M.10",
-        "vp9" to "vp09.00.50.08", "vp910" to "vp09.02.50.10",
-        "vp8" to "vp8",
+        "h264" to listOf("avc1.640033"), "h26410" to listOf("avc1.6e0033"),
+        "hevc" to listOf("hvc1.1.6.L153.B0", "hev1.1.6.L153.B0"), "hevc10" to listOf("hvc1.2.4.L153.B0", "hev1.2.4.L153.B0"),
+        "av1" to listOf("av01.0.12M.08"), "av110" to listOf("av01.0.12M.10"),
+        "vp9" to listOf("vp09.00.50.08"), "vp910" to listOf("vp09.02.50.10"),
+        "vp8" to listOf("vp8"),
     )
     private val audio = linkedMapOf(
-        "aac" to "mp4a.40.2", "mp3" to "mp4a.6B", "ac3" to "ac-3", "eac3" to "ec-3", "opus" to "opus", "flac" to "flac",
-        "vorbis" to "vorbis", "alac" to "alac", "dts" to "dtsc", "truehd" to "mlpa",
+        "aac" to listOf("mp4a.40.2"), "mp3" to listOf("mp4a.6B", "mp4a.69", "mp3"), "ac3" to listOf("ac-3"), "eac3" to listOf("ec-3"),
+        "opus" to listOf("opus"), "flac" to listOf("flac", "fLaC"), "vorbis" to listOf("vorbis"), "alac" to listOf("alac"),
+        "dts" to listOf("dtsc"), "truehd" to listOf("mlpa"),
     )
+
+    private fun MutableList<ProbeQuery>.ask(id: String, kind: ProbeQuery.Kind, spellings: List<String>, arg: (String) -> String) =
+        spellings.forEachIndexed { i, codec -> add(ProbeQuery(if (i == 0) id else "$id#$i", kind, arg(codec))) }
 
     /** Jellyfin container names, their MIME type and which codecs can be inside. */
     private class Container(val name: String, val mime: String, val video: List<String>, val audio: List<String>)
@@ -69,18 +76,18 @@ object BrowserProbes {
 
     val queries: List<ProbeQuery> = buildList {
         for (c in containers) {
-            for (v in c.video) add(ProbeQuery("play:${c.name}:$v", ProbeQuery.Kind.CanPlayType, "${c.mime}; codecs=\"${video.getValue(v)}\""))
-            for (a in c.audio) add(ProbeQuery("play:${c.name}:$a", ProbeQuery.Kind.CanPlayType, "${c.mime}; codecs=\"${audio.getValue(a)}\""))
+            for (v in c.video) ask("play:${c.name}:$v", ProbeQuery.Kind.CanPlayType, video.getValue(v)) { "${c.mime}; codecs=\"$it\"" }
+            for (a in c.audio) ask("play:${c.name}:$a", ProbeQuery.Kind.CanPlayType, audio.getValue(a)) { "${c.mime}; codecs=\"$it\"" }
         }
-        for ((v, codec) in video) add(ProbeQuery("mse:$v", ProbeQuery.Kind.IsTypeSupported, "video/mp4; codecs=\"$codec\""))
-        for ((a, codec) in audio) add(ProbeQuery("mse:$a", ProbeQuery.Kind.IsTypeSupported, "audio/mp4; codecs=\"$codec\""))
+        for ((v, spellings) in video) ask("mse:$v", ProbeQuery.Kind.IsTypeSupported, spellings) { "video/mp4; codecs=\"$it\"" }
+        for ((a, spellings) in audio) ask("mse:$a", ProbeQuery.Kind.IsTypeSupported, spellings) { "audio/mp4; codecs=\"$it\"" }
         add(ProbeQuery("hls", ProbeQuery.Kind.CanPlayType, "application/vnd.apple.mpegurl"))
         add(ProbeQuery("display:hdr", ProbeQuery.Kind.MatchMedia, "(dynamic-range: high)"))
         for (v in listOf("hevc10", "av110", "vp910")) {
-            add(ProbeQuery("hdr10:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v), "pq")))
-            add(ProbeQuery("hlg:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v), "hlg")))
+            add(ProbeQuery("hdr10:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v).first(), "pq")))
+            add(ProbeQuery("hlg:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v).first(), "hlg")))
         }
-        for (v in listOf("h264", "hevc", "av1", "vp9")) add(ProbeQuery("uhd:$v", ProbeQuery.Kind.DecodingInfo, uhdConfig(video.getValue(v))))
+        for (v in listOf("h264", "hevc", "av1", "vp9")) add(ProbeQuery("uhd:$v", ProbeQuery.Kind.DecodingInfo, uhdConfig(video.getValue(v).first())))
         add(ProbeQuery("channels", ProbeQuery.Kind.MaxChannels, ""))
     }
 
@@ -91,23 +98,25 @@ object BrowserProbes {
     private fun base(key: String) = key.removeSuffix("10")
 
     fun interpret(answers: Map<String, String>): MediaSupport {
+        /** Yes to [id] under any of its spellings. */
+        fun ok(id: String) = yes(answers[id]) || answers.any { (k, a) -> k.startsWith("$id#") && yes(a) }
         val direct = containers.mapNotNull { c ->
-            val v = c.video.filter { yes(answers["play:${c.name}:$it"]) }.map(::base).distinct()
-            val a = c.audio.filter { yes(answers["play:${c.name}:$it"]) }
+            val v = c.video.filter { ok("play:${c.name}:$it") }.map(::base).distinct()
+            val a = c.audio.filter { ok("play:${c.name}:$it") }
             if (v.isEmpty()) null else ContainerSupport(c.name, v, a)
         }
-        val mse = yes(answers["mse:h264"])
-        val nativeHls = yes(answers["hls"])
+        val mse = ok("mse:h264")
+        val nativeHls = ok("hls")
         val hlsVideo = when {
-            mse -> hlsVideoCodecs.filter { yes(answers["mse:$it"]) || yes(answers["mse:${it}10"]) }
-            nativeHls -> hlsVideoCodecs.filter { yes(answers["play:mp4,m4v:$it"]) || yes(answers["play:mp4,m4v:${it}10"]) }
+            mse -> hlsVideoCodecs.filter { ok("mse:$it") || ok("mse:${it}10") }
+            nativeHls -> hlsVideoCodecs.filter { ok("play:mp4,m4v:$it") || ok("play:mp4,m4v:${it}10") }
             else -> emptyList()
         }.ifEmpty { listOf("h264") }
         val hlsAudio = when {
-            mse -> hlsAudioCodecs.filter { yes(answers["mse:$it"]) }
-            else -> hlsAudioCodecs.filter { yes(answers["play:mp4,m4v:$it"]) }
+            mse -> hlsAudioCodecs.filter { ok("mse:$it") }
+            else -> hlsAudioCodecs.filter { ok("play:mp4,m4v:$it") }
         }.let { listOf("aac") + (it - "aac") }
-        val tenBit = video.keys.filter { it.endsWith("10") && (yes(answers["mse:$it"]) || answers.any { (k, a) -> k.startsWith("play:") && k.endsWith(":$it") && yes(a) }) }
+        val tenBit = video.keys.filter { key -> key.endsWith("10") && (ok("mse:$key") || containers.any { c -> ok("play:${c.name}:$key") }) }
             .map(::base).toSet()
         val hdrDisplay = answers["display:hdr"] == "true"
         val ranges = listOf("h264", "hevc", "av1", "vp9", "vp8").associateWith { v ->

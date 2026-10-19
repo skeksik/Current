@@ -63,24 +63,31 @@ Not probeable: subtitle formats (only WebVTT is native; ASS and PGS need a JavaS
 browser API). Dolby Vision with an HDR10 or SDR base layer plays as that layer (`DOVIWithHDR10`, `DOVIWithSDR`); other profiles go to
 the server.
 
-Recorded on the owner's PC (Windows 11, headed, hardware decoding; Firefox cannot be driven by Playwright):
+Recorded on the owner's PC: Windows 11, Windows HDR on, hardware decoding, stereo output. Chrome and Edge were recorded through
+Playwright, headed and without its default `--force-color-profile=srgb`, which hides an HDR display from the page. Firefox was recorded
+by the owner from the console.
 
-| | Chrome 155 | Edge 155 |
-|---|---|---|
-| Direct play containers | MP4, WebM, MKV (not MOV, TS) | same |
-| Video | H.264 (also 10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 0/2, VP8 | same |
-| Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 (Windows decoders) |
-| fMP4 / MSE audio | AAC, Opus, FLAC | AAC, AC-3, E-AC-3, Opus, FLAC |
-| HDR10 decoding / HLG | HEVC Main10 only / none | same |
-| HDR display | no (the display was SDR when recorded) | no |
-| 2160p | H.264, HEVC, AV1, VP9 | same |
-| Output channels | 2 | 2 |
+| | Chrome 155 | Edge 155 | Firefox 158 |
+|---|---|---|---|
+| Direct play containers | MP4, WebM, MKV | same | MP4, WebM, MKV, MOV |
+| Video | H.264 (also 10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 0/2, VP8 | same | same, but no 10-bit H.264 |
+| Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 | AAC, Opus, FLAC (not in MKV), Vorbis |
+| MSE (HLS copy) | video H.264, HEVC, AV1; audio AAC, Opus, FLAC | adds AC-3, E-AC-3 | as Chrome |
+| HDR display / HDR10 decoding | yes / HEVC Main10 | yes / HEVC Main10 | no / HEVC, AV1 (HLG too) |
+| 2160p, channels | H.264, HEVC, AV1, VP9; 2 | same | same |
+
+MP3 in Firefox: "no" to `mp4a.6B`; the other spellings were added after its recording.
 
 Live routes with these answers (test server, NVENC on):
-- In Edge, an MKV with HEVC and E-AC-3 plays directly.
-- The 4K HDR10 film with TrueHD/E-AC-3 plays at 4K in both browsers through server HLS, tone-mapped to SDR because the display is SDR,
-  with stereo AAC. Edge's E-AC-3 is 5.1 and the output is stereo, so it is still transcoded.
-- MKV H.264/AAC and HEVC/AAC files play directly in both. In a browser without MKV (Firefox's profile, simulated) they are remuxed.
+- **The 4K HDR10 film (HEVC Main10, TrueHD 7.1 and E-AC-3 5.1):**
+  - Edge plays the original file directly, in HDR. It decodes E-AC-3 and downmixes it.
+  - Chrome gets server HLS with the video copied in HDR and only the audio transcoded to stereo AAC.
+  - Firefox gets HLS tone-mapped to SDR, as its probe says no HDR display.
+  - In real Edge and Chrome, both reached 8 s of playback about 9–10 s after Play, so it started within roughly 2 s.
+- **MKV with 8-bit H.264 or HEVC and AAC:** direct play in all three.
+- **10-bit H.264:** goes to the server in Firefox only (`VideoBitDepthNotSupported`).
+- **AC-3, DTS and TrueHD:** go to the server for audio only, except AC-3 in Edge. A default image subtitle (DVD, PGS) or ASS forces a video
+  transcode everywhere.
 
 ## Comparison
 Measured on Windows 11 with Playwright 1.64.1 and its Chromium 156 (headless), against the test server (Jellyfin 12.2.0) through an API-key
@@ -207,7 +214,7 @@ Done by the owner on 2026-10-19 in Chrome, Edge and Firefox, on each of A, B and
 Also reported: in C, Back from a fullscreen player stayed fullscreen, and text was blurry when zoomed. Pages sometimes loaded for a few
 seconds. A long 4K film failed with `fragLoadTimeOut`. Causes and fixes: Problems hit and workarounds.
 
-Expected per-browser differences: see Web playback routes (everything is probed; Firefox's answers are not recorded yet).
+Expected per-browser differences: see Web playback routes (everything is probed; answers recorded in all three).
 
 ## Licences
 - **Shipped by a prototype**:
