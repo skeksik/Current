@@ -14,8 +14,16 @@ fun createHttpClient(): HttpClient = HttpClient(platformEngine) { installDefault
 /** The same client on a given [engine] (tests); the engine is not closed with the client. */
 internal fun createHttpClient(engine: HttpClientEngine): HttpClient = HttpClient(engine) { installDefaults() }
 
-/** Servers add fields in newer versions; unknown ones must not fail decoding. */
-internal val ServiceJson = Json { ignoreUnknownKeys = true }
+/**
+ * Lenient, because servers change between versions: unknown fields are ignored, a null or unknown enum value for a property with a
+ * default takes the default, and a missing nullable property is null (Jellyfin omits most nulls). When encoding, null properties are
+ * left out; a data layer whose server treats a missing field differently from null (Seerr's settings endpoints) sets them explicitly.
+ */
+internal val ServiceJson = Json {
+    ignoreUnknownKeys = true
+    coerceInputValues = true
+    explicitNulls = false
+}
 
 private fun HttpClientConfig<*>.installDefaults() {
     install(ContentNegotiation) { json(ServiceJson) }

@@ -45,8 +45,17 @@ Then:
       Extensions, extension points and the build switch dropped for a modular design with two editions
 - [x] `core:model`: media identity (service + id), open media kinds, artwork with aspect ratio, user and permissions (2026-10-19,
       ADR 0013: the identity holds the server, not only the service; services are open like kinds)
-- [ ] `core:network`: client factory per service, error model, lenient JSON, log redaction of tokens, keys and cookies
-- [ ] Server setup: add a server by URL, check it (public info endpoint), warn about plain HTTP
+- [x] `core:network` (2026-10-20, ADR 0015): one client per server that follows the server's current address, error model, lenient
+      JSON, our own request log with tokens, keys and hosts redacted. Seerr's cookie session comes with Seerr sign-in (M3)
+- [ ] Server setup: add a server by URL, check it (public info endpoint, and that every address answers as the same server), warn
+      about plain HTTP except on local addresses
+- [ ] Several addresses per server, local (`http://192.168.1.10:8096`, `http://media.lan:8096`) and internet
+      (`https://media.example.com`), in the user's priority order. The app picks the best one that answers and roams between them as the
+      network changes (start, network change, failed request, and a periodic check to move back to local). Credentials go only to an
+      address that proves to be the same server
+- [ ] Spike: find servers on the local network (Jellyfin's discovery; Seerr and Stash likely have none). Check each platform first:
+      Apple's local network permission and any entitlement broadcast needs, Android, desktop, and what browsers allow (likely nothing,
+      plus mixed content and private network access limits on local addresses)
 - [ ] Jellyfin sign-in with username and password or Quick Connect, one random device id per install (signing in again with the same id
       revokes the old token), sign out; token in secure storage (desktop: OS credential store; web: browser storage, documented risk)
 - [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,

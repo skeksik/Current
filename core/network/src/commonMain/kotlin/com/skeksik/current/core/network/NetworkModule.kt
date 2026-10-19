@@ -9,4 +9,6 @@ import org.koin.dsl.module
 val networkModule = module {
     single { createHttpClient() } withOptions { onClose { it?.close() } }
     single { MutableCapabilitiesState() } bind CapabilitiesState::class
+    single { NetworkLogger.None }
+    single { ServerClients(get(), get()) }
 }

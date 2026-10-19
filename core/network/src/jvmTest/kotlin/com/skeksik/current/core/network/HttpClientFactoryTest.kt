@@ -26,4 +26,16 @@ class HttpClientFactoryTest {
         val info = createHttpClient(engine).use { it.get("https://server.invalid/info").body<ServerInfo>() }
         assertEquals(ServerInfo("Test server"), info)
     }
+
+    @Serializable
+    private enum class State { Ready, Busy }
+
+    @Serializable
+    private data class Item(val name: String, val state: State = State.Ready, val overview: String?, val count: Int = 0)
+
+    @Test
+    fun fallsBackToDefaultsForNullsUnknownEnumsAndMissingNullables() {
+        val item = ServiceJson.decodeFromString<Item>("""{"name":"A","state":"Sleeping","count":null}""")
+        assertEquals(Item("A", State.Ready, overview = null, count = 0), item)
+    }
 }

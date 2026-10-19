@@ -6,7 +6,6 @@
       "Bash(./gradlew jvmTest:*)",
       "Bash(./gradlew compileKotlinJvm:*)",
       "Bash(./gradlew :apple:linkDebugFrameworkIosSimulatorArm64:*)",
-      "Bash(./gradlew :webApp:wasmJsBrowserDistribution:*)",
       "Bash(./scripts/check.sh)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
