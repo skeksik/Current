@@ -16,5 +16,5 @@ Kotlin/Native target tiers: macosArm64 and iOS targets are Tier 1; tvosArm64 and
 
 ## Consequences
 - Two UIs to build for each screen; logic must stay in shared Kotlin so behaviour is identical.
-- Apple development needs a Mac and Xcode. macOS and tvOS Xcode targets still have to be created (iOS exists).
+- Apple development needs a Mac and Xcode. The iOS, macOS and tvOS apps are one Xcode target, minimum OS 26 (ADR 0012).
 - Design tokens (colors, spacing, type scale) should be plain data in a shared module once the design exists, so both UIs read the same values.

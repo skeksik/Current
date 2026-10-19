@@ -13,6 +13,26 @@ Facts below were read from the linked sources on that date. Re-check before rely
 ## Liquid Glass and SwiftUI
 - Liquid Glass is rendered by the system, not Compose; it applies to native `TabView`, `NavigationStack` and toolbars (Xcode 26 / iOS 26 SDK; iOS 26 only, older versions need a fallback).
   Source: https://kotlinlang.org/docs/multiplatform/ios-liquid-glass.html
+- Apple (checked 2026-10-19): apps using standard SwiftUI, UIKit or AppKit components get the new look on the latest releases of iOS,
+  iPadOS, macOS, tvOS and watchOS when built with the latest SDKs; "On older devices, your app maintains its current appearance". On tvOS,
+  standard buttons and controls take on Liquid Glass when focused, so adopt the standard focus APIs.
+  Source: https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass
+
+## Apple app project (checked 2026-10-19 with Xcode 27.1 on macOS 26.6.2)
+- Xcode 27.1 templates: the multiplatform App template is one target with `SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx xros
+  xrsimulator`; the multiplatform Game template adds tvOS as a separate target ("Include tvOS Application"). One target that also lists
+  `appletvos appletvsimulator` builds and runs on a tvOS simulator, and `xcodebuild -showdestinations` lists tvOS destinations for it. Source: the template files
+  under `Xcode.app/Contents/Developer/Library/Xcode/Templates/Project Templates/MultiPlatform/`, and our build.
+- `embedAndSignAppleFrameworkForXcode` (Kotlin 2.4.20) picks the framework from the Xcode SDK: `iphonesimulator` -> `IosSimulatorArm64`,
+  `macosx` -> `MacosArm64`, `appletvsimulator` -> `TvosSimulatorArm64`, and puts it in `apple/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)`.
+  For a static framework the Xcode target needs that folder in `FRAMEWORK_SEARCH_PATHS` and `-framework Shared` in `OTHER_LDFLAGS`.
+- A framework module with no source file of its own is not linked: `link*Framework*` reports NO-SOURCE even when it exports other
+  modules, so no framework is produced. `apple/` keeps one source file for that reason. Observed in our build.
+- `xcodebuild -sdk appletvsimulator` (by SDK, without `-destination`) builds without a tvOS simulator runtime installed; running on a
+  simulator needs the runtime (`xcodebuild -downloadPlatform tvOS`, about 3.8 GB for tvOS 27.0). Observed in our build.
+- With no development team, a macOS Debug build is signed ad hoc and runs locally, with the sandbox and outgoing-network entitlements
+  from `ENABLE_APP_SANDBOX` and `ENABLE_OUTGOING_NETWORK_CONNECTIONS`. iOS and tvOS simulator builds need no team. Observed in our build.
+- tvOS app icons are a layered "App Icon & Top Shelf Image" brand asset; an iOS-style `AppIcon` set gives a build warning on tvOS.
 
 ## Swift interop
 - Swift export is Alpha; supports suspend -> async, Flow -> AsyncSequence, enums, sealed types; generics are erased; limited class/collection support.
