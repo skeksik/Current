@@ -28,7 +28,8 @@ data class EngineState(
 /** The `<video>` (+ hls.js) engine in the browser; a fake in tests. */
 interface PlayerEngine {
     val state: StateFlow<EngineState>
-    fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?)
+    /** [videoRanges]: HLS `VIDEO-RANGE`s to choose from ("SDR", "PQ", "HLG"); HDR is preferred when present. */
+    fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?, videoRanges: List<String>)
     fun play()
     fun pause()
     fun seekTo(seconds: Double)
@@ -78,6 +79,7 @@ class PlayerViewModel internal constructor(private val graph: AppGraph, private 
     private var startSeconds = 0.0
     private var artworkUrl: String? = null
     private var triedServerAfterError = false
+    private var videoRanges = listOf("SDR")
 
     init {
         if (session == null || api == null) {
@@ -113,7 +115,7 @@ class PlayerViewModel internal constructor(private val graph: AppGraph, private 
             }
         }
         engine.setMetadata(_state.value.title, _state.value.subtitle, artworkUrl)
-        source?.let { engine.load(it.url, it.isHls, startSeconds, it.subtitleUrl) }
+        source?.let { engine.load(it.url, it.isHls, startSeconds, it.subtitleUrl, videoRanges) }
     }
 
     fun detach() {
@@ -238,7 +240,8 @@ class PlayerViewModel internal constructor(private val graph: AppGraph, private 
                         subtitleIndex = next.subtitleIndex,
                     )
                 }
-                engine?.load(next.url, next.isHls, startSeconds, next.subtitleUrl)
+                videoRanges = graph.mediaSupport.await().hlsVideoRanges
+                engine?.load(next.url, next.isHls, startSeconds, next.subtitleUrl, videoRanges)
                 val old = previous?.playSessionId
                 if (previous?.isHls == true && old != null && old != next.playSessionId) graph.launchDetached { api.stopEncoding(old) }
             }.onFailure { e ->

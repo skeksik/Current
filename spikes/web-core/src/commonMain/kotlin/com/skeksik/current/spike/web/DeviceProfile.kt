@@ -27,7 +27,18 @@ data class MediaSupport(
     val nativeHls: Boolean,
     val mse: Boolean,
     val probes: Map<String, String> = emptyMap(),
-)
+) {
+    /**
+     * HLS `VIDEO-RANGE`s this device shows. For an HDR source, Jellyfin's master playlist offers the copied HDR stream (PQ) next to
+     * tone-mapped SDR variants at the same bandwidth; hls.js must be told to prefer HDR, or it picks SDR and the server tone-maps for nothing.
+     */
+    val hlsVideoRanges: List<String>
+        get() = buildList {
+            add("SDR")
+            if (ranges.values.any { "HDR10" in it }) add("PQ")
+            if (ranges.values.any { "HLG" in it }) add("HLG")
+        }
+}
 
 /** The probe table. Codec strings are the RFC 6381 forms browsers recognise; levels are high enough for 4K. */
 object BrowserProbes {

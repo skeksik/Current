@@ -27,15 +27,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FakeEngine : PlayerEngine {
-    data class Load(val url: String, val isHls: Boolean, val startSeconds: Double, val subtitleUrl: String?)
+    data class Load(val url: String, val isHls: Boolean, val startSeconds: Double, val subtitleUrl: String?, val videoRanges: List<String> = listOf("SDR"))
 
     override val state = MutableStateFlow(EngineState())
     val loads = mutableListOf<Load>()
     var fullscreenToggles = 0
     var released = false
 
-    override fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?) {
-        loads += Load(url, isHls, startSeconds, subtitleUrl)
+    override fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?, videoRanges: List<String>) {
+        loads += Load(url, isHls, startSeconds, subtitleUrl, videoRanges)
     }
 
     override fun play() = state.update { it.copy(paused = false) }

@@ -17,13 +17,15 @@ private fun hlsIsSupported(hlsClass: JsAny): Boolean = js("hlsClass.isSupported(
  * Jellyfin holds a segment request until ffmpeg has written it, so a busy or software-only transcode answers late: wait up to a minute
  * for the first byte (hls.js waits 10 s by default), and recover from network and media errors a few times before giving up.
  */
-private fun hlsAttach(hlsClass: JsAny, video: HTMLVideoElement, url: String, onFatal: (String) -> Unit): JsAny = js(
+private fun hlsAttach(hlsClass: JsAny, video: HTMLVideoElement, url: String, ranges: String, onFatal: (String) -> Unit): JsAny = js(
     """(function () {
         var slow = { maxTimeToFirstByteMs: 60000, maxLoadTimeMs: 180000,
                      timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
                      errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000 } };
+        var allowed = ranges.split(',');
         var hls = new hlsClass({ enableWorker: true, fragLoadPolicy: { default: slow }, manifestLoadPolicy: { default: slow },
-                                 playlistLoadPolicy: { default: slow } });
+                                 playlistLoadPolicy: { default: slow },
+                                 videoPreference: { preferHDR: allowed.length > 1, allowedVideoRanges: allowed } });
         var recoveries = 0;
         hls.on(hlsClass.Events.ERROR, function (event, data) {
             if (!data.fatal) return;
@@ -134,7 +136,7 @@ class HtmlVideoEngine(private val video: HTMLVideoElement, private val container
         videoListeners += type to listener
     }
 
-    override fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?) {
+    override fun load(url: String, isHls: Boolean, startSeconds: Double, subtitleUrl: String?, videoRanges: List<String>) {
         val generation = ++loadGeneration
         detachSource()
         pendingStart = startSeconds
@@ -148,7 +150,7 @@ class HtmlVideoEngine(private val video: HTMLVideoElement, private val container
             onLoaded = { hlsClass ->
                 if (generation == loadGeneration) {
                     if (hlsIsSupported(hlsClass)) {
-                        hls = hlsAttach(hlsClass, video, url) { message -> _state.update { it.copy(error = message) } }
+                        hls = hlsAttach(hlsClass, video, url, videoRanges.joinToString(",")) { message -> _state.update { it.copy(error = message) } }
                     } else {
                         video.src = url // Native HLS (Safari, iOS)
                     }

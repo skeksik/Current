@@ -113,6 +113,12 @@ class BrowserProbesTest {
     }
 
     @Test
+    fun hlsPrefersHdrVariantsOnlyWhereHdrIsShown() {
+        assertEquals(listOf("SDR"), BrowserProbes.interpret(answers("hdr10:hevc10" to "smooth")).hlsVideoRanges)
+        assertEquals(listOf("SDR", "PQ"), BrowserProbes.interpret(answers("hdr10:hevc10" to "smooth", "display:hdr" to "true")).hlsVideoRanges)
+    }
+
+    @Test
     fun resolutionAndChannelsFromProbes() {
         val s = BrowserProbes.interpret(answers("uhd:hevc" to "smooth", "uhd:av1" to "false", "channels" to "6"))
         assertEquals(setOf("hevc"), s.uhd)
