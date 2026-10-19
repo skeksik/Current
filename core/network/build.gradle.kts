@@ -32,6 +32,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":core:model"))
+            implementation(project(":core:database"))
             api(libs.ktor.clientCore)
             api(libs.koin.core)
             api(libs.kotlinx.coroutinesCore)

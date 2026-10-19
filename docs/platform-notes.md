@@ -324,6 +324,18 @@ and resolved versions from `:desktopApp:dependencies`.
     does, the `ws` stub in `webApp/vite.config.ts` applies (ADR 0011), and `@js-joda/core` has to be checked again: it may need to be
     in `webApp/package.json` and in the npm licence check.
 
+## Desktop settings storage (checked 2026-10-20 on Windows 11 with JDK 21; ADR 0016)
+- `java.util.prefs` on Windows writes under `HKCU\Software\JavaSoft\Prefs`, one key shared by every Java app (`WindowsPreferences`
+  holds the string `Software\JavaSoft\Prefs`; the key on this machine already held other vendors' nodes). Uppercase letters are
+  escaped with `/` (`/Jet/Brains.`). Limits: `MAX_KEY_LENGTH` 80, `MAX_VALUE_LENGTH` 8192, `MAX_NAME_LENGTH` 80 (`javap -constants`).
+- Not verified here (no Linux machine): that the Linux implementation writes to `~/.java/.userPrefs` and syncs on a timer. ADR 0016 uses
+  a JSON file instead, so nothing depends on it.
+- The desktop app keeps settings in `%APPDATA%\Current` on Windows and `$XDG_CONFIG_HOME/current` on Linux, falling back to
+  `~/.config/current` when the variable is unset or not an absolute path, as the XDG Base Directory specification asks
+  (https://specifications.freedesktop.org/basedir-spec/latest/).
+- A start of the desktop app with the new Koin modules created no folder: the store reads only, and writes on the first change.
+- Not verified: whether an MSIX (Microsoft Store) package redirects `%APPDATA%` writes to a per-package folder (M8, Store edition).
+
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
   configuration under `settings.gradle.kts`. All 52 Maven alerts on 2026-10-20 were build tooling: Netty from the Android Gradle

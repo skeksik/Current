@@ -11,9 +11,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.skeksik.current.core.database.databaseModule
 import com.skeksik.current.core.network.networkModule
+import com.skeksik.current.data.jellyfin.jellyfinModule
 import kotlinx.serialization.Serializable
 import org.koin.compose.KoinApplication
+import org.koin.core.module.Module
 import org.koin.dsl.koinConfiguration
 
 @Serializable
@@ -22,7 +25,8 @@ data object HomeRoute
 @Composable
 @Preview
 fun App() {
-    KoinApplication(configuration = koinConfiguration { modules(networkModule) }) {
+    val platformModules = platformModules()
+    KoinApplication(configuration = koinConfiguration { modules(platformModules + databaseModule + networkModule + jellyfinModule) }) {
         MaterialTheme {
             NavHost(rememberNavController(), startDestination = HomeRoute) {
                 composable<HomeRoute> {
@@ -34,3 +38,7 @@ fun App() {
         }
     }
 }
+
+/** Definitions only the platform can make, such as Android's application `Context`. */
+@Composable
+internal expect fun platformModules(): List<Module>

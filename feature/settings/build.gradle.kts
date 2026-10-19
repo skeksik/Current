@@ -32,6 +32,7 @@ kotlin {
         commonMain.dependencies {
             implementation(project(":core:model"))
             api(project(":core:playback"))
+            api(project(":core:network"))
             api(libs.androidx.lifecycle.viewmodel)
             api(libs.kotlinx.coroutinesCore)
         }
