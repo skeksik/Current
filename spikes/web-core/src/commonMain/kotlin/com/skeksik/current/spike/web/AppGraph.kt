@@ -2,6 +2,7 @@ package com.skeksik.current.spike.web
 
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +38,8 @@ internal data class StoredSession(
 class AppGraph(
     private val storage: KeyValueStore,
     httpEngine: HttpClientEngine,
-    val mediaSupport: MediaSupport,
+    /** Probing is asynchronous in the browser (`decodingInfo`); started at page load, awaited before the first PlaybackInfo. */
+    val mediaSupport: Deferred<MediaSupport>,
     deviceName: String = "Web browser",
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob()),
 ) {
@@ -53,7 +55,9 @@ class AppGraph(
 
     val lastServerUrl: String get() = storage.get(KEY_SERVER).orEmpty()
 
-    internal val deviceProfile = WebDeviceProfile.build(mediaSupport)
+    private var profile: DeviceProfileDto? = null
+
+    internal suspend fun deviceProfile(): DeviceProfileDto = profile ?: WebDeviceProfile.build(mediaSupport.await()).also { profile = it }
 
     internal fun api(serverUrl: String, token: String?) = JellyfinApi(http, serverUrl, clientInfo, token)
 

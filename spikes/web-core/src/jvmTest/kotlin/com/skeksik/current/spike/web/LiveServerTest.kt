@@ -27,8 +27,9 @@ class LiveServerTest {
     private data class LiveItem(val id: String, val type: String? = null, val mediaSources: List<MediaSourceDto> = emptyList())
 
     private val browsers = mapOf(
-        "Chromium-like (MKV probe passes, HEVC with hardware)" to allSupport.copy(mkv = true, hevc = true, mseHevc = true),
-        "Firefox-like (no MKV probe, no HEVC)" to allSupport.copy(mkv = false, hevc = false),
+        "Edge 155 (recorded probes)" to BrowserProbes.interpret(ProbeFixtures.edge),
+        "Chrome 155 (recorded probes)" to BrowserProbes.interpret(ProbeFixtures.chrome),
+        "Firefox-like (Chrome without MKV and HEVC; not recorded)" to BrowserProbes.interpret(ProbeFixtures.firefoxLike),
     )
 
     @Test

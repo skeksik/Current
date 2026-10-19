@@ -59,34 +59,104 @@ class AuthorizationHeaderTest {
     }
 }
 
+class BrowserProbesTest {
+    /** Answers as a browser gives them: every query unanswered ("") except the ones listed. */
+    private fun answers(vararg yes: Pair<String, String>) = BrowserProbes.queries.associate { it.id to "" } + mapOf("channels" to "2") + yes
+
+    private fun play(container: String, vararg codecs: String) = codecs.map { "play:$container:$it" to "probably" }.toTypedArray()
+
+    @Test
+    fun everyQueryHasAUniqueId() {
+        assertEquals(BrowserProbes.queries.size, BrowserProbes.queries.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun containersAndCodecsComeOnlyFromProbes() {
+        val s = BrowserProbes.interpret(answers(*play("mp4,m4v", "h264", "aac", "ac3"), "mse:h264" to "true"))
+        assertEquals(listOf(ContainerSupport("mp4,m4v", listOf("h264"), listOf("aac", "ac3"))), s.direct)
+        val withMkv = BrowserProbes.interpret(answers(*play("mp4,m4v", "h264"), *play("mkv", "h264", "opus")))
+        assertEquals(listOf("mp4,m4v", "mkv"), withMkv.direct.map { it.container })
+    }
+
+    @Test
+    fun tenBitProbesCountAsTheirCodec() {
+        val s = BrowserProbes.interpret(answers(*play("mp4,m4v", "hevc10"), "mse:hevc10" to "true", "mse:h264" to "true"))
+        assertEquals(listOf("hevc"), s.direct.single().video)
+        assertTrue("hevc" in s.tenBit)
+        assertEquals(listOf("h264", "hevc"), s.hlsVideo)
+    }
+
+    @Test
+    fun hlsCopiesWhatMseTakesAndEncodesToH264AndAac() {
+        val s = BrowserProbes.interpret(answers("mse:h264" to "true", "mse:av1" to "true", "mse:eac3" to "true", "mse:truehd" to "true", "mse:dts" to "true"))
+        assertEquals(listOf("h264", "av1"), s.hlsVideo)
+        assertEquals(listOf("aac", "eac3"), s.hlsAudio, "AAC first; TrueHD and DTS never go into HLS")
+    }
+
+    @Test
+    fun withoutMseNativeHlsUsesThePlayProbes() {
+        val s = BrowserProbes.interpret(answers("hls" to "maybe", *play("mp4,m4v", "h264", "hevc", "ac3")))
+        assertTrue(s.nativeHls)
+        assertEquals(listOf("h264", "hevc"), s.hlsVideo)
+        assertEquals(listOf("aac", "ac3"), s.hlsAudio)
+    }
+
+    @Test
+    fun hdrNeedsADecoderAndAnHdrDisplay() {
+        val decoder = arrayOf("hdr10:hevc10" to "smooth", "hlg:hevc10" to "supported")
+        assertEquals(listOf("SDR", "DOVIWithSDR"), BrowserProbes.interpret(answers(*decoder, "display:hdr" to "false")).ranges["hevc"])
+        assertEquals(
+            listOf("SDR", "DOVIWithSDR", "HDR10", "HDR10Plus", "DOVIWithHDR10", "HLG", "DOVIWithHLG"),
+            BrowserProbes.interpret(answers(*decoder, "display:hdr" to "true")).ranges["hevc"],
+        )
+        assertEquals(listOf("SDR", "DOVIWithSDR"), BrowserProbes.interpret(answers("display:hdr" to "true")).ranges["hevc"])
+    }
+
+    @Test
+    fun resolutionAndChannelsFromProbes() {
+        val s = BrowserProbes.interpret(answers("uhd:hevc" to "smooth", "uhd:av1" to "false", "channels" to "6"))
+        assertEquals(setOf("hevc"), s.uhd)
+        assertEquals(6, s.maxAudioChannels)
+        assertEquals(2, BrowserProbes.interpret(answers("channels" to "1")).maxAudioChannels)
+        assertEquals(8, BrowserProbes.interpret(answers("channels" to "32")).maxAudioChannels)
+    }
+}
+
 class WebDeviceProfileTest {
-    private fun containers(s: MediaSupport) = WebDeviceProfile.build(s).directPlayProfiles.map { it.container }
+    private val rich = allSupport.copy(
+        direct = allSupport.direct + ContainerSupport("mkv", listOf("h264", "hevc"), listOf("aac", "eac3")),
+        hlsVideo = listOf("h264", "hevc"),
+        hlsAudio = listOf("aac", "eac3"),
+        tenBit = setOf("hevc"),
+        ranges = mapOf("hevc" to listOf("SDR", "HDR10")),
+        uhd = setOf("hevc"),
+        maxAudioChannels = 6,
+    )
 
     @Test
-    fun mkvOnlyWhereTheProbePasses() {
-        assertEquals(listOf("mp4,m4v", "webm"), containers(allSupport))
-        assertEquals(listOf("mp4,m4v", "webm", "mkv"), containers(allSupport.copy(mkv = true)))
+    fun directPlayIsExactlyTheProbedContainers() {
+        val profile = WebDeviceProfile.build(rich)
+        assertEquals(listOf("mp4,m4v", "webm", "mkv"), profile.directPlayProfiles.map { it.container })
+        assertEquals("h264,hevc" to "aac,eac3", profile.directPlayProfiles.last().let { it.videoCodec to it.audioCodec })
     }
 
     @Test
-    fun neverDirectPlaysDolbyOrDtsAudio() {
-        val audio = WebDeviceProfile.build(allSupport.copy(mkv = true)).directPlayProfiles.flatMap { it.audioCodec.orEmpty().split(',') }
-        listOf("ac3", "eac3", "dts", "truehd").forEach { assertFalse(it in audio, it) }
+    fun hlsIsFmp4WithTheProbedCodecsAndChannels() {
+        val hls = WebDeviceProfile.build(rich).transcodingProfiles.single()
+        assertEquals(listOf("hls", "mp4", "h264,hevc", "aac,eac3", "6"), listOf(hls.protocol, hls.container, hls.videoCodec, hls.audioCodec, hls.maxAudioChannels))
     }
 
     @Test
-    fun onlyProbedCodecsAreOffered() {
-        val mp4 = WebDeviceProfile.build(allSupport.copy(hevc = true, av1 = false)).directPlayProfiles.first()
-        assertEquals("h264,hevc,vp9", mp4.videoCodec)
+    fun codecConditionsCarryBitDepthRangeAndResolution() {
+        val byCodec = WebDeviceProfile.build(rich).codecProfiles.associateBy { it.codec }
+        fun value(codec: String, property: String) = byCodec.getValue(codec).conditions.single { it.property == property }.value
+        assertEquals(listOf("10", "SDR|HDR10", "3840", "2160"), listOf("VideoBitDepth", "VideoRangeType", "Width", "Height").map { value("hevc", it) })
+        assertEquals(listOf("8", "SDR", "1920", "1080"), listOf("VideoBitDepth", "VideoRangeType", "Width", "Height").map { value("h264", it) })
     }
 
     @Test
-    fun transcodesToHlsAndBurnsInAssAndImageSubtitles() {
-        val profile = WebDeviceProfile.build(allSupport)
-        val hls = profile.transcodingProfiles.single()
-        assertEquals(listOf("hls", "mp4", "h264", "aac"), listOf(hls.protocol, hls.container, hls.videoCodec, hls.audioCodec))
-        assertEquals("h264,hevc", WebDeviceProfile.build(allSupport.copy(mseHevc = true)).transcodingProfiles.single().videoCodec)
-        val methods = profile.subtitleProfiles.associate { it.format to it.method }
+    fun burnsInAssAndImageSubtitles() {
+        val methods = WebDeviceProfile.build(allSupport).subtitleProfiles.associate { it.format to it.method }
         assertEquals("External", methods["vtt"])
         listOf("ass", "ssa", "pgssub", "dvdsub").forEach { assertEquals("Encode", methods[it], it) }
     }

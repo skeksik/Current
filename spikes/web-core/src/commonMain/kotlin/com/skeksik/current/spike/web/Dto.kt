@@ -106,7 +106,7 @@ internal data class DeviceProfileDto(
     val directPlayProfiles: List<DirectPlayProfileDto>,
     val transcodingProfiles: List<TranscodingProfileDto>,
     val containerProfiles: List<JsonElement> = emptyList(),
-    val codecProfiles: List<JsonElement> = emptyList(),
+    val codecProfiles: List<CodecProfileDto> = emptyList(),
     val subtitleProfiles: List<SubtitleProfileDto>,
 )
 
@@ -128,3 +128,9 @@ internal data class TranscodingProfileDto(
 
 @Serializable
 internal data class SubtitleProfileDto(val format: String, val method: String)
+
+@Serializable
+internal data class CodecProfileDto(val type: String, val codec: String, val conditions: List<ProfileConditionDto>)
+
+@Serializable
+internal data class ProfileConditionDto(val condition: String, val property: String, val value: String, val isRequired: Boolean = false)

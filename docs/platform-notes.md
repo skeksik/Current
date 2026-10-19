@@ -120,6 +120,14 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     - HEVC (Main and Main10) through MSE is true with hardware (headed browser; false in headless Chromium).
     - Edge reports AC-3 and E-AC-3 as "probably" (Windows decoders); Chromium does not.
     - `application/vnd.apple.mpegurl` is "maybe" in Chromium 156.
+    - Full probe table recorded in installed Chrome 155 and Edge 155 (headed, hardware decoding; ADR 0011, "Web playback routes"):
+      - Both: MP4/WebM/MKV with H.264 (High 10 too), HEVC Main/Main10, AV1 8/10-bit, VP9 profiles 0/2, VP8; AAC, MP3, Opus, FLAC,
+        Vorbis. No MOV or MPEG-TS through `src`, no DTS or TrueHD anywhere.
+      - MSE in fMP4: no MP3 (`mp4a.6B`).
+      - `decodingInfo` reports HDR10 (PQ) only for HEVC Main10, not AV1 10-bit or VP9 profile 2, and HLG for none.
+      - `decodingInfo` reports 2160p smooth for H.264, HEVC, AV1 and VP9.
+      - Edge adds AC-3 and E-AC-3 in `src` and MSE.
+      - Both reported `(dynamic-range: high)` false and `maxChannelCount` 2 on the owner's PC at that time.
   - hls.js loaded with `import('hls.js')` from a `js()` function works in Kotlin/JS (webpack), Kotlin/Wasm (webpack) and Vite. It
     becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
   - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the
@@ -264,6 +272,16 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     - With an fMP4 HLS transcoding profile (`Container: mp4`) whose `VideoCodec` lists `h264,hevc`, HEVC sources that need only an audio
       transcode keep their video (`TranscodeReasons=AudioCodecNotSupported`).
     - With MPEG-TS and H.264 only, they were re-encoded.
+  - Device profile conditions (checked live 2026-10-19):
+    - A `CodecProfile` condition `VideoRangeType EqualsAny SDR|...` sends HDR10 sources to a tone-mapped transcode
+      (`VideoRangeTypeNotSupported`).
+    - `Width LessThanEqual 1920` caps the transcode (`MaxWidth=1920`, `VideoResolutionNotSupported`). Codec conditions also travel
+      in the `TranscodingUrl` (`hevc-rangetype=`, `hevc-videobitdepth=`).
+  - HLS codec lists:
+    - In the fMP4 HLS profile, the first video and audio codec is what the server encodes to; any listed codec is copied when the
+      source has it. E-AC-3 was copied with `aac,ac3,eac3,...`.
+    - A source with more channels than `MaxAudioChannels` is transcoded anyway (`AudioChannelsNotSupported`).
+  - `AudioStreamIndex` is ignored without `MediaSourceId` (the server then uses the default track).
   - Subtitles:
     - ASS, with a profile listing ASS as `Encode`, came back with `DeliveryMethod: Encode` and `SubtitleMethod=Encode` in the URL
       (burn-in).

@@ -21,14 +21,66 @@ The spike built the same small app three ways on one shared Kotlin core and comp
 **Shared core** (`spikes/web-core`; `js`, `wasmJs`, and `jvm` for 29 `kotlin.test` tests and an opt-in live check), used unchanged by all three:
 - Jellyfin 12.x on Ktor 3.6.0 + kotlinx.serialization: `AuthenticateByName` with the `MediaBrowser` header and a random device id per
   browser, `/UserViews`, `/Items`, `/Items/{id}`, `PlaybackInfo`, `Sessions/Playing/Ping`, `DELETE /Videos/ActiveEncodings`.
-- The device profile is built from runtime probes (`canPlayType`, `MediaSource.isTypeSupported`):
-  - Direct play: MP4/WebM, and MKV only where its probe passes.
-  - Everything else goes to the server's HLS in fMP4 (H.264, with HEVC copied where MSE takes it; AAC). AC-3, E-AC-3, DTS and TrueHD
-    are transcoded; ASS/SSA/PGS/DVD subtitles are burned in; text subtitles come as external WebVTT.
+- The device profile is built only from runtime probes (see Web playback routes): nothing is assumed per browser.
 - The planner chooses between the direct stream URL and `TranscodingUrl`.
 - ViewModels on JetBrains `lifecycle-viewmodel` 2.11.0, one per page instance (a `ViewModelStore` cleared when the page leaves).
 - `webMain`, one source set for both `js` and `wasmJs` through `js()`: `localStorage` (token, device id), the probes, History API routing,
   a headless `<video>` + hls.js 1.7.3 engine (Media Session, fullscreen of the player container), and capture-phase player keys.
+
+## Web playback routes
+The server picks the route per title from the device profile; the profile comes only from probes run at page load
+(`BrowserProbes` in the core: a table of queries in common code, run by the page, interpreted in common code and unit-tested with answers
+recorded in real browsers).
+
+1. **Direct play.** `<video src>` plays the file with byte ranges when its container, video codec (bit depth, dynamic range, resolution)
+   and default audio codec all passed the probes. Text subtitles come as a WebVTT sidecar.
+2. **Fallback engine: none on the web.** A page can only decode with the browser's own decoders (`<video>`, MSE, WebCodecs), so a
+   JavaScript or Wasm engine could at most repackage, for example MKV into fMP4 for MSE where `src` cannot play MKV, which the server's
+   remux already does. A Wasm FFmpeg cannot decode 4K in real time and brings its own licences. hls.js is the transport for server
+   streams, not a decoder.
+3. **Remux (server).** When only the container fails, or another audio track is chosen (browsers play only a file's default track), the
+   server repackages into fMP4 HLS and copies the video and audio, as far as they are in the HLS lists (the codecs MSE takes).
+4. **Transcode (server, fMP4 HLS), only what fails:**
+   - audio to AAC (codec not decodable, or more channels than the output has);
+   - video to H.264, the first codec of the list (codec, bit depth, resolution, or HDR on a display or decoder without it: tone-mapped);
+   - ASS/SSA and image subtitles burned in, which forces a video transcode.
+   4K transcodes need hardware encoding on the server (Problems hit).
+
+If direct play fails at runtime, the controller asks once more without direct play (ADR 0007's fallback order).
+
+| Probe | API | Decides |
+|---|---|---|
+| Container × codec: MP4/M4V, WebM, MKV, MOV, MPEG-TS with H.264 (8/10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 profile 0/2, VP8; AAC, MP3, AC-3, E-AC-3, Opus, FLAC, Vorbis, ALAC, DTS, TrueHD | `canPlayType` | direct play profiles |
+| The same codecs in fMP4 | `MediaSource.isTypeSupported` | HLS copy lists: video H.264, HEVC, AV1; audio AAC, MP3, AC-3, E-AC-3, Opus, FLAC, ALAC (never DTS or TrueHD) |
+| 10-bit profiles of H.264, HEVC, AV1, VP9 | both of the above | `VideoBitDepth` ≤ 10 or 8 per codec |
+| HDR10 and HLG decoding (HEVC Main10, AV1 10-bit, VP9 profile 2) | `mediaCapabilities.decodingInfo` | `VideoRangeType` per codec, only if the display is HDR as well |
+| HDR display | `matchMedia('(dynamic-range: high)')` | without it, SDR only: the server tone-maps |
+| 2160p per codec | `decodingInfo` | `Width`/`Height` ≤ 3840×2160, otherwise 1920×1080 |
+| Output channels | `AudioContext.destination.maxChannelCount` | `MaxAudioChannels` (2–8) |
+| Native HLS | `canPlayType('application/vnd.apple.mpegurl')` | HLS lists from the play probes where there is no MSE (Safari on iOS) |
+
+Not probeable: subtitle formats (only WebVTT is native; ASS and PGS need a JavaScript renderer, otherwise burn-in) and Dolby Vision (no
+browser API). Dolby Vision with an HDR10 or SDR base layer plays as that layer (`DOVIWithHDR10`, `DOVIWithSDR`); other profiles go to
+the server.
+
+Recorded on the owner's PC (Windows 11, headed, hardware decoding; Firefox cannot be driven by Playwright):
+
+| | Chrome 155 | Edge 155 |
+|---|---|---|
+| Direct play containers | MP4, WebM, MKV (not MOV, TS) | same |
+| Video | H.264 (also 10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 0/2, VP8 | same |
+| Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 (Windows decoders) |
+| fMP4 / MSE audio | AAC, Opus, FLAC | AAC, AC-3, E-AC-3, Opus, FLAC |
+| HDR10 decoding / HLG | HEVC Main10 only / none | same |
+| HDR display | no (the display was SDR when recorded) | no |
+| 2160p | H.264, HEVC, AV1, VP9 | same |
+| Output channels | 2 | 2 |
+
+Live routes with these answers (test server, NVENC on):
+- In Edge, an MKV with HEVC and E-AC-3 plays directly.
+- The 4K HDR10 film with TrueHD/E-AC-3 plays at 4K in both browsers through server HLS, tone-mapped to SDR because the display is SDR,
+  with stereo AAC. Edge's E-AC-3 is 5.1 and the output is stereo, so it is still transcoded.
+- MKV H.264/AAC and HEVC/AAC files play directly in both. In a browser without MKV (Firefox's profile, simulated) they are remuxed.
 
 ## Comparison
 Measured on Windows 11 with Playwright 1.64.1 and its Chromium 156 (headless), against the test server (Jellyfin 12.2.0) through an API-key
@@ -155,8 +207,7 @@ Done by the owner on 2026-10-19 in Chrome, Edge and Firefox, on each of A, B and
 Also reported: in C, Back from a fullscreen player stayed fullscreen, and text was blurry when zoomed. Pages sometimes loaded for a few
 seconds. A long 4K film failed with `fragLoadTimeOut`. Causes and fixes: Problems hit and workarounds.
 
-Expected per-browser differences: Firefox has no MKV probe, so MKV goes through HLS. Edge reports AC-3/E-AC-3 as playable, but the profile
-still transcodes them. Chrome reports native HLS as "maybe", but hls.js is used wherever MSE exists.
+Expected per-browser differences: see Web playback routes (everything is probed; Firefox's answers are not recorded yet).
 
 ## Licences
 - **Shipped by a prototype**:

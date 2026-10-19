@@ -218,7 +218,7 @@ class PlayerViewModel internal constructor(private val graph: AppGraph, private 
         val previous = source
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val request = PlaybackPlanner.request(session.userId, graph.deviceProfile, newChoice, previous?.defaultAudioIndex)
+            val request = PlaybackPlanner.request(session.userId, graph.deviceProfile(), newChoice, previous?.defaultAudioIndex)
                 .let { if (forceServer) it.copy(enableDirectPlay = false) else it }
             val planned = attempt { api.playbackInfo(itemId, request) }
                 .mapCatching { info ->

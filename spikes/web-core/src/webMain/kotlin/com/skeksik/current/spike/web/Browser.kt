@@ -13,6 +13,15 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import io.ktor.client.engine.js.Js
 import kotlinx.browser.window
+import kotlinx.coroutines.async
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 class LocalStorageKeyValueStore : KeyValueStore {
     override fun get(key: String): String? = localStorage.getItem(key)
@@ -21,40 +30,44 @@ class LocalStorageKeyValueStore : KeyValueStore {
     }
 }
 
-private fun canPlayType(type: String): String = js("document.createElement('video').canPlayType(type)")
-private fun isTypeSupported(type: String): Boolean = js("typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type)")
-private fun hasMediaSource(): Boolean = js("typeof MediaSource !== 'undefined' || typeof ManagedMediaSource !== 'undefined'")
 private fun userAgent(): String = js("navigator.userAgent")
 
-/** Runtime probes, as jellyfin-web does: `canPlayType` decides direct play through `src`, `isTypeSupported` what hls.js can feed. */
-fun probeMediaSupport(): MediaSupport {
-    val probes = linkedMapOf<String, String>()
-    fun play(type: String): Boolean = canPlayType(type).also { probes["canPlayType($type)"] = it.ifEmpty { "\"\"" } }.isNotEmpty()
-    fun mse(type: String): Boolean = isTypeSupported(type).also { probes["isTypeSupported($type)"] = it.toString() }
-    val mkvPlay = play("video/x-matroska; codecs=\"avc1.640029, mp4a.40.2\"") || play("video/x-matroska")
-    mse("video/x-matroska; codecs=\"avc1.640029, mp4a.40.2\"")
-    val support = MediaSupport(
-        h264 = play("video/mp4; codecs=\"avc1.640029\""),
-        hevc = play("video/mp4; codecs=\"hvc1.1.6.L120.90\"") || play("video/mp4; codecs=\"hev1.1.6.L120.90\""),
-        av1 = play("video/mp4; codecs=\"av01.0.08M.08\""),
-        vp9 = play("video/webm; codecs=\"vp9\""),
-        vp8 = play("video/webm; codecs=\"vp8\""),
-        aac = play("audio/mp4; codecs=\"mp4a.40.2\""),
-        mp3 = play("audio/mpeg"),
-        opus = play("audio/webm; codecs=\"opus\""),
-        flac = play("audio/flac"),
-        vorbis = play("audio/webm; codecs=\"vorbis\""),
-        mkv = mkvPlay,
-        nativeHls = play("application/vnd.apple.mpegurl"),
-        mse = hasMediaSource() && mse("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\""),
-        mseHevc = mse("video/mp4; codecs=\"hvc1.1.6.L120.90\"") && mse("video/mp4; codecs=\"hvc1.2.4.L153.B0\""),
-        probes = probes,
-    )
-    mse("audio/mp4; codecs=\"ac-3\"")
-    mse("audio/mp4; codecs=\"ec-3\"")
-    play("audio/mp4; codecs=\"ac-3\"")
-    play("audio/mp4; codecs=\"ec-3\"")
-    return support.copy(probes = probes)
+/** Runs [BrowserProbes.queries] (JSON) and calls back with `{id: answer}` (JSON) once the asynchronous ones have answered. */
+private fun runProbes(queriesJson: String, onDone: (String) -> Unit): Unit = js(
+    """(function () {
+        var queries = JSON.parse(queriesJson), out = {}, pending = [], video = document.createElement('video');
+        queries.forEach(function (q) {
+            try {
+                if (q.kind === 'CanPlayType') out[q.id] = video.canPlayType(q.arg);
+                else if (q.kind === 'IsTypeSupported') out[q.id] = String(typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(q.arg));
+                else if (q.kind === 'MatchMedia') out[q.id] = String(window.matchMedia(q.arg).matches);
+                else if (q.kind === 'MaxChannels') {
+                    var Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (Ctx) { var ctx = new Ctx(); out[q.id] = String(ctx.destination.maxChannelCount); ctx.close(); } else out[q.id] = '2';
+                } else if (q.kind === 'DecodingInfo') {
+                    if (!navigator.mediaCapabilities) { out[q.id] = 'unavailable'; return; }
+                    pending.push(navigator.mediaCapabilities.decodingInfo(JSON.parse(q.arg)).then(
+                        function (r) { out[q.id] = r.supported ? (r.smooth ? 'smooth' : 'supported') : 'false'; },
+                        function () { out[q.id] = 'error'; }));
+                }
+            } catch (e) { out[q.id] = 'error'; }
+        });
+        Promise.all(pending).then(function () {
+            window.__currentProbes = out;
+            onDone(JSON.stringify(out));
+        });
+    })()""",
+)
+
+/** Every runtime probe of [BrowserProbes] (`canPlayType`, `isTypeSupported`, `decodingInfo`, `matchMedia`, the audio output). */
+suspend fun probeMediaSupport(): MediaSupport = suspendCoroutine { continuation ->
+    val queries = buildJsonArray {
+        BrowserProbes.queries.forEach { q -> add(buildJsonObject { put("id", q.id); put("kind", q.kind.name); put("arg", q.arg) }) }
+    }
+    runProbes(queries.toString()) { json ->
+        val answers = Json.parseToJsonElement(json).jsonObject.mapValues { it.value.jsonPrimitive.content }
+        continuation.resume(BrowserProbes.interpret(answers))
+    }
 }
 
 private fun browserName(): String {
@@ -106,7 +119,8 @@ class WebApp(val graph: AppGraph, val router: BrowserRouter, scope: CoroutineSco
 
     companion object {
         fun create(): WebApp {
-            val support = probeMediaSupport()
+            // Probing starts now and runs while the first pages load; the player awaits it before asking for a route.
+            val support = MainScope().async { probeMediaSupport() }
             return WebApp(AppGraph(LocalStorageKeyValueStore(), Js.create(), support, browserName()), BrowserRouter())
         }
     }

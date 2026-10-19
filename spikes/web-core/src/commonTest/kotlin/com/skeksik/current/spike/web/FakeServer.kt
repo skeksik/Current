@@ -9,6 +9,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonObject
@@ -18,10 +19,20 @@ const val SERVER = "https://jellyfin.example.org"
 const val ITEM_ID = "0123456789abcdef0123456789abcdef"
 const val USER_ID = "fedcba9876543210fedcba9876543210"
 
+/** A plain browser: MP4/WebM direct play with H.264/AV1/VP9, HLS with H.264 and AAC only, SDR, 1080p, stereo. */
 val allSupport = MediaSupport(
-    h264 = true, hevc = false, av1 = true, vp9 = true, vp8 = true,
-    aac = true, mp3 = true, opus = true, flac = true, vorbis = true,
-    mkv = false, nativeHls = false, mse = true,
+    direct = listOf(
+        ContainerSupport("mp4,m4v", listOf("h264", "av1", "vp9"), listOf("aac", "mp3", "opus", "flac")),
+        ContainerSupport("webm", listOf("vp8", "vp9", "av1"), listOf("opus", "vorbis")),
+    ),
+    hlsVideo = listOf("h264"),
+    hlsAudio = listOf("aac"),
+    tenBit = emptySet(),
+    ranges = emptyMap(),
+    uhd = emptySet(),
+    maxAudioChannels = 2,
+    nativeHls = false,
+    mse = true,
 )
 
 /** A Jellyfin stand-in: answers by path and records every request with its JSON body. */
@@ -41,7 +52,7 @@ class FakeServer(dispatcher: CoroutineDispatcher) {
     fun requestsTo(pathEnd: String) = requests.filter { it.first.url.encodedPath.endsWith(pathEnd) }
 
     fun graph(store: KeyValueStore = InMemoryKeyValueStore(), scope: CoroutineScope) =
-        AppGraph(store, engine, allSupport, "Test", scope)
+        AppGraph(store, engine, CompletableDeferred(allSupport), "Test", scope)
 }
 
 fun MockRequestHandleScope.respondJson(json: String, status: HttpStatusCode = HttpStatusCode.OK) =
