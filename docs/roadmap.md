@@ -29,11 +29,13 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
 - [x] Desktop video (2026-10-19, ADR 0010): libmpv in a native child window with a transparent Compose controls window and our own
       borderless fullscreen. The texture route works but is SDR only; vlcj not tried. Needs our own LGPL-2.1 libmpv/FFmpeg build (with
       Windows media controls)
-- [ ] Web video, candidates in order: `<video>` (+ hls.js) behind a transparent hole in the Compose canvas, video drawn by Compose through
-      the experimental WebGL render target (needs a CMP 1.13 pre-release), a plain DOM player screen. Browsers cannot direct-play AC-3/DTS
-      or show ASS/PGS, so the web device profile transcodes that audio and burns in or separately renders those subtitles
-- [ ] Web access: Jellyfin allows any origin with header auth (verified); confirm sign-in, images and video from the browser app end to end,
-      and where the token lives
+- [ ] Web UI: three prototypes with the same scope, compared side by side; the owner picks one (ADR 0011). Compose for web draws on a
+      canvas, so password managers, real links, find-in-page, translate and text selection do not work there (docs/platform-notes.md,
+      "Web UI options"). (A) Compose HTML (real DOM, Kotlin) over a shared Kotlin/JS core; (B) a TypeScript UI over the same core
+      exported to JS; (C) Compose for web (Wasm, canvas) with HTML elements patched in for inputs, links and video. Scope of each: sign-in
+      with autofill, a library grid of real links, an item page with selectable text, playback with our own controls over `<video>`
+      (+ hls.js). Browsers cannot direct-play AC-3/DTS or show ASS/PGS, so the web device profile transcodes that audio and burns in or
+      separately renders those subtitles
 - [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
 - [x] Current's own code is proprietary: no open-source licence, no LICENSE file (ADR 0009)
 - [x] Supported server versions: the latest releases only (Jellyfin 12.2 and Seerr 3.5.0 on 2026-10-18); follow new releases rather than
@@ -66,7 +68,7 @@ Done when: sign in and out of Jellyfin on Windows and in the browser, the app re
 - [ ] Engines: desktop (from the spike, ADR 0010: our LGPL-2.1 libmpv/FFmpeg build, JVM binding, window host and its follow-ups),
       web (HTML video + hls.js)
 - [ ] Player UI in Compose: transport, seek bar with chapters, track and quality menus, fullscreen, keyboard shortcuts, auto-hide
-- [ ] Media keys: Windows (if the spike found a way), Media Session API on web
+- [ ] Media keys: Windows (System Media Transport Controls, in our libmpv build per ADR 0010), Media Session API on web
 - [ ] The rest of the player feature target (ADR 0007) as far as Windows and web allow: HDR output, subtitle appearance, delay and preferred
       languages, remembered quality and zoom, a playback info overlay, a problem report with redacted logs
 - [ ] Deploy the web build (static files) behind a reverse proxy for daily use

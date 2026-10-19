@@ -111,6 +111,38 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
   Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
 
+## Web UI options (checked 2026-10-19; input for the M1 web UI spike)
+- **Compose for web draws on a canvas** (Kotlin/Wasm; Beta, while Android, iOS and desktop are Stable:
+  https://kotlinlang.org/docs/multiplatform/supported-platforms.html). What a DOM page gets for free is missing or partial:
+  - Autofill and password managers: not supported; https://youtrack.jetbrains.com/issue/CMP-9861 is open, targeted at 1.15.0. The text-input
+    epic https://youtrack.jetbrains.com/issue/CMP-10164 lists about 40 open input bugs (IME, mobile keyboards, RTL).
+  - Real links (middle-click, open in a new tab, copy link): https://youtrack.jetbrains.com/issue/CMP-9997 is open without a target version;
+    the offered alternative, `LocalUriHandler.openUri`, opens a URL and nothing more.
+  - Find-in-page: https://youtrack.jetbrains.com/issue/CMP-10215 was closed as answered (2026-08-06); the workaround is an in-app search on
+    Ctrl/Cmd+F. Browser translate: no tracking issue found; assume it does not work.
+  - Text selection: `SelectionContainer` works, with open web bugs (e.g. https://youtrack.jetbrains.com/issue/CMP-8461).
+  - Accessibility: a hidden accessibility DOM kept in sync with the canvas since 1.9
+    (https://kotlinlang.org/docs/multiplatform/whats-new-compose-190.html); the web accessibility epic
+    https://youtrack.jetbrains.com/issue/CMP-9678 is still open.
+  - HTML elements can be embedded (`HtmlElementView`), but they sit over the canvas and take its input, so Compose controls over `<video>`
+    need the transparent-hole workaround (see "Desktop and web playback").
+- **Compose HTML** (`org.jetbrains.compose.html`): the Compose runtime over real DOM elements, with a CSS-in-Kotlin DSL; no Material or
+  other ready-made components, and composables cannot be shared with Compose Multiplatform. Released with CMP (html-core 1.12.2 on
+  2026-10-15, Maven Central), Kotlin/JS only (the README calls it "not a multiplatform library"). Wasm support is in the backlog
+  (https://youtrack.jetbrains.com/issue/CMP-4461); JetBrains has said it wants to make it multiplatform, possibly source- but not
+  binary-compatible, with no timeline. `lifecycle-viewmodel` (2.11.0) has JS artifacts and `collectAsState()` comes from the Compose
+  runtime, so pages can collect shared `StateFlow`s directly; providing ViewModels in Compose HTML is untested.
+- **Kotlin/JS core under a TypeScript UI**: Kotlin/JS is Stable. `@JsExport` exports classes and objects with generated `.d.ts`
+  (https://kotlinlang.org/docs/js-project-setup.html); exporting suspend functions is Experimental since 2.3.0
+  (`-Xenable-suspend-function-exporting`, https://kotlinlang.org/docs/whatsnew23.html); `Flow`/`StateFlow` cannot be exported, so each
+  ViewModel needs a small subscribe/unsubscribe adapter; `List`/`Map` arrive as `KtList`/`KtMap` (`asJsReadonlyArrayView()`,
+  https://kotlinlang.org/docs/js-to-kotlin-interop.html); `Long` as BigInt is Experimental. Kotlin/Wasm exports are too limited for this
+  (top-level functions with primitives, strings and opaque references only: https://kotlinlang.org/docs/wasm-js-interop.html).
+- **Libraries with JS artifacts** (Maven Central, 2026-10-19): Ktor client 3.6.0 (`ktor-client-js` engine), kotlinx.serialization,
+  kotlinx.coroutines 1.11.0, Koin 4.2.2, JetBrains lifecycle-viewmodel 2.11.0; all also publish wasm-js.
+- **Other Kotlin DOM toolkits**: Kobweb (Apache-2.0, on Compose HTML, pre-1.0: https://github.com/varabyte/kobweb), KVision (MIT, JS only:
+  https://github.com/rjaros/kvision).
+
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
   its own files only; LGPL-2.1/3.0 the library's source and our changes, and users must be able to relink (a replaceable dynamic library, or
