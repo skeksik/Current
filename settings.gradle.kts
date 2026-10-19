@@ -55,3 +55,6 @@ include(":feature:player")
 include(":feature:settings")
 
 include(":apple")
+
+// Spike prototype (spike/desktop-video), not used by the app; removed before the PR
+include(":spikes:desktop-video")

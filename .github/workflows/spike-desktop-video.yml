@@ -1,0 +1,96 @@
+# Spike only (spike/desktop-video): runs the desktop video prototype's self-test on Windows. Removed with the prototype.
+name: Spike desktop video
+
+on:
+  push:
+    branches: [spike/desktop-video]
+    paths: ['spikes/desktop-video/**', '.github/workflows/spike-desktop-video.yml']
+  workflow_dispatch:
+
+jobs:
+  media:
+    name: Test media
+    runs-on: windows-latest
+    steps:
+      - name: Make a 30 s 1080p60 HEVC 10-bit file with two audio tracks and ASS subtitles
+        shell: pwsh
+        run: |
+          choco install ffmpeg -y --no-progress | Out-Null
+          New-Item -ItemType Directory -Force media | Out-Null
+          @"
+          [Script Info]
+          ScriptType: v4.00+
+          PlayResX: 1920
+          PlayResY: 1080
+
+          [V4+ Styles]
+          Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+          Style: Default,Arial,64,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,30,30,60,1
+
+          [Events]
+          Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+          Dialogue: 0,0:00:00.50,0:00:15.00,Default,,0,0,0,,{\pos(960,300)\frz10}Styled ASS line
+          Dialogue: 0,0:00:15.00,0:00:30.00,Default,,0,0,0,,Second line
+          "@ | Set-Content -Encoding utf8 media\subs.ass
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=1920x1080:rate=60 `
+            -f lavfi -i "sine=frequency=440:sample_rate=48000" -f lavfi -i "sine=frequency=880:sample_rate=48000" -i media\subs.ass `
+            -t 30 -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -x265-params log-level=error `
+            -c:a:0 ac3 -c:a:1 aac -c:s ass -metadata:s:a:0 language=eng -metadata:s:a:1 language=deu media\test.mkv
+          Get-Item media\test.mkv | Format-List Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-media
+          path: media/test.mkv
+          retention-days: 3
+
+  selftest:
+    name: Self-test (${{ matrix.name }})
+    needs: media
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            props: ''
+          - name: mpv-opengl
+            props: '"-Pspike.gpuApi=opengl" "-Pspike.vo=gpu"'
+          - name: no-controls-window
+            props: '"-Pspike.controlsWindow=false"'
+          - name: mpv-own-window
+            props: '"-Pspike.embed=false"'
+          - name: compose-opengl
+            props: '"-PskikoRenderApi=OPENGL"'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-media
+          path: ${{ runner.temp }}/media
+      - name: Run the self-test
+        shell: pwsh
+        # PowerShell splits an unquoted -Pspike.x=y at the dot, so every -P argument is quoted.
+        run: |
+          .\gradlew.bat :spikes:desktop-video:run "-Pspike.source=${{ runner.temp }}\media\test.mkv" "-Pspike.selfTest=true" ${{ matrix.props }} --console=plain
+      - name: Show the spike's logs
+        if: always()
+        shell: pwsh
+        run: |
+          $out = "spikes\desktop-video\build\spike-out"
+          if (-not (Test-Path $out)) { "No spike-out folder: the app did not start."; exit 0 }
+          Get-ChildItem $out | Format-Table Name, Length
+          foreach ($f in Get-ChildItem $out -Filter "crash-*.txt") { "===== $($f.Name)"; Get-Content $f.FullName }
+          foreach ($f in Get-ChildItem $out -Filter "hs_err_pid*.log") { "===== $($f.Name) (first 120 lines)"; Get-Content $f.FullName -TotalCount 120 }
+          foreach ($f in Get-ChildItem $out -Filter "mpv-*.log") { "===== $($f.Name) (last 150 lines)"; Get-Content $f.FullName -Tail 150 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-out-${{ matrix.name }}
+          path: spikes/desktop-video/build/spike-out
+          retention-days: 7
