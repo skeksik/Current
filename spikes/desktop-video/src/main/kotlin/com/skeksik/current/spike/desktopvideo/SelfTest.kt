@@ -11,6 +11,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import kotlinx.coroutines.delay
 import java.awt.Rectangle
+import java.awt.Point
 import java.awt.Robot
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
@@ -224,6 +225,46 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
                     "position %.1f -> %.1f".format(beforeSpace.second, afterSpace.positionSeconds),
             )
             if (afterSpace.paused) p.togglePause()
+            delay(500)
+        }
+        step("drag-resize") {
+            // A real resize through the window's border with the mouse (Windows' modal sizing loop), checked half way and after.
+            val frame = GeometryProbe.frame ?: return@step
+            val robot = Robot().apply { autoDelay = 0 }
+            val b = frame.bounds
+            val start = Point(b.x + b.width - 3, b.y + b.height - 3) // inside the invisible resize border, bottom right
+            robot.mouseMove(start.x, start.y)
+            delay(300)
+            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK)
+            for (i in 1..30) {
+                robot.mouseMove(start.x - i * 10, start.y - i * 5)
+                delay(30)
+                if (i == 15) {
+                    delay(400)
+                    GeometryProbe.dump("drag-resize half way (mouse still down)")
+                    Diagnostics.event("[selftest] drag-resize half way: content ${overlay.contentSizePx}")
+                }
+            }
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK)
+            delay(1_000)
+            GeometryProbe.dump("after drag-resize")
+            Diagnostics.event("[selftest] drag-resize: frame ${b.width}x${b.height} -> ${frame.width}x${frame.height}, content ${overlay.contentSizePx}")
+            screenshot("07-drag-resized")
+            windowState.size = DpSize(1280.dp, 720.dp)
+            delay(800)
+        }
+        step("H mode, pointer still") {
+            // The pointer rests over the video while the controls window hides: it must stay hidden.
+            val dialog = GeometryProbe.dialog ?: return@step
+            val b = dialog.bounds
+            Robot().mouseMove(b.x + b.width / 2, b.y + b.height / 3)
+            overlay.hideWindowWhenIdle = true
+            overlay.activity()
+            val shows = overlay.windowShows
+            delay(8_000)
+            Diagnostics.event("[selftest] H mode: controls window visible=${dialog.isVisible} after 8 s, shown again ${overlay.windowShows - shows} times")
+            overlay.hideWindowWhenIdle = false
+            overlay.activity()
             delay(500)
         }
         step("report") {

@@ -58,6 +58,24 @@ class OverlayState {
     @Volatile var misalignedSamples = 0
     @Volatile var alignmentSamples = 0
 
+    /** Size Compose laid the controls out for, in pixels, to check it against the window it is in. */
+    @Volatile var contentSizePx: androidx.compose.ui.unit.IntSize? = null
+
+    /** How often the controls window was shown again after hiding (H mode). */
+    @Volatile var windowShows = 0
+    private var lastPointer: Point? = null
+
+    /**
+     * Activity only when the pointer really moved: hiding the controls window makes Windows send a mouse move to the window
+     * below even though the cursor stands still, which would bring the controls straight back.
+     */
+    fun pointerMoved() {
+        val now = java.awt.MouseInfo.getPointerInfo()?.location ?: return
+        val last = lastPointer
+        lastPointer = now
+        if (last == null || kotlin.math.abs(now.x - last.x) > 1 || kotlin.math.abs(now.y - last.y) > 1) activity()
+    }
+
     fun activity() {
         lastActivity = System.nanoTime()
     }
@@ -262,10 +280,16 @@ private fun ControlsWindow(
         }
     }
 
+    // The frame's content area: AWT resizes it at once, while the canvas follows only after Compose's next layout (and came out
+    // 2 px taller at 150 %, so a window on the canvas covered the frame's bottom border).
+    val area: Component = owner.contentPane
+
     fun follow() {
-        if (!anchor.isShowing) return
-        val p: Point = anchor.locationOnScreen
-        dialog.setBounds(p.x, p.y, anchor.width, anchor.height)
+        if (!area.isShowing) return
+        val p: Point = area.locationOnScreen
+        dialog.setBounds(p.x, p.y, area.width, area.height)
+        // Lay the Compose content out for the new size now; without it the content kept the old size during a drag-resize.
+        dialog.validate()
     }
 
     DisposableEffect(dialog, anchor) {
@@ -277,6 +301,7 @@ private fun ControlsWindow(
             override fun componentShown(e: ComponentEvent) = follow()
         }
         owner.addComponentListener(listener)
+        area.addComponentListener(listener)
         anchor.addComponentListener(listener)
         follow()
         GeometryProbe.dialog = dialog
@@ -284,6 +309,7 @@ private fun ControlsWindow(
         Diagnostics.event("controls window: shown")
         onDispose {
             owner.removeComponentListener(listener)
+            area.removeComponentListener(listener)
             anchor.removeComponentListener(listener)
             dialog.dispose()
             Diagnostics.event("controls window: disposed")
@@ -296,12 +322,16 @@ private fun ControlsWindow(
         var misalignedSince = 0L
         while (true) {
             delay(250)
-            if (!anchor.isShowing || !dialog.isVisible) continue
-            val p = anchor.locationOnScreen
-            val canvas = Rectangle(p.x, p.y, anchor.width, anchor.height)
-            val canvasNative = nativeRect(anchor)
+            if (!area.isShowing || !dialog.isVisible) continue
+            val p = area.locationOnScreen
+            val canvas = Rectangle(p.x, p.y, area.width, area.height)
+            val canvasNative = null as Rectangle?
             val dialogNative = nativeRect(dialog)
-            val aligned = dialog.bounds == canvas && (canvasNative == null || canvasNative == dialogNative)
+            val content = overlay.contentSizePx
+            val contentFits = content == null || dialogNative == null ||
+                (kotlin.math.abs(content.width - dialogNative.width) <= 1 && kotlin.math.abs(content.height - dialogNative.height) <= 1)
+            if (!contentFits) Diagnostics.event("controls content laid out for ${content?.width}x${content?.height}, window is ${dialogNative?.width}x${dialogNative?.height}")
+            val aligned = dialog.bounds == canvas && contentFits
             overlay.alignmentSamples++
             if (!aligned) {
                 overlay.misalignedSamples++
@@ -322,6 +352,7 @@ private fun ControlsWindow(
     LaunchedEffect(dialog) {
         snapshotFlow { overlay.controlsVisible || !overlay.hideWindowWhenIdle }.collect { show ->
             if (show) follow()
+            if (show && !dialog.isVisible) overlay.windowShows++
             dialog.isVisible = show
         }
     }
@@ -338,7 +369,7 @@ class VideoCanvas(
         background = java.awt.Color.BLACK
         // Only reached when the controls window is hidden (and if mpv's disabled child window passes the mouse on).
         val mouse = object : MouseAdapter() {
-            override fun mouseMoved(e: MouseEvent) = overlay.activity()
+            override fun mouseMoved(e: MouseEvent) = overlay.pointerMoved()
             override fun mouseClicked(e: MouseEvent) {
                 overlay.activity()
                 if (e.clickCount == 2) onDoubleClick()

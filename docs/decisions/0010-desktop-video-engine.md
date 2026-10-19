@@ -40,6 +40,12 @@ each with a fix the spike tried:
   (`detectTapGestures` with `onDoubleTap` delays every single tap by the double-tap timeout).
 - **The controls window is not resizable** (an undecorated dialog keeps resize borders) and is clipped to Windows 11's rounded bottom
   corners while floating.
+- **The controls window follows the frame's content area, not the canvas**, and is validated after every `setBounds`. AWT resizes the
+  content area at once, while the canvas follows after Compose's next layout and came out 2 px taller at 150 % (covering the frame's
+  bottom border). Without `validate()` the Compose content kept its old size during a drag-resize; with it, half way through a real
+  mouse drag the window and its content were both 1674×912 px.
+- **Idle hiding ignores pointer moves that did not move**: hiding the controls window makes Windows send a mouse move to the window
+  below, which brought the controls straight back in a loop.
 
 The engine is libmpv in-process (JNA in the spike) behind `PlayerEngine`; the window host (video window, canvas, controls window,
 borderless fullscreen) is desktop-specific; the controls stay ordinary Compose code in `composeUi`.
@@ -114,8 +120,19 @@ seeks), each with what the current prototype does about it:
 | Slightly different tones from VLC (HDR film, Windows HDR on) | not established. mpv tone-maps to the peak it reads for the display (390 nits here); VLC may leave that to the display | compare with `-Pspike.mpvOptions=target-peak=<display peak>` and with a reference player before tuning |
 | Media keys do not work | no `win32-smtc` in this libmpv | expected; needs our own build |
 
-Still open by hand: Windows HDR off; audio switching by ear; Alt+Tab, taskbar and title bar state with two windows; dragging and
-edge-resizing by mouse; the items marked "to re-check". Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.
+Second round, 2026-10-19, on the current prototype:
+
+| Reported | Cause | Now |
+|----------|-------|-----|
+| Audio switching | | works correctly by ear |
+| Overlay still shades the window's bottom border | the controls window followed the canvas, 2 px taller than the content area | follows the content area |
+| Controls do not resize with a drag-resize (content cut off at the right) | the dialog's bounds changed, its Compose content was not laid out again | `validate()` after `setBounds`; self-test drag through the real border: content matches half way and after |
+| H mode: controls keep coming back while the pointer rests on the video | synthetic mouse move after hiding counted as activity | only real pointer movement counts; self-test: hidden after 8 s with the pointer still (shown once again early on) |
+| Seeks are accurate but lag when pressed repeatedly | each `exact` seek decodes from the previous keyframe; over Jellyfin a seek took about 0.6 s (overlay) and repeated presses queue | engine tuning for M2: keyframe seeks while a key repeats, an exact seek when it stops |
+| Windows HDR off: VLC much brighter | mpv tone-maps to SDR with a 203-nit target (`bt.709/gamma2.2/203` in the overlay); VLC's mapping differs. Which is closer to the master is not known | needs a reference (the film's SDR release, or the OS player) before tuning `target-peak`, `tone-mapping`, `hdr-contrast-recovery` |
+
+Still open by hand: Alt+Tab, taskbar and title bar state with two windows; clicking outside borderless fullscreen; the tone comparisons
+against a reference. Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.
 
 ## Prototype
 `spikes/desktop-video` on branch `spike/desktop-video`, deleted before merging; this ADR and docs/platform-notes.md are what remains.

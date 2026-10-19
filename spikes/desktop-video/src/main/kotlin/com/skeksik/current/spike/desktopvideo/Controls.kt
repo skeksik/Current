@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -77,7 +78,8 @@ fun PlayerControls(
                 // mouse moves over the video reach us instead of falling through to the video window.
                 .background(Color.Black.copy(alpha = 1f / 255f))
                 .pointerHoverIcon(if (overlay.controlsVisible) PointerIcon.Default else PointerIcon(blankCursor))
-                .onPointerEvent(PointerEventType.Move) { overlay.activity() }
+                .onPointerEvent(PointerEventType.Move) { overlay.pointerMoved() }
+                .onSizeChanged { overlay.contentSizePx = it }
                 .pointerInput(player) {
                     var lastPress = 0L
                     awaitEachGesture {

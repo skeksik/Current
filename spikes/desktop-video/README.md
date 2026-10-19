@@ -68,7 +68,8 @@ A next audio track, S next subtitle (then off), I stats overlay, H "hide the con
 other monitor and comes back, maximizes, goes fullscreen and back, switches every audio and subtitle track, seeks,
 hides the controls window, pauses and resumes, then drives real mouse and keyboard input through `java.awt.Robot`
 (click to pause, double click for fullscreen, Esc, Right arrow with the seek bar focused, Space with a button
-focused: do not touch the mouse or keyboard meanwhile), then exits 0 (pass), 2 (a step failed), 3 (an exception) or 4 (hung).
+focused, a drag-resize through the window's border, H mode with the pointer still: do not touch the mouse or keyboard
+meanwhile), then exits 0 (pass), 2 (a step failed), 3 (an exception) or 4 (hung).
 After each step it logs the geometry of the frame, the video canvas and the controls window as AWT and Win32 see them,
 and it takes full-screen screenshots (`selftest-*.png`: they show everything on your screen, keep them private).
 
@@ -94,7 +95,7 @@ play, and whether the app registers with Windows' media controls.
 | 7 | Fullscreen (borderless, the default) | F / double-click / Esc: taskbar hidden? Controls on top? Click another monitor or Alt+Tab away and back: does the player stay fullscreen, without lag? |
 | 8 | H mode | press H, wait 3 s: the controls window disappears and fullscreen stays on; does moving the mouse over the video bring the controls back? |
 | 10 | Seeking and keys | seek bar drag, ← →, −10 s / +30 s, Space after clicking a button: one seek per action, to the expected time? Click on the video: pauses at once? |
-| 11 | Tones vs another player | HDR film with Windows HDR on, same frame in both; then again with `"-Pspike.mpvOptions=target-peak=<your display's peak nits>"` |
+| 11 | Tones vs another player | HDR film, same frame in both, against a reference (the film's SDR release, or the OS player); then with mpv options: in the launcher's "Extra mpv options" field type only `target-peak=400` (or `tone-mapping=bt.2390`, `hdr-contrast-recovery=0.3`); on the command line `"-Pspike.mpvOptions=target-peak=400"` |
 | 9 | Candidate 1 for comparison | `-Pspike.engine=texture` with the same files: same smoothness? HDR tone-mapped as expected |
 
 ## Headless smoke test (any OS with a system libmpv)

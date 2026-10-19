@@ -97,6 +97,7 @@ object GeometryProbe {
         Diagnostics.event(
             "geometry $tag: frame awt=${f?.bounds.s()} native=${f?.let(::nativeRect).s()} " +
                 "scale=${f?.graphicsConfiguration?.defaultTransform?.scaleX} state=${(f as? java.awt.Frame)?.extendedState}; " +
+                "content area=${(f as? javax.swing.JFrame)?.contentPane?.takeIf { it.isShowing }?.let { Rectangle(it.locationOnScreen, it.size) }.s()}; " +
                 "canvas awt=${canvasScreen.s()} native=${c?.let(::nativeRect).s()}; " +
                 "dialog awt=${d?.bounds.s()} native=${d?.let(::nativeRect).s()} visible=${d?.isVisible}; " +
                 "mpv osd=${player?.getString("osd-width")}x${player?.getString("osd-height")}",
