@@ -187,3 +187,29 @@ class HtmlVideoEngine(private val video: HTMLVideoElement, private val container
         video.load()
     }
 }
+
+private fun addKeyListeners(onKey: (String) -> Boolean): JsAny = js(
+    """(function () {
+        function typing(e) { var t = e.target; return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && t.type !== 'range'); }
+        var handled = {};
+        function down(e) {
+            if (e.ctrlKey || e.metaKey || e.altKey || typing(e)) return;
+            if (onKey(e.key)) { e.preventDefault(); e.stopPropagation(); handled[e.key] = true; }
+        }
+        function up(e) { if (handled[e.key]) { e.preventDefault(); e.stopPropagation(); delete handled[e.key]; } }
+        document.addEventListener('keydown', down, true);
+        document.addEventListener('keyup', up, true);
+        return function () { document.removeEventListener('keydown', down, true); document.removeEventListener('keyup', up, true); };
+    })()""",
+)
+
+private fun callDispose(dispose: JsAny): Unit = js("dispose()")
+
+/**
+ * Player shortcuts for the whole page, in the capture phase: a focused button (Space) or seek bar (arrows) never handles the same key
+ * again (ADR 0010). Typing in text fields is left alone. Close the result to remove the listeners.
+ */
+fun attachPlayerKeys(viewModel: PlayerViewModel): AutoCloseable {
+    val dispose = addKeyListeners { key -> viewModel.onKey(key) }
+    return AutoCloseable { callDispose(dispose) }
+}
