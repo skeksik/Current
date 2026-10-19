@@ -1,9 +1,15 @@
+import Shared
 import SwiftUI
 
-// Placeholder. The Kotlin framework ("Shared", built by the :apple module) is already
-// embedded by the build phase; `import Shared` once there is something to call.
+// Placeholder until the first screen. The footnote reads a type from the Kotlin core, which proves the
+// "Shared" framework (built by the :apple module) is linked on every Apple platform.
 struct ContentView: View {
     var body: some View {
-        Text("Current")
+        VStack(spacing: 8) {
+            Text("Current")
+            Text("Kotlin core: \(String(describing: VideoRanges.self))")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 }
