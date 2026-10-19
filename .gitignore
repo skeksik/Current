@@ -21,3 +21,6 @@ node_modules/
 *.jks
 *.keystore
 .env
+
+# Local Xcode signing settings (team ID, bundle ID override)
+appleApp/Configuration/Local.xcconfig

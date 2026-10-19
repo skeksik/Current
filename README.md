@@ -12,7 +12,7 @@ Every service is optional: the app works with whichever of them you run.
 - JDK 21 (any JDK 17+ works for Gradle)
 - Android Studio or IntelliJ IDEA with the Kotlin Multiplatform plugin
 - Android SDK (API 37) for Android
-- A Mac with Xcode 26 for the Apple apps (open `iosApp/iosApp.xcodeproj`)
+- A Mac with Xcode 26 or newer for the Apple apps (open `appleApp/Current.xcodeproj`; checked with Xcode 27.1)
 - Node.js 22 or newer (npm) for the web app
 
 ## Run
