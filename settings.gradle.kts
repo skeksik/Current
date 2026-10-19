@@ -34,7 +34,6 @@ plugins {
 include(":androidApp")
 include(":desktopApp")
 include(":shared")
-include(":webApp")
 
 include(":composeUi")
 
@@ -55,3 +54,4 @@ include(":feature:player")
 include(":feature:settings")
 
 include(":apple")
+include(":web")
