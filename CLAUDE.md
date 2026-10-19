@@ -85,8 +85,8 @@ The player UI is always the app's own (custom controls). Engines are headless: t
 Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
-The module tree and build files exist; sources are empty except `shared` (a placeholder `App()` showing "Current"), the platform shells (the
-SwiftUI placeholder reads one `Shared` type to prove the framework links), the
+The module tree and build files exist; sources are empty except `core:model` (ADR 0013), `shared` (a placeholder `App()` showing
+"Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the framework links), the
 browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 

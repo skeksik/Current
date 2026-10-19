@@ -1,6 +1,7 @@
 # Architecture
 
-> Status: module tree and build files exist; sources are empty. None of the classes named here exist yet.
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the web probes and device profile, the `web`
+> facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
 One Kotlin core shared by every platform. Three UI codebases: SwiftUI on Apple (iOS, macOS, tvOS; ADR 0006), Compose Multiplatform on
@@ -42,7 +43,7 @@ Dependencies point down. Features never import each other. Core never imports an
 ## Modules
 | Module | Responsibility |
 |---|---|
-| `core:model` | Domain models: media identity (service + id), open media kinds, artwork with aspect ratio, users, permissions, request status |
+| `core:model` | Domain models (ADR 0013): media identity (server + id), open values for services, media kinds, image types and permissions, artwork with aspect ratio and blurhash, users. Request status comes with Seerr requests (M3) |
 | `core:network` | `HttpClient` factory per service, server configuration, error model, log redaction |
 | `core:database` | Cache. Web persistence is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
