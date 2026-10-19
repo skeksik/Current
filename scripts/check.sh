@@ -28,10 +28,10 @@ else
 fi
 
 if [ "$(uname)" = "Darwin" ]; then
-  echo "==> Apple frameworks (iOS, macOS, tvOS)"
-  ./gradlew :apple:linkDebugFrameworkIosSimulatorArm64 :apple:linkDebugFrameworkMacosArm64 :apple:linkDebugFrameworkTvosSimulatorArm64
+  echo "==> Apple app (iOS simulator, macOS, tvOS simulator; unsigned)"
+  ./scripts/build-apple-app.sh
 else
-  echo "==> Skipping Apple frameworks (macOS only)"
+  echo "==> Skipping Apple app (macOS only)"
 fi
 
 echo "All checks passed."

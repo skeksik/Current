@@ -48,7 +48,7 @@ jobs:
       - run: ./gradlew jvmTest :desktopApp:classes
 
   macos:
-    name: Apple frameworks (macOS)
+    name: Apple apps (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,4 +57,6 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :apple:linkDebugFrameworkIosSimulatorArm64 :apple:linkDebugFrameworkMacosArm64 :apple:linkDebugFrameworkTvosSimulatorArm64
+      - run: xcodebuild -version
+      # Unsigned app builds for iOS simulator, macOS and tvOS simulator. Each one's build phase links the Shared framework for its SDK.
+      - run: ./scripts/build-apple-app.sh
