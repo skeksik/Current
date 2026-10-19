@@ -83,6 +83,8 @@ Plan (docs/roadmap.md): Windows desktop and web first; the first usable version 
 - Branch names are `<type>/<topic>`. Type: `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `chore`, or `spike` (an experiment whose PR
   carries only its ADR or notes). Topic: a few lowercase words joined by hyphens, e.g. `feat/jellyfin-sign-in`, `spike/desktop-video`.
 - Commit messages: imperative, short subject, optional body explaining why. No `Co-Authored-By`, `Claude-Session` or "Generated with Claude Code" lines in commits or PR descriptions; commits are authored by the repo owner only.
+- Author and committer of every commit: `skeksik <personal@skeksik.com>`, whatever the local git config says (in a fresh environment,
+  `git config user.name skeksik` and `git config user.email personal@skeksik.com` before the first commit).
 - Before a PR run `./scripts/check.sh` and report failures honestly. State what was not verified (e.g. "Apple targets not built on this machine").
 - Record architectural decisions as short ADRs in `docs/decisions/`.
 
