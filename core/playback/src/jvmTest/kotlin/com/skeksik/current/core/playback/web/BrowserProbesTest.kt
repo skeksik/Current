@@ -130,9 +130,38 @@ class BrowserProbesTest {
     @Test
     fun noFixtureDecodesDolbyVisionItself() {
         for (s in listOf(chrome, edge, firefox, safari)) {
-            assertFalse("DOVI" in s.ranges.getValue("hevc"))
-            assertFalse("DOVIWithHDR10Plus" in s.ranges.getValue("hevc"))
+            for (codec in listOf("hevc", "av1")) {
+                assertFalse("DOVI" in s.ranges.getValue(codec))
+                assertFalse("DOVIWithEL" in s.ranges.getValue(codec))
+            }
         }
+    }
+
+    @Test
+    fun dolbyVisionWithAnHdr10OrHdr10PlusBaseLayerPlaysAsHdr10WhereHdr10Does() {
+        for (s in listOf(chrome, edge)) {
+            assertTrue(s.ranges.getValue("hevc").containsAll(listOf("DOVIWithHDR10", "DOVIWithHDR10Plus")))
+        }
+        for (s in listOf(firefox, safari)) assertFalse("DOVIWithHDR10Plus" in s.ranges.getValue("hevc"))
+    }
+
+    @Test
+    fun canPlayTypeAloneIsEnoughForDolbyVision() {
+        val safariOnHdr = Fixtures.answers(Fixtures.SAFARI) + ("display:hdr" to "true")
+        val hevc = BrowserProbes.interpret(safariOnHdr + ("dovi5:hevc#2" to "probably")).ranges.getValue("hevc")
+        assertTrue("DOVI" in hevc)
+        // An empty `canPlayType` answer, as Chromium gives for every Dolby Vision string, is a no.
+        val none = BrowserProbes.interpret(safariOnHdr + ("dovi5:hevc#2" to "") + ("dovi8:hevc#2" to "")).ranges.getValue("hevc")
+        assertFalse("DOVI" in none)
+    }
+
+    @Test
+    fun av1DolbyVisionProfile10IsProbedOnItsOwn() {
+        val answers = mapOf("display:hdr" to "true", "dovi10:av1#2" to "probably")
+        val support = BrowserProbes.interpret(answers)
+        assertTrue(support.ranges.getValue("av1").containsAll(listOf("DOVI", "DOVIWithHDR10", "DOVIWithHLG")))
+        assertFalse("DOVI" in support.ranges.getValue("hevc"))
+        assertEquals(listOf("SDR", "PQ", "HLG"), support.hlsVideoRanges)
     }
 
     @Test
@@ -178,7 +207,10 @@ class WebDeviceProfileTest {
         assertEquals(listOf("h264", "hevc", "av1"), chrome.transcoding.single().videoCodecs)
         assertEquals("aac", chrome.transcoding.single().audioCodecs.first())
         assertEquals(2, chrome.transcoding.single().maxAudioChannels)
-        assertEquals("SDR|DOVIWithSDR|HDR10|HDR10Plus|DOVIWithHDR10", chrome.condition("hevc", Property.VideoRangeType))
+        assertEquals(
+            "SDR|DOVIWithSDR|HDR10|HDR10Plus|DOVIWithHDR10|DOVIWithHDR10Plus",
+            chrome.condition("hevc", Property.VideoRangeType),
+        )
         assertEquals("10", chrome.condition("hevc", Property.VideoBitDepth))
         assertEquals("3840", chrome.condition("hevc", Property.Width))
         assertEquals("2160", chrome.condition("hevc", Property.Height))

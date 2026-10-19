@@ -238,6 +238,21 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   - JetBrains `lifecycle-viewmodel` 2.11.0's `viewModelScope` needs a main dispatcher, which plain JVM tests lack ("Module with the
     Main dispatcher is missing"), so ViewModels take an optional scope for tests instead of adding `kotlinx-coroutines-test`.
   - The browser pane's Chromium answered "false" to both Dolby Vision probes (`dvh1.05.06`, `dvh1.08.06`) through `decodingInfo`.
+    Chromium 152 also gave an empty `canPlayType` and a false `MediaSource.isTypeSupported` for `dvh1.05.06`, `dvh1.08.06`,
+    `dvhe.05.06` and `dav1.10.06`, so the `canPlayType` spelling of the Dolby Vision probes cannot turn Dolby Vision on in Chrome.
+- Jellyfin 12.2's range types (source at tag v12.2: `MediaStream.GetVideoColorRange`, `ConditionProcessor`):
+  - Dolby Vision is labelled by profile and base layer:
+    - profile 5 → `DOVI`;
+    - profile 8 → `DOVIWithHDR10`, `DOVIWithSDR` or `DOVIWithHLG`, and `DOVIWithHDR10Plus` when the HDR10 base layer carries HDR10+;
+    - profile 7 → `DOVIWithEL` or `DOVIWithELHDR10Plus`;
+    - profile 10 (AV1) → `DOVI` or the same `DOVIWith*` types;
+    - out-of-spec files → `DOVIInvalid`;
+    - profiles 4 and 9, and anything else, count as plain SDR.
+  - Condition matching accepts `HDR10Plus` wherever `HDR10` is allowed, and no other substitution, so each `DOVIWith*` type must be
+    listed to be accepted.
+  - Jellyfin's own web client probes Dolby Vision with `canPlayType` (`dvh1.05.06`, `dvh1.08.06`, `dav1.10.06`). It advertises base-layer
+    playback (`DOVIWithHDR10` and the like) without a Dolby Vision decoder only on Tizen, VIDAA and webOS TVs, and profile 7 only on webOS.
+  - `VideoRanges.rangeTypes` in `core:playback` applies this for every engine, from per-codec facts each engine fills in.
 
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
@@ -381,6 +396,10 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
 - Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
   used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
+- Dolby Vision's base layer in browsers without Dolby Vision. The web profile accepts `DOVIWithHDR10`, `DOVIWithHDR10Plus`,
+  `DOVIWithSDR` and (with HLG) `DOVIWithHLG` everywhere, as ADR 0011 assumes, but no Dolby Vision file was ever played in a browser.
+  Check profile 8.1 in Chrome as MKV and as MP4, the latter with a `dvh1`/`dvhe` sample entry as well as `hvc1`. If one fails, turn
+  `baseLayerFallback` off for the web or add a `VideoCodecTag` condition.
 - Firefox playback was checked only by hand (Playwright cannot drive a stock Firefox); the ADR 0011 hand checks are recorded there.
 - Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine; HTML video: ADR 0011), and how they cope with Stash's 302-to-login and mislabelled mime types.
 - Compose Multiplatform web accessibility with a real screen reader. The accessibility docs page does not cover web. The web spike saw

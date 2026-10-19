@@ -45,7 +45,7 @@ Dependencies point down. Features never import each other. Core never imports an
 | `core:model` | Domain models: media identity (service + id), open media kinds, artwork with aspect ratio, users, permissions, request status |
 | `core:network` | `HttpClient` factory per service, server configuration, error model, log redaction |
 | `core:database` | Cache. Web persistence is open (ADR 0004) |
-| `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`; the browser probes and web device profile (`web` package, runner in `jsMain`) |
+| `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
 | `core:designsystem` | Compose theme and components (Android/desktop) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |

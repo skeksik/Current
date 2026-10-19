@@ -1,5 +1,8 @@
 package com.skeksik.current.core.playback.web
 
+import com.skeksik.current.core.playback.RangeSupport
+import com.skeksik.current.core.playback.VideoRanges
+
 /** One question to the browser; [BrowserProbes.queries] lists them all, the page runs them, [BrowserProbes.interpret] reads the answers. */
 data class ProbeQuery(val id: String, val kind: Kind, val arg: String) {
     enum class Kind { CanPlayType, IsTypeSupported, DecodingInfo, MatchMedia, MaxChannels }
@@ -39,7 +42,7 @@ data class MediaSupport(
         get() = buildList {
             val all = ranges.values.flatten()
             add("SDR")
-            if (all.any { it == "HDR10" || it == "DOVI" || it == "DOVIWithHDR10" }) add("PQ")
+            if (all.any { it in setOf("HDR10", "HDR10Plus", "DOVI", "DOVIWithHDR10", "DOVIWithHDR10Plus") }) add("PQ")
             if (all.any { it == "HLG" || it == "DOVIWithHLG" }) add("HLG")
         }
 
@@ -82,9 +85,15 @@ object BrowserProbes {
         "truehd" to listOf("mlpa"),
     )
 
-    /** Dolby Vision in HEVC: profile 5 (no compatible base layer) and profile 8 (HDR10, SDR or HLG base layer), level 6 (4K24). */
-    private const val DOVI_PROFILE_5 = "dvh1.05.06"
-    private const val DOVI_PROFILE_8 = "dvh1.08.06"
+    /**
+     * Dolby Vision, level 6 (4K24): query id, codec string and profile. HEVC profile 5 (no compatible base layer) and 8 (HDR10, SDR or
+     * HLG base layer); AV1 profile 10 (with or without a base layer).
+     */
+    private val doviProbes = listOf(
+        Triple("dovi5:hevc", "dvh1.05.06", 5),
+        Triple("dovi8:hevc", "dvh1.08.06", 8),
+        Triple("dovi10:av1", "dav1.10.06", 10),
+    )
 
     private fun MutableList<ProbeQuery>.ask(id: String, kind: ProbeQuery.Kind, spellings: List<String>, arg: (String) -> String) =
         spellings.forEachIndexed { i, codec -> add(ProbeQuery(if (i == 0) id else "$id#$i", kind, arg(codec))) }
@@ -133,10 +142,12 @@ object BrowserProbes {
             add(ProbeQuery("hdr10:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v).first(), "pq")))
             add(ProbeQuery("hlg:$v", ProbeQuery.Kind.DecodingInfo, hdrConfig(video.getValue(v).first(), "hlg")))
         }
-        // Dolby Vision's own metadata type first; without it as well, in case a browser rejects that value rather than the codec.
-        for ((id, codec) in listOf("dovi5:hevc" to DOVI_PROFILE_5, "dovi8:hevc" to DOVI_PROFILE_8)) {
+        // Dolby Vision's own metadata type first; without it, in case a browser rejects that value rather than the codec; and
+        // `canPlayType`, which some browsers may answer where `decodingInfo` does not. Any yes counts, and only on an HDR display.
+        for ((id, codec) in doviProbes) {
             add(ProbeQuery(id, ProbeQuery.Kind.DecodingInfo, hdrConfig(codec, "pq", "smpteSt2094-10")))
             add(ProbeQuery("$id#1", ProbeQuery.Kind.DecodingInfo, hdrConfig(codec, "pq", metadata = null)))
+            add(ProbeQuery("$id#2", ProbeQuery.Kind.CanPlayType, "video/mp4; codecs=\"$codec\""))
         }
         for (v in listOf("h264", "hevc", "av1", "vp9")) {
             add(ProbeQuery("uhd:$v", ProbeQuery.Kind.DecodingInfo, uhdConfig(video.getValue(v).first(), framerate = 30)))
@@ -175,15 +186,16 @@ object BrowserProbes {
             .toSet()
         val hdrDisplay = answers["display:hdr"] == "true"
         val ranges = listOf("h264", "hevc", "av1", "vp9", "vp8").associateWith { v ->
-            buildList {
-                // Dolby Vision with an SDR, HDR10 or HLG base layer plays as that layer where Dolby Vision itself is not decoded.
-                add("SDR")
-                add("DOVIWithSDR")
-                if (hdrDisplay && ok("hdr10:${v}10")) addAll(listOf("HDR10", "HDR10Plus", "DOVIWithHDR10"))
-                if (hdrDisplay && ok("hlg:${v}10")) addAll(listOf("HLG", "DOVIWithHLG"))
-                if (hdrDisplay && ok("dovi5:$v")) add("DOVI")
-                if (hdrDisplay && ok("dovi8:$v")) addAll(listOf("DOVIWithHDR10", "DOVIWithHLG", "DOVIWithHDR10Plus"))
-            }.distinct()
+            val support = RangeSupport(
+                hdrOutput = hdrDisplay,
+                hdr10 = ok("hdr10:${v}10"),
+                hlg = ok("hlg:${v}10"),
+                doviProfiles = doviProbes.filter { (id, _, _) -> id.endsWith(":$v") && ok(id) }.map { it.third }.toSet(),
+                // ADR 0011 assumes a browser plays a Dolby Vision stream's base layer like any HEVC or AV1 stream. Not checked with a
+                // real file yet, in particular MP4s whose sample entry is `dvh1`/`dvhe` rather than `hvc1`/`hev1`.
+                baseLayerFallback = true,
+            )
+            VideoRanges.rangeTypes(support)
         }
         val uhd = listOf("h264", "hevc", "av1", "vp9").filter { ok("uhd:$it") }.toSet()
         val channels = answers["channels"]?.toIntOrNull()?.coerceIn(2, 8) ?: 2
