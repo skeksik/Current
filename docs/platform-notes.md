@@ -326,7 +326,7 @@ and resolved versions from `:desktopApp:dependencies`.
 - Stores: the FSF considers the App Store's usage rules incompatible with the GPL, so Apple builds carry no GPL code. LGPL engines ship there in
   practice (VLCKit, MPVKit's non-GPL products). Google Play, the Microsoft Store (its policies cover open-source licences) and direct downloads
   accept GPL and LGPL. F-Droid needs FLOSS built from source. All three stores forbid pornographic apps; a client for the user's own
-  Stash server is nonetheless listed in the US App Store (16+), so the adult extension is decided per store (ADR 0009). Sources: https://developer.apple.com/app-store/review/guidelines/ , https://learn.microsoft.com/en-us/windows/apps/publish/store-policies ,
+  Stash server is nonetheless listed in the US App Store (16+), so adult content is judged per store at review (ADR 0014). Sources: https://developer.apple.com/app-store/review/guidelines/ , https://learn.microsoft.com/en-us/windows/apps/publish/store-policies ,
   https://f-droid.org/docs/Inclusion_Policy/
 - Apple fallback candidates: MPVKit (LGPLv3 by default, GPL only in its `-GPL` products; static libraries, so relinking means publishing our
   app as objects or source), VLCKit (LGPL-2.1+), an FFmpeg + VideoToolbox + Metal engine of our own (LGPL). KSPlayer is GPL-3.0 (LGPL only with a
@@ -479,7 +479,7 @@ as of 2026-10-18.
     metadata for tone mapping.
   - Neither needs a Dolby SDK, key or licence file. libplacebo is LGPL-2.1+.
   - Whether a distributed build that applies Dolby Vision reshaping needs a Dolby licence is a legal question these sources do not answer.
-    ADR 0009 keeps full processing to the Personal edition; the other editions would play the base layer (`dolbyvision=no`).
+    ADR 0014 keeps full processing to the Private edition; the Store edition plays the base layer (`dolbyvision=no`).
   - Profiles 5 and 10.0 have no base layer to fall back on (Jellyfin's `DOVI` range), so without reshaping they need the server.
 - Sources: https://github.com/mpv-player/mpv/blob/v0.41.0/video/mp_image.c , https://github.com/mpv-player/mpv/blob/master/demux/dovi_split.h ,
   https://github.com/mpv-player/mpv/blob/master/DOCS/man/vf.rst , https://github.com/mpv-player/mpv/blob/master/DOCS/man/options.rst ,

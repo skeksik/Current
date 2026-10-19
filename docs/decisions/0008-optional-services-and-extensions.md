@@ -1,6 +1,7 @@
 # 0008: Optional services, removable extensions
 
-Status: accepted (2026-10-18). The mechanism below is a first sketch, validated in M1 before features depend on it.
+Status: accepted (2026-10-18); superseded in part by ADR 0014 (2026-10-19): decision 1 stands, and so does 4 without raw payloads and
+content filters. There are no extensions, extension points or build switch (2, 3 and 5).
 
 ## Context
 Current is not only for the owner's servers: anyone may point it at what they run. That can be Jellyfin alone, Jellyfin with Seerr,

@@ -1,23 +1,26 @@
 # Architecture
 
-> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the web probes and device profile, the `web`
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), the web probes and device profile, the `web`
 > facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
 One Kotlin core shared by every platform. Three UI codebases: SwiftUI on Apple (iOS, macOS, tvOS; ADR 0006), Compose Multiplatform on
 Android and Windows/Linux, and React + TypeScript on the web over the core compiled to Kotlin/JS (ADR 0011).
 The playback UI is always custom; engines are headless (ADR 0007).
-Every service is optional and removable features are extensions, so the app works for anyone with any subset of servers (ADR 0008).
+Every service is optional, so the app works for anyone with any subset of servers (ADR 0008). No extensions: the design is modular, and
+any component can be replaced by binding another implementation of its interface (ADR 0014).
 
 ## Services
 | Service | What Current uses it for | Signed in with |
 |---|---|---|
 | Jellyfin | Libraries, details, playback, watch state (resume, played, favorites) | Access token for a Jellyfin user |
 | Seerr | Discover, the wider catalogue (TMDB), requests, watchlist, blocklist, issues | Session of a Seerr user (Jellyfin or local account) |
-| Stash | Playback source for an extension's catalogue; watch state stays in Stash | One API key per server (Stash has no users) |
+| Stash | Playback source for the adult catalogue (M5); watch state stays in Stash | One API key per server (Stash has no users) |
 
-Any non-empty subset can be configured. Features read one **capabilities** state (configured, reachable and signed-in services, server versions
-and switches, the user's permissions) and hide what is unavailable.
+Any non-empty subset can be configured. Features read one **capabilities** state and hide what is unavailable: `Capabilities` (`core:model`) holds one
+`ServerStatus` per configured server (signed in, reachable, user and permissions, version, reported features), read through
+`CapabilitiesState` (`core:network`). A service is available when one of its servers is signed in; an unreachable one keeps its features
+with an offline state (ADR 0014).
 
 **Joining catalogue and library.** Seerr records which titles the media server has, including the media server's item id, so a Seerr page can
 offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), so a library item can open its Seerr page. Exact fields: docs/platform-notes.md.
@@ -26,8 +29,8 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
 ```
  appleApp (SwiftUI: iOS/macOS/tvOS) androidApp   desktopApp     webApp (React + TypeScript, Vite)
             |                                \         /                |
-         apple (framework "Shared")       shared (App, nav, DI,       web (Kotlin/JS library "current-core",
-            |                             chosen extensions)          @JsExport facade, History API router)
+         apple (framework "Shared")       shared (App, nav, DI)       web (Kotlin/JS library "current-core",
+            |                                    |                    @JsExport facade, History API router)
             |                                    |                      |
             |                                composeUi (Compose screens, |
             |                                player UI, video surfaces)  |
@@ -36,31 +39,33 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
                                   data:{jellyfin,seerr,stash}
                 core:{model,network,database,playback}      core:designsystem (Compose only)
 
- extensions/<name>/{data, feature, composeUi} + SwiftUI sources: plug into the layers above through extension points (ADR 0008)
 ```
-Dependencies point down. Features never import each other. Core never imports an extension. Pure-Kotlin modules have no Compose.
+Dependencies point down. Features never import each other. Pure-Kotlin modules have no Compose.
 
 ## Modules
 | Module | Responsibility |
 |---|---|
-| `core:model` | Domain models (ADR 0013): media identity (server + id), open values for services, media kinds, image types and permissions, artwork with aspect ratio and blurhash, users. Request status comes with Seerr requests (M3) |
-| `core:network` | `HttpClient` factory per service, server configuration, error model, log redaction |
+| `core:model` | Domain models (ADR 0013): media identity (server + id), open values for services, media kinds, image types and permissions, artwork with aspect ratio and blurhash, users, capabilities (ADR 0014). Request status comes with Seerr requests (M3) |
+| `core:network` | `HttpClient` factory per service, server configuration, the capabilities state, error model, log redaction |
 | `core:database` | Cache. Web persistence is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
 | `core:designsystem` | Compose theme and components (Android/desktop) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
 | `composeUi` | Compose screens for every feature, custom player controls, per-platform video surface |
-| `shared` | Compose umbrella: `App()`, navigation, DI wiring, the extensions this build includes |
-| `apple` | Static framework `Shared` exporting core/data/feature (and included extensions) to Swift |
+| `shared` | Compose umbrella: `App()`, navigation, DI wiring of the modules it includes |
+| `apple` | Static framework `Shared` exporting core/data/feature to Swift |
 | `web` | Kotlin/JS ES module library `current-core` (with `.d.ts`): an `@JsExport` facade over the ViewModels and the History API router, consumed by the React app in `webApp` (ADR 0011) |
-| `extensions/<name>/*` | Planned. Removable features with their own data, presentation and UI modules |
 
-## Extension points (ADR 0008)
-Declared in core as pure Kotlin, registered through DI, so both UIs use them:
-navigation destinations and tabs, home rows, search sources, renderers per media kind (cards, detail screens), resolvers from a catalogue item
-to something playable, settings sections, and content filters. Lists that can mix media kinds apply every content filter before showing an item;
-items of a kind no installed renderer handles are dropped.
+## Modular design (ADR 0014)
+No extensions, extension points or build switch. Modules talk through interfaces: a ViewModel or controller takes repositories, engines and
+the capabilities state as interfaces in its constructor, and each module binds its implementations once in its Koin definition. Replacing a
+component is one new implementation and one changed binding; tests pass fakes the same way. Each feature contributes its own destinations to
+the shell's navigation, so the shell's list of modules is the only place that names them all. Lists show the media kinds the app renders and
+skip others silently.
+
+Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
+forbids passing them on, such as full Dolby Vision processing).
 
 ## Data flow
 UI observes `StateFlow<UiState>` from a ViewModel (Compose collects it directly; SwiftUI through SKIE-generated async sequences, see
@@ -73,7 +78,7 @@ PlayerUI (SwiftUI | Compose | React)  ->  PlayerController (feature:player)  -> 
                                           |                                      |
                                     PlayerEngine (headless, per platform) <-- plan: DirectPlay | DirectStream | Remux | Transcode
 ```
-Sources: Jellyfin (the server negotiates routes from a device profile built from `EngineCapabilities`) and, through an extension, Stash
+Sources: Jellyfin (the server negotiates routes from a device profile built from `EngineCapabilities`) and Stash
 (direct file or Stash's own transcodes). Each source reports progress back to its own server. See ADR 0007.
 
 ## Platforms

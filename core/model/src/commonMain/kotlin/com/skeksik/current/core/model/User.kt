@@ -19,9 +19,9 @@ data class User(
 }
 
 /**
- * Something a user may do on their server, read by the capabilities state (ADR 0008) to hide what is not allowed. Open: an extension
- * adds its own (prefixed like its media kinds). Permissions do not imply each other here; the data layer maps its service's rules
- * (such as an admin flag that grants everything) onto the full set the user has.
+ * Something a user may do on their server, read through the capabilities state (ADR 0014) to hide what is not allowed. Open: a
+ * service's own permissions beyond [known] pass through unchanged. Permissions do not imply each other here; the data layer maps its
+ * service's rules (such as an admin flag that grants everything) onto the full set the user has.
  */
 data class Permission(val value: String) {
     init {

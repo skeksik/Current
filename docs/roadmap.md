@@ -2,11 +2,11 @@
 
 [x] done, [ ] not started. Each milestone is a vertical slice that ends with something usable; "Done when" is the exit check.
 Agreed on 2026-10-18: Windows desktop and web first; the first usable version is a Jellyfin client (browse + play); anyone may use the
-app, so services are optional and features removable (ADR 0008). Reorder later milestones as priorities change.
+app, so services are optional (ADR 0008); the design is modular, with no extensions (ADR 0014). Reorder later milestones as priorities change.
 
 ## Principles
-- Anyone may use Current against their own servers. Every service (Jellyfin, Seerr, Stash) is optional at runtime, and features that
-  must be removable (adult content first) are extensions that a build can leave out (ADR 0008).
+- Anyone may use Current against their own servers. Every service (Jellyfin, Seerr, Stash) is optional at runtime (ADR 0008). No
+  extensions: modules talk through interfaces, so any component can be replaced (ADR 0014).
 - All logic is shared Kotlin; SwiftUI and Compose only render state (ADR 0005, 0006). Playback UI is always our own (ADR 0007).
 - Check API facts against the server's own spec before coding (docs/platform-notes.md). The repo is public: no hostnames, keys or
   private server details in code, docs or commits.
@@ -32,7 +32,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
 - [x] Web UI (2026-10-19, ADR 0011): React + TypeScript (Vite) over the Kotlin core compiled to Kotlin/JS, chosen over Compose HTML and
       Compose for web after three prototypes and the owner's hand checks. Web playback is `<video>` + hls.js with a device profile built
       only from browser probes (direct play, server remux, server transcode); HDR10 HEVC plays in HDR on Chrome and Edge
-- [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
+- [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds (ADR 0009); two editions, Store and Private
+      (ADR 0014)
 - [x] Current's own code is proprietary: no open-source licence, no LICENSE file (ADR 0009)
 - [x] Supported server versions: the latest releases only (Jellyfin 12.2 and Seerr 3.5.0 on 2026-10-18); follow new releases rather than
       keeping older ones working
@@ -40,7 +41,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
 Then:
 - [x] Libraries per ADR 0002, versions checked against Kotlin/CMP: Ktor client, kotlinx.serialization, Koin, Navigation, Coil 3
       (2026-10-19; Navigation is 2.10.0-rc01, the line CMP 1.12.1 pairs with)
-- [ ] Extension points, capabilities state and the build switch (ADR 0008); CI builds a shell without extensions
+- [x] Capabilities state (2026-10-19, ADR 0014): what each configured server offers, read by features to hide what is unavailable.
+      Extensions, extension points and the build switch dropped for a modular design with two editions
 - [x] `core:model`: media identity (service + id), open media kinds, artwork with aspect ratio, user and permissions (2026-10-19,
       ADR 0013: the identity holds the server, not only the service; services are open like kinds)
 - [ ] `core:network`: client factory per service, error model, lenient JSON, log redaction of tokens, keys and cookies
@@ -58,7 +60,7 @@ Then:
   - [x] routing through the core's History API router; npm in CI with a licence check
 - [ ] Opt-in live smoke tests (read-only) that run only when test-server environment variables are set; never in CI
 
-Done when: sign in and out of Jellyfin on Windows and in the browser, the app restarts signed in, and a build without extensions passes CI.
+Done when: sign in and out of Jellyfin on Windows and in the browser, and the app restarts signed in.
 
 ## M2: First usable version: Jellyfin browse and play (Windows desktop, web)
 - [ ] `data:jellyfin`: libraries, items (paging, sort, filter), latest, resume, next up, series/seasons/episodes, details, similar,
@@ -107,15 +109,15 @@ Done when: a title can be found, requested and followed to "available", then pla
 
 Done when: everything from M1-M3 works on Android, iPhone/iPad and Mac.
 
-## M5: Adult extension (optional, removable)
-- [ ] Extension modules (data, presentation, Compose UI, SwiftUI) plugged in through ADR 0008; builds without it keep working
+## M5: Adult content
+- [ ] Its modules (data, presentation, Compose UI, SwiftUI) like any other feature; hidden unless a server offers it and the user may see it
 - [ ] Access rules enforced in shared code: server switch, user permission, per-user safe mode, blurred artwork until revealed
 - [ ] Catalogue and requests from a compatible Seerr server; playback from Stash with resume and play counts kept in Stash
 - [ ] Decide how apps reach Stash. Stash has one admin key and copies it into every stream URL it returns, so other people's devices must
       not get it: a server-side gateway with per-user checks, and a direct key only for single-user setups
 - Details are kept privately while the repo is public.
 
-Done when: with the extension included, its catalogue can be browsed, requested and played under the access rules; without it, the app
+Done when: its catalogue can be browsed, requested and played under the access rules; without a server that offers it, the app
 behaves exactly as before.
 
 ## M6: TV
@@ -131,12 +133,12 @@ behaves exactly as before.
 
 ## M8: Release readiness
 - [ ] R8 rules, signing, icons, desktop installers (MSI, DEB) and updates, web release with setup docs for self-hosters (reverse proxy)
-- [ ] Editions (ADR 0009): Store builds (adult extension only where a store accepts it), Full builds for direct sale; licences screen and published LGPL
+- [ ] Editions (ADR 0014): Store builds for the stores and direct downloads, Private builds only when a part needs them; licences screen and published LGPL
       sources with each release; patent review per codec; store policies checked first
 
 ## Later
-- [ ] Sexual preferences for the adult extension (far future): classify titles by orientation from tags and cast, per-user defaults and an
-      admin-allowed set, a filter, badges on cards and pages, lists that stay full when filtered. It lives in the app (the extension), not in
+- [ ] Sexual preferences for adult content (far future): classify titles by orientation from tags and cast, per-user defaults and an
+      admin-allowed set, a filter, badges on cards and pages, lists that stay full when filtered. It lives in the app, not in
       the request server: the servers only supply each title's tags and performer genders. The spec is kept privately.
 - [ ] Several servers and user switching on one device
 - [ ] Casting (Chromecast), watch-together (Jellyfin SyncPlay)
