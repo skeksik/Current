@@ -78,7 +78,7 @@ Recorded on 2026-10-19; the raw answers are in `docs/web-probes/` for the web sh
 | Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 | AAC, Opus, FLAC (not in MKV), Vorbis | AAC, AC-3, E-AC-3, FLAC, ALAC; Opus and Vorbis only in WebM; MP3 in MP4 under no spelling |
 | MSE (HLS copy) | video H.264, HEVC, AV1; audio AAC, Opus, FLAC | adds AC-3, E-AC-3 | as Chrome | video H.264, HEVC; audio AAC, AC-3, E-AC-3, FLAC (only as `fLaC`), ALAC |
 | HDR display / HDR10 decoding | yes / HEVC Main10 | yes / HEVC Main10 | no / HEVC, AV1 (HLG too) | no / HEVC Main10 (HLG too) |
-| 2160p, channels, native HLS | H.264, HEVC, AV1, VP9; 2; no | same | same | H.264, HEVC, VP9; 2; yes ("maybe") |
+| 2160p, channels, native HLS | H.264, HEVC, AV1, VP9; 2; yes ("maybe") | same | H.264, HEVC, AV1, VP9; 2; no | H.264, HEVC, VP9; 2; yes ("maybe") |
 
 MP3 in Firefox: "no" to `mp4a.6B`; the other spellings were added after its recording.
 
