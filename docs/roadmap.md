@@ -38,7 +38,8 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
       keeping older ones working
 
 Then:
-- [ ] Libraries per ADR 0002, versions checked against Kotlin/CMP: Ktor client, kotlinx.serialization, Koin, Navigation, Coil 3
+- [x] Libraries per ADR 0002, versions checked against Kotlin/CMP: Ktor client, kotlinx.serialization, Koin, Navigation, Coil 3
+      (2026-10-19; Navigation is 2.10.0-rc01, the line CMP 1.12.1 pairs with)
 - [ ] Extension points, capabilities state and the build switch (ADR 0008); CI builds a shell without extensions
 - [ ] `core:model`: media identity (service + id), open media kinds, artwork with aspect ratio, user and permissions
 - [ ] `core:network`: client factory per service, error model, lenient JSON, log redaction of tokens, keys and cookies

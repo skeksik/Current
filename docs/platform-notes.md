@@ -254,6 +254,48 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     playback (`DOVIWithHDR10` and the like) without a Dolby Vision decoder only on Tizen, VIDAA and webOS TVs, and profile 7 only on webOS.
   - `VideoRanges.rangeTypes` in `core:playback` applies this for every engine, from per-codec facts each engine fills in.
 
+## Libraries per ADR 0002 (checked 2026-10-19 against Kotlin 2.4.20, CMP 1.12.1, AGP 9.1.1)
+Newest versions on Maven Central that day. Targets come from each artifact's Gradle module metadata (`.module`), licences from its POM,
+and resolved versions from `:desktopApp:dependencies`.
+- **Ktor client 3.6.0** (`core:network`), Apache-2.0. Built with Kotlin 2.3.21, kotlinx.coroutines 1.11.0, kotlinx.serialization 1.11.0.
+  - `ktor-client-core`, `-content-negotiation`, `ktor-serialization-kotlinx-json` and `ktor-client-mock` publish jvm, js, wasm-js,
+    iosArm64, iosSimulatorArm64, macosArm64, tvosArm64 and tvosSimulatorArm64. Android uses the jvm artifacts.
+  - Engines: `ktor-client-android` (HttpURLConnection) and `ktor-client-java` (the JDK's `HttpClient`) are jvm only. `ktor-client-darwin`
+    covers iOS, macOS and tvOS. `ktor-client-js` covers js and wasm-js. Unlike OkHttp, none of them adds a third-party library.
+  - On the JVM it pulls `slf4j-api` 2.0.19 (MIT).
+- **kotlinx.serialization 1.12.0** (`core:network`), Apache-2.0. Released 2026-10-19 and "based on Kotlin 2.4.10"; every target.
+  The compiler plugin is `org.jetbrains.kotlin.plugin.serialization` at Kotlin's own version. Ktor asks for 1.11.0 and Gradle takes 1.12.0.
+  Behaviour change in 1.12.0: every exception thrown while decoding is wrapped in a `JsonException`.
+  Source: https://github.com/Kotlin/kotlinx.serialization/releases/tag/v1.12.0
+- **Koin 4.2.2** (`core:network` defines modules, `shared` starts them), Apache-2.0. Built with Kotlin 2.3.20.
+  - `koin-core` publishes jvm, js, wasm-js, iOS, macosArm64 and tvOS; Android uses the jvm artifact.
+  - `koin-compose` publishes android, jvm, js, wasm-js, iOS and macOS, but not tvOS. That is fine, because it is only used on the Compose side.
+  - `koin-compose` asks for CMP 1.10.2, and `koin-compose-viewmodel` for lifecycle 2.9.6. They resolve to 1.12.1 and 2.11.0.
+  - Compose takes `KoinApplication(configuration = koinConfiguration { ... })`. `onClose` callbacks go through
+    `withOptions { onClose { } }`, since `onClose` applies to a `BeanDefinition`.
+- **JetBrains Navigation Compose 2.10.0-rc01** (`shared`), Apache-2.0.
+  - CMP 1.12.1's release notes pair it with Navigation 2.10.0-beta01 (Jetpack Navigation 2.10.0), Navigation3 1.1.2, lifecycle 2.11.0 and
+    savedstate 1.4.0. rc01 (2026-10-06) is the newest build of that line, and there is no stable 2.10.0 yet. The latest stable, 2.9.2,
+    is built against Compose 1.9.
+  - It publishes android, jvm (desktop), js, wasm-js, iosArm64, iosSimulatorArm64 and macosArm64, and asks for Compose 1.11.0 and Kotlin 2.2.20.
+  - On Android and desktop it depends on Google's `androidx.navigation:navigation-compose` 2.10.0. That raises androidx savedstate to
+    1.5.0, where CMP 1.12.1 has 1.4.0.
+  - Source: https://github.com/JetBrains/compose-multiplatform/releases/tag/v1.12.1
+- **Coil 3.6.3** (`composeUi`), Apache-2.0. Built with Kotlin 2.4.10.
+  - `coil-compose` publishes android, jvm, js, wasm-js, iosArm64, iosSimulatorArm64 and macosArm64, and asks for CMP foundation 1.12.0.
+  - `coil-network-ktor3` asks for Ktor 3.1.0 or newer (it resolves to 3.6.0) and loads images through Ktor. Unless it is given our
+    client, it makes its own default `HttpClient()`. That client should find the one engine `core:network` puts on each platform; this
+    is untried, because no image is loaded yet.
+  - It pulls Okio 3.18.1 (Apache-2.0).
+- The web (`web` umbrella, Kotlin/JS) gets Ktor, kotlinx.serialization and Koin through `core:network`. It uses neither Navigation (it
+  has the core's History API router) nor Coil (it uses plain `<img>`).
+  - Kotlin's yarn lockfile (`kotlin-js-store/yarn.lock`, upgraded with `kotlinUpgradeYarnLock`) gains `ws` 8.20.1 (MIT) for
+    `ktor-client-js` and `@js-joda/core` 3.2.0 (BSD-3-Clause). The second comes from `kotlinx-datetime` 0.8.0, which
+    `ktor-serialization-kotlinx-json` pulls in.
+  - The Vite bundle has none of them yet, because the facade does not call `core:network` and Kotlin/JS drops the unused code. Once it
+    does, the `ws` stub in `webApp/vite.config.ts` applies (ADR 0011), and `@js-joda/core` has to be checked again: it may need to be
+    in `webApp/package.json` and in the npm licence check.
+
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
   its own files only; LGPL-2.1/3.0 the library's source and our changes, and users must be able to relink (a replaceable dynamic library, or
