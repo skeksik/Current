@@ -83,7 +83,7 @@ fun nativeRect(component: Component): Rectangle? {
 
 /** References to the player's windows so the self-test can dump how AWT and Win32 see their geometry. */
 object GeometryProbe {
-    @Volatile var frame: java.awt.Window? = null
+    @Volatile var frame: java.awt.Frame? = null
     @Volatile var canvas: Component? = null
     @Volatile var dialog: java.awt.Window? = null
     @Volatile var player: SpikePlayer? = null
@@ -96,7 +96,8 @@ object GeometryProbe {
         val canvasScreen = c?.takeIf { it.isShowing }?.let { Rectangle(it.locationOnScreen, it.size) }
         Diagnostics.event(
             "geometry $tag: frame awt=${f?.bounds.s()} native=${f?.let(::nativeRect).s()} " +
-                "scale=${f?.graphicsConfiguration?.defaultTransform?.scaleX} state=${(f as? java.awt.Frame)?.extendedState}; " +
+                "scale=${f?.graphicsConfiguration?.defaultTransform?.scaleX} state=${(f as? java.awt.Frame)?.extendedState} " +
+                "insets=${f?.insets?.let { "${it.top},${it.left},${it.bottom},${it.right}" }}; " +
                 "content area=${(f as? javax.swing.JFrame)?.contentPane?.takeIf { it.isShowing }?.let { Rectangle(it.locationOnScreen, it.size) }.s()}; " +
                 "canvas awt=${canvasScreen.s()} native=${c?.let(::nativeRect).s()}; " +
                 "dialog awt=${d?.bounds.s()} native=${d?.let(::nativeRect).s()} visible=${d?.isVisible}; " +

@@ -232,15 +232,44 @@ object Fullscreen {
     fun isOn(windowState: WindowState) =
         if (mode == "borderless") borderlessOn else windowState.placement == WindowPlacement.Fullscreen
 
+    /** Set while borderless fullscreen was entered from a maximized window, to maximize again on the way out. */
+    private var restoreMaximized = false
+    private var switching = false
+
     fun set(windowState: WindowState, on: Boolean) {
-        if (isOn(windowState) == on) return
+        if (isOn(windowState) == on || switching) return
         if (mode == "borderless") {
             val frame = GeometryProbe.frame ?: return
             if (on) {
-                borderlessOn = BorderlessFullscreen.enter(frame)
+                // From a maximized window, restore it through Compose/AWT first: restyling a maximized HWND behind AWT's back left
+                // AWT with the fullscreen bounds in about half the runs, so content and controls were laid out for the wrong rectangle.
+                restoreMaximized = windowState.placement == WindowPlacement.Maximized
+                if (restoreMaximized) {
+                    switching = true
+                    windowState.placement = WindowPlacement.Floating
+                    afterNormal(frame) {
+                        switching = false
+                        borderlessOn = BorderlessFullscreen.enter(frame)
+                    }
+                } else {
+                    borderlessOn = BorderlessFullscreen.enter(frame)
+                }
             } else {
                 BorderlessFullscreen.exit(frame)
                 borderlessOn = false
+                if (restoreMaximized) {
+                    restoreMaximized = false
+                    // Maximize through AWT once it has seen the restored frame; set at once, it was lost.
+                    switching = true
+                    javax.swing.Timer(100) {
+                        windowState.placement = WindowPlacement.Maximized
+                        frame.extendedState = frame.extendedState or java.awt.Frame.MAXIMIZED_BOTH
+                        switching = false
+                        checkAwtInSync(frame)
+                    }.apply { isRepeats = false }.start()
+                } else {
+                    checkAwtInSync(frame)
+                }
             }
             return
         }
@@ -258,6 +287,33 @@ object Fullscreen {
 }
 
 fun toggleFullscreen(windowState: WindowState) = Fullscreen.set(windowState, !Fullscreen.isOn(windowState))
+
+/** Runs [action] on the EDT once [frame] is no longer maximized (polled every 20 ms, at most 1 s). */
+private fun afterNormal(frame: java.awt.Frame, action: () -> Unit) {
+    val started = System.currentTimeMillis()
+    javax.swing.Timer(20, null).apply {
+        addActionListener {
+            val normal = frame.extendedState and java.awt.Frame.MAXIMIZED_BOTH == 0
+            if (normal || System.currentTimeMillis() - started > 1_000) {
+                stop()
+                Diagnostics.event("fullscreen: window restored from maximized after ${System.currentTimeMillis() - started} ms")
+                action()
+            }
+        }
+    }.start()
+}
+
+/** Logs when AWT's idea of the frame's bounds differs from the native window 500 ms after leaving fullscreen. */
+private fun checkAwtInSync(frame: java.awt.Frame) {
+    javax.swing.Timer(500) {
+        val native = nativeRect(frame) ?: return@Timer
+        val scale = frame.graphicsConfiguration.defaultTransform.scaleX
+        val b = frame.bounds
+        val awt = Rectangle(Math.round(b.x * scale).toInt(), Math.round(b.y * scale).toInt(), Math.round(b.width * scale).toInt(), Math.round(b.height * scale).toInt())
+        val off = maxOf(kotlin.math.abs(awt.x - native.x), kotlin.math.abs(awt.y - native.y), kotlin.math.abs(awt.width - native.width), kotlin.math.abs(awt.height - native.height))
+        if (off > 2) Diagnostics.event("fullscreen: AWT bounds ${awt.str()} differ from the native window ${native.str()} after leaving")
+    }.apply { isRepeats = false }.start()
+}
 
 @OptIn(ExperimentalComposeUiApi::class) // ComposeDialog.setContent with key handlers, exceptionHandler
 @Composable

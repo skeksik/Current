@@ -29,7 +29,9 @@ each with a fix the spike tried:
   AWT laid out 1280×720 *logical*: the video was clipped and the controls window stuck out past it. Borderless fullscreen on the same
   HWND (strip the frame styles, cover the monitor with `SetWindowPos`, restore both) kept all geometry consistent and dropped no frame
   on the way out. Applying the frame's bounds again after leaving Compose's fullscreen also fixed the geometry, but still dropped frames
-  leaving it (one run each).
+  leaving it (one run each). From a **maximized** window, restyling the HWND directly left AWT with the fullscreen bounds after leaving
+  (4 of 6 self-test rounds, with direct calls and with F/Esc alike), so content and controls were laid out for the wrong rectangle; the
+  host first restores the window through AWT, goes borderless, and maximizes again through AWT on the way out (6 of 6 consistent).
 - **The controls window follows the canvas through component listeners.** Sampled every 250 ms in 5 self-test runs, it matched the
   canvas's native rectangle except right after maximizing, where it was 1 physical pixel off at 150 % (rounding) until the next move.
 - **Media keys need our own libmpv build** with `win32-smtc` (or our own System Media Transport Controls binding); the build used here
@@ -130,6 +132,9 @@ Second round, 2026-10-19, on the current prototype:
 | H mode: controls keep coming back while the pointer rests on the video | synthetic mouse move after hiding counted as activity | only real pointer movement counts; self-test: hidden after 8 s with the pointer still (shown once again early on) |
 | Seeks are accurate but lag when pressed repeatedly | each `exact` seek decodes from the previous keyframe; over Jellyfin a seek took about 0.6 s (overlay) and repeated presses queue | engine tuning for M2: keyframe seeks while a key repeats, an exact seek when it stops |
 | Windows HDR off: VLC much brighter | mpv tone-maps to SDR with a 203-nit target (`bt.709/gamma2.2/203` in the overlay); VLC's mapping differs. Which is closer to the master is not known | needs a reference (the film's SDR release, or the OS player) before tuning `target-peak`, `tone-mapping`, `hdr-contrast-recovery` |
+
+Third round: entering fullscreen from a maximized window and leaving with F, Esc or a double click misaligned window and controls (the
+button happened to work). Cause and fix: see Decision (fullscreen from a maximized window); reproduced and fixed in the self-test.
 
 Still open by hand: Alt+Tab, taskbar and title bar state with two windows; clicking outside borderless fullscreen; the tone comparisons
 against a reference. Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.

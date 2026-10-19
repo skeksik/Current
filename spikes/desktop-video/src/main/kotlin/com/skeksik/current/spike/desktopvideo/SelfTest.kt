@@ -227,6 +227,35 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
             if (afterSpace.paused) p.togglePause()
             delay(500)
         }
+        step("fullscreen from maximized") {
+            // Enter and leave fullscreen from a maximized window, called directly and through real F / Esc key presses.
+            val frame = GeometryProbe.frame ?: return@step
+            val robot = Robot().apply { autoDelay = 30 }
+            windowState.placement = WindowPlacement.Maximized
+            delay(1_500)
+            GeometryProbe.dump("maximized, before")
+            for (round in 1..3) {
+                Fullscreen.set(windowState, true)
+                delay(1_000)
+                Fullscreen.set(windowState, false)
+                delay(1_200)
+                GeometryProbe.dump("maximized, direct round $round")
+            }
+            for (round in 1..3) {
+                frame.toFront()
+                delay(200)
+                robot.keyPress(KeyEvent.VK_F)
+                robot.keyRelease(KeyEvent.VK_F)
+                delay(1_000)
+                robot.keyPress(KeyEvent.VK_ESCAPE)
+                robot.keyRelease(KeyEvent.VK_ESCAPE)
+                delay(1_200)
+                GeometryProbe.dump("maximized, keys round $round")
+            }
+            screenshot("08-maximized-after-fullscreen")
+            windowState.placement = WindowPlacement.Floating
+            delay(1_000)
+        }
         step("drag-resize") {
             // A real resize through the window's border with the mouse (Windows' modal sizing loop), checked half way and after.
             val frame = GeometryProbe.frame ?: return@step
