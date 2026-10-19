@@ -18,7 +18,7 @@ class UserTest {
     }
 
     @Test
-    fun extensionPermissionsWorkLikeKnownOnes() {
+    fun unknownPermissionsWorkLikeKnownOnes() {
         val requester = User("2", seerr, "Requester", setOf(Permission.request, Permission("example.reveal")))
         assertTrue(requester.can(Permission.request))
         assertTrue(requester.can(Permission("example.reveal")))

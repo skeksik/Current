@@ -2,7 +2,8 @@
 
 Cross-platform media client. It browses, requests and plays content from **Jellyfin** (library + playback), **Seerr**
 (discover + requests) and **Stash** (scenes via GraphQL). Solo project. Later: play/upload from device, download media by link.
-Anyone may use it against their own servers: every service is optional, and removable features (adult content first) are extensions (ADR 0008).
+Anyone may use it against their own servers: every service is optional at runtime (ADR 0008). No extensions: a modular design where any
+component can be replaced, and two editions, Store and Private (ADR 0014).
 
 Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
 
@@ -25,16 +26,15 @@ web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for 
 
 composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop)
 core/model                 domain models                      (pure Kotlin)
-core/network               HttpClient, server configuration   (pure Kotlin)
+core/network               HttpClient, server configuration, capabilities state (pure Kotlin)
 core/database              cache                              (pure Kotlin)
 core/playback              PlayerEngine interface, capabilities, playback planner, browser probes (pure Kotlin)
 core/designsystem          Compose theme and components       (Compose only)
 data/{jellyfin,seerr,stash}                                   (pure Kotlin)
 feature/{home,library,requests,player,settings}               presentation only: ViewModel + UI state (pure Kotlin)
-extensions/<name>/         (planned, ADR 0008) removable feature groups: own data, presentation, Compose UI and SwiftUI sources
 ```
 Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports and `web` wraps `feature`, `data`, `core` (not Compose).
-Features never depend on each other. Core never imports an extension; extensions plug in through extension points (ADR 0008).
+Features never depend on each other. Modules talk through interfaces bound in Koin, so a component is replaced by rebinding it (ADR 0014).
 **Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
 Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, js (ADR 0011). Compose modules target android and jvm only.
 Every module's `build.gradle.kts` copies the shape of an existing one of the same kind (see `core/model` and `composeUi`). New module: `/new-module`.
@@ -70,7 +70,9 @@ gitignored `appleApp/Configuration/Local.xcconfig` (never in `Config.xcconfig`).
 - No hardcoded server URLs, tokens or API keys; never log or commit secrets.
 - The repo is public: no hostnames, IPs, keys or private server details in code, tests, fixtures, docs or commits. Describe private
   server forks only generically.
-- No feature may assume a service exists: read the capabilities state and hide what is unavailable (ADR 0008).
+- No feature may assume a service exists: read `CapabilitiesState` and hide what is unavailable (ADR 0008, ADR 0014).
+- A ViewModel or controller takes repositories, engines and state as interfaces in its constructor; implementations are bound in
+  their module's Koin definition (ADR 0014).
 - Do not catch `CancellationException`.
 - Tests with `kotlin.test`; test repositories, planners and ViewModels, not composables.
 - Do not add a dependency without asking. If approved, add it to `gradle/libs.versions.toml` only (npm: `webApp/package.json`, exact
@@ -85,9 +87,9 @@ The player UI is always the app's own (custom controls). Engines are headless: t
 Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/AirPlay, intro skip, playback info overlay): ADR 0007.
 
 ## Current status
-The module tree and build files exist; sources are empty except `core:model` (ADR 0013), `shared` (a placeholder `App()` showing
-"Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the framework links), the
-browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
+The module tree and build files exist; sources are empty except `core:model` (ADR 0013), the capabilities state (ADR 0014),
+`shared` (a placeholder `App()` showing "Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
+framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
 ## Git workflow

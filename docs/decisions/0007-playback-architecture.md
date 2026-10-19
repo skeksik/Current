@@ -14,7 +14,7 @@ engine capabilities, quality limit and user permissions. Jellyfin's playback-inf
 (PlaybackInfoDto: deviceProfile, maxStreamingBitrate, enableDirectPlay, enableDirectStream, enableTranscoding, allowVideoStreamCopy, allowAudioStreamCopy,
 audioStreamIndex, subtitleStreamIndex), so the server does part of the negotiation. Confirmed against Jellyfin 12.2 on 2026-10-18
 (without a DeviceProfile the server offers no transcode URL); details in docs/platform-notes.md.
-Stash (through an extension, ADR 0008) is a second source: the raw file with byte ranges, or Stash's own transcodes (HLS, MP4, WEBM). The planner
+Stash (optional, ADR 0008) is a second source: the raw file with byte ranges, or Stash's own transcodes (HLS, MP4, WEBM). The planner
 decides from the file's container and codecs, not from Stash's stream labels, and the controller reports progress to whichever server the media came from.
 
 **Native first, fallback second.** Try the platform's native engine; if the plan says it cannot play the media, or it errors at runtime, retry on the fallback

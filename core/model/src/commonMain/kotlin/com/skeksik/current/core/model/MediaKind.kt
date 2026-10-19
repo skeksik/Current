@@ -1,10 +1,10 @@
 package com.skeksik.current.core.model
 
 /**
- * What an item is. Open, not an enum (ADR 0008): items of a kind core does not know (a modified server, an extension) keep their
- * value unchanged, so an extension can render them; renderers are looked up by kind. Data layers map their service's own type names
- * onto the [known] values and pass anything else through as it came. Extensions should prefix their own kinds (`"example.clip"`)
- * so they cannot collide with a service's names.
+ * What an item is. Open, not an enum (ADR 0008): items of a kind the app does not know (a modified server, a newer server version)
+ * keep their value unchanged, and lists skip kinds they cannot show (ADR 0014). Data layers map their service's own type names onto
+ * the [known] values and pass anything else through as it came. Kinds the app adds itself are prefixed (`"local.file"`) so they
+ * cannot collide with a service's names.
  */
 data class MediaKind(val value: String) {
     init {

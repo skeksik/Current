@@ -1,7 +1,7 @@
 package com.skeksik.current.core.model
 
 /**
- * The kind of service a server runs. Open, not an enum (ADR 0008): an extension or a later source (local files) adds its own value
+ * The kind of service a server runs. Open, not an enum (ADR 0008): a later source (local files) adds its own value
  * without changing core, so code must not assume [known] is complete. Values are compared as given, never normalised.
  */
 data class ServiceType(val value: String) {

@@ -1,6 +1,7 @@
 # 0009: Editions and dependency licences
 
-Status: accepted (2026-10-18)
+Status: accepted (2026-10-18); the editions are superseded by ADR 0014 (2026-10-19): two editions, Store and Private, and no build
+switch. The licence rules below stand.
 
 ## Context
 Current is meant to be sold and its code may become private. Some features are welcome in app stores, others are not (store rules on adult
