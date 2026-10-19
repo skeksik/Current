@@ -1,7 +1,7 @@
 # Current
 
 A cross-platform client for browsing, requesting and playing media from [Jellyfin](https://jellyfin.org),
-Seerr (Overseerr/Jellyseerr) and [Stash](https://github.com/stashapp/stash).
+[Seerr](https://github.com/seerr-team/seerr) (Overseerr/Jellyseerr) and [Stash](https://github.com/stashapp/stash).
 A shared Kotlin core with a native SwiftUI app on Apple platforms (iOS, macOS, tvOS later) and Compose Multiplatform on Android, Windows and web.
 Every service is optional: the app works with whichever of them you run.
 
