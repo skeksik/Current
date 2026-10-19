@@ -646,12 +646,255 @@ as of 2026-10-18.
 - CORS: allow-all, hard-coded (`access-control-allow-origin: *`, methods POST, headers `Apikey, Content-Type`, no credentials); no setting.
 - GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
+## Jellyfin 12.2: local discovery and server identity (checked 2026-10-19 in the v12.2 source and docs; no live server queried)
+Tag `v12.2` (https://github.com/jellyfin/jellyfin/releases/tag/v12.2). Files below are under `https://github.com/jellyfin/jellyfin/blob/v12.2/`.
+- **Discovery is a UDP listener**, `src/Jellyfin.Networking/AutoDiscoveryHost.cs` (it left `Emby.Server.Implementations/Udp` earlier).
+  - Transport: plain UDP, no multicast group. `new UdpClient(new IPEndPoint(IPAddress.Any, 7359))`: IPv4 only, all interfaces, port
+    hard-coded. Docs list `7359 UDP, Configurable: No, Client Discovery`, and say it does not work outside the local subnet
+    (https://jellyfin.org/docs/general/post-install/networking/).
+  - Request: the datagram text (UTF-8) must contain `who is JellyfinServer?`; the match is case-insensitive and a substring (`text.Contains`).
+  - Reply: unicast to the sender's source address and port, JSON from `MediaBrowser.Model/ApiClient/ServerDiscoveryInfo.cs` with default
+    serializer options, so PascalCase and null emitted: `{"Address":"http://192.168.1.10:8096","Id":"<32 hex>","Name":"<server name>","EndpointAddress":null}`.
+    `EndpointAddress` is always null from the server. `Id` is `SystemId`, `Name` the server's friendly name.
+  - `Address` is `GetSmartApiUrl(sender IP)` (`Emby.Server.Implementations/ApplicationHost.cs`): the `PublishedServerUrl` startup setting if
+    set; otherwise `PublishedServerUriBySubnet` entries matched against the sender's address (`NetworkManager.GetBindAddress`), else the
+    server interface in the sender's subnet. It is a full URL: scheme, host, port, and the `BaseUrl` path. Containers or a reverse proxy
+    can make it an address the client cannot reach, so treat it as a candidate and probe it. If the server cannot work out an address it
+    logs a warning and sends no reply.
+  - Off switch: `NetworkConfiguration.AutoDiscovery` (`MediaBrowser.Common/Net/NetworkConfiguration.cs`), default `true`;
+    `AutoDiscoveryHost` returns without listening when it is false. The admin UI has an `AutoDiscovery` checkbox in jellyfin-web `master`
+    (`src/apps/dashboard/routes/networking/index.tsx`); not checked at the 12.2 tag. There is no `AutoDiscoveryTracing` key.
+  - DLNA/SSDP (UDP 1900) is a separate first-party plugin since 10.9, not in the base install
+    (https://jellyfin.org/docs/general/post-install/networking/dlna/). I found no evidence that the server advertises `_jellyfin._tcp` or any
+    other mDNS service; the csproj files I read list no mDNS package. Not exhaustive (see Not verified).
+  - Official clients (read through a summarizer, not re-read):
+    - Kotlin SDK `LocalServerDiscovery.kt`: the same message to `255.255.255.255:7359` only, an unbound `DatagramSocket`, 500 ms receive
+      timeout, 1024-byte buffer, at most about 15 servers, duplicates removed by `Id`, `endpointAddress` set from the packet's source address.
+    - Swift SDK `ServerDiscovery.swift`: sends to the broadcast address of each IPv4 interface plus `255.255.255.255`, listens 5 s, reads
+      `Id`, `Name`, `Address`, skips loopback, IPv6 and interfaces with no broadcast address.
+    - Kotlin SDK `RecommendedServerDiscovery`: probes candidates with `GET /System/Info/Public`, accepts only HTTP 200, 3.5 s timeout, no
+      redirects, three at a time, preferring HTTPS and port 8096.
+- **Public endpoints** (`Jellyfin.Api/Controllers/SystemController.cs`; no `[Authorize]` on them and no fallback policy is set in
+  `Jellyfin.Server/Extensions/ApiServiceCollectionExtensions.cs`):
+  - `GET /System/Info/Public` returns `PublicSystemInfo` (`MediaBrowser.Model/System/PublicSystemInfo.cs`): `LocalAddress`, `ServerName`,
+    `Version`, `ProductName`, `OperatingSystem` (obsolete, empty), `Id`, `StartupWizardCompleted` (nullable). Filled in
+    `Emby.Server.Implementations/SystemManager.cs`.
+  - `LocalAddress` is built per request: the `PublishedServerUrl` setting, else (with `EnablePublishedServerUriByRequest`) the request's
+    own host, scheme and port, else the subnet logic above. Behind a reverse proxy it may be an internal address. Do not use it as the connect URL.
+  - `Id` is the server id: a random GUID in `N` format (32 hex, no dashes) created once and saved as `device.txt` in the data directory
+    (`Emby.Server.Implementations/Devices/DeviceId.cs`). It survives restarts and upgrades and changes only when the data directory is lost
+    (a container without a persistent volume). It is the same value as the discovery `Id` and, per `SessionManager`, as the `ServerId` that
+    `AuthenticateByName` returns (read through a summarizer).
+  - `GET`/`POST /System/Ping` is anonymous and returns the product name as a string. `GET /System/Info` needs a policy
+    (`FirstTimeSetupOrIgnoreParentalControl`), so it answers unauthenticated during first-run setup at most (inferred from the policy name).
+    `GET /health` (`MapHealthChecks`) appears open. `GET /Users/Public` is anonymous and lists the users who are not hidden or disabled
+    (all users until the startup wizard is complete): never call it for identity.
+  - Base URL: everything is mounted under `BaseUrl` (for example `/jellyfin/System/Info/Public`). A request outside the prefix is redirected
+    to it by `BaseUrlRedirectionMiddleware`, so a probe that does not follow redirects sees a redirect, not JSON.
+  - `RequireHttps` with a certificate adds `UseHttpsRedirection`, so an `http` probe can be redirected; the status code is not verified.
+    `PublicSystemInfo` has no field that says so.
+  - `IpBasedAccessValidationMiddleware` answers 503 to clients that remote-access settings reject, on every path including
+    `/System/Info/Public`. I found no rate limiter and no setting to turn the endpoint off.
+
+## Server identity without credentials: Seerr 3.5.0 and Stash v0.31.1 (checked 2026-10-19 in the v3.5.0 and v0.31.1 source; no live server queried)
+Input for "send credentials only to an address that reports the server id saved at setup". Jellyfin is in its own section above.
+- **Seerr 3.5.0** (https://github.com/seerr-team/seerr/tree/v3.5.0, `server/routes/index.ts`, `server/lib/settings/index.ts`):
+  - `GET /api/v1/settings/public` needs no session (no `isAuthenticated`; the spec has `security: []`). It returns `plexClientIdentifier`,
+    which is `settings.clientId`: `randomUUID()` on first start, saved in `settings.json`. The name is misleading (it is Seerr's own
+    instance id, also sent as the Plex OAuth client identifier), but it is the only stable per-instance id a client can read without signing in.
+  - Weaknesses: a restored or cloned `settings.json` shares the id; wiping the config volume makes a new one. Whether an admin can change it
+    is not verified.
+  - The spec types the response as `{initialized, plexClientIdentifier}`, both required, but the code returns about 30 more fields
+    (`applicationTitle`, `applicationUrl`, `mediaServerType`, `localLogin`, `mediaServerLogin`, `jellyfinExternalHost`, `vapidPublic`, ...).
+    Responses are not validated (`validateResponses` is not set), so read only `initialized` and `plexClientIdentifier` as dependable.
+  - `GET /api/v1/status` is public too (`security: []`): `{version, commitTag, restartRequired}` plus `updateAvailable` and `commitsBehind`
+    when the version check is on. With it on Seerr calls GitHub, so send `?checkUpdateAvailable=false`. It carries no id.
+  - No Jellyfin `serverId` is public: it sits in `settings.jellyfin`, behind `GET /settings/jellyfin` (admin). `GET /auth/me` and the other
+    `/settings/*` routes need a session; without one the validator answers 401, as in "Seerr" above.
+  - No base path: "Base URLs cannot be configured in Seerr. With this limitation, only subdomain configurations are supported."
+    Source: https://docs.seerr.dev/extending-seerr/reverse-proxy/
+- **Stash v0.31.1** (https://github.com/stashapp/stash/tree/v0.31.1, `internal/api/server.go`, `internal/api/authentication.go`): no stable
+  instance id is readable, with or without credentials.
+  - Middleware order in `server.go`: `middleware.Heartbeat("/healthz")`, then CORS, then `authenticateHandler()`. So `GET /healthz` answers
+    before authentication (200 with a one-character body, from chi's middleware; it proves a Go service is there, not that it is Stash).
+  - Paths that skip authentication (`allowUnauthenticated`): `/login*`, `/logout`, `/css`, `/assets*`. `/graphql`, `/playground`, `/`,
+    `/manifest.json` and the media routes need the key once a username and password are set (302 to `/login` for extensionless paths and
+    `.html`, 401 for `/graphql` and other extensions, as in "Stash" above). `version` and `systemStatus` are GraphQL queries, so they are behind the key.
+  - Per `pkg/session/session.go` (read through a summarizer, not re-read): any non-empty `ApiKey` that differs from the configured key gives
+    401 on every path except `/healthz`, even on servers with no credentials. A client that always sends the header must not do so while probing.
+  - Per the same source, a server with no username and password is open to local-network clients only (private, loopback, link-local and
+    100.64.0.0/10 count as local; others get 403), so a client on the same network can read `version` and `systemStatus` unauthenticated there.
+  - The schema has `version {version hash build_time}` and `systemStatus {databasePath configPath appSchema databaseSchema ...}`. None is
+    unique per install (`hash` is per build); the paths are semi-stable but leak the file layout. The generated secrets (`jwt_secret_key`,
+    `session_store_key`, `api_key`) are not ids and are never public.
+  - Base path: no setting; the `X-Forwarded-Prefix` request header is honoured for redirects and `<base href>`
+    (`getProxyPrefix`), and `external_host` overrides scheme and host in generated URLs.
+  - So for Stash the id can only be checked after the key is sent, or against something the user confirms at setup (for example the
+    database path from `systemStatus`, or the server's configured name). Not verified: the `systemStatus` resolver, the open `/graphql`
+    response, `/css` and `/assets` bodies.
+- Implication (inference): Jellyfin (`Id`) and Seerr (`plexClientIdentifier`) can be verified before any credential leaves the app. Stash
+  cannot, so a Stash address needs a different rule: for example send the key only to addresses the user entered or confirmed, and treat a
+  new discovered address as untrusted until the user accepts it.
+
+## Local network, discovery and plain HTTP: Apple (checked 2026-10-19 in Apple's documentation, read as JSON from developer.apple.com; nothing run on a device)
+- Local network privacy: TN3179 (revised 2026-10-06), https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy
+  - Platforms: iOS and iPadOS 14, macOS 15, visionOS 1. **tvOS: "no"** in the table. The reference page of `NSLocalNetworkUsageDescription`
+    still lists tvOS 14, so set the key anyway; it is harmless. Not verified: what tvOS does with local traffic.
+  - A local network is an IP network on a broadcast-capable interface (Wi-Fi, Ethernet; not cellular or VPN). `255.255.255.255` and all
+    multicast addresses count as local. The check sits "deep in the networking stack", so it applies to URLSession, Network framework and BSD sockets alike.
+  - Needs access (prompt on first use): outgoing TCP to a local address, sending UDP (unicast, multicast, broadcast), connecting a UDP socket,
+    receiving UDP multicast and broadcast, resolving a `.local` name, all Bonjour operations. Does not: accepting TCP, **receiving a UDP unicast**.
+    Traffic from WKWebView, SFSafariViewController and Safari is exempt.
+  - So plain HTTP to `http://192.168.1.10:8096` triggers the prompt, and the app needs `NSLocalNetworkUsageDescription` in `Info.plist`
+    (the app, not an extension). `NSBonjourServices` lists the service types to browse or register; only needed if we use Bonjour.
+  - Denied access has no query API. An `NWConnection` goes to `.waiting` with `currentPath?.unsatisfiedReason == .localNetworkDenied`; an
+    `NWBrowser` reports `kDNSServiceErr_PolicyDenied` (-65570). The system retries a connection by itself when the user grants access later.
+    The first operation may be refused at once, before the user answers the alert, so use `NWConnection`/Network framework or URLSession
+    with `waitsForConnectivity`, or retry.
+  - In the background with the state undetermined, the operation is refused and no alert shows. The simulator does not support local
+    network privacy: test on a device. macOS keeps the state per user account and has `defaults` keys for allowing networks without a prompt (admin use).
+  - TN3179 on custom UDP broadcast discovery: use Bonjour if you can; otherwise "run your service discovery code on all broadcast-capable
+    interfaces" and never hard-code `en0`.
+- Multicast entitlement `com.apple.developer.networking.multicast`: "Your app must have this entitlement to send or receive IP multicast or
+  broadcast on iOS", and it "requires permission from Apple" through the Multicast Networking Entitlement Request page.
+  - Table in TN3179: sending a UDP broadcast, and receiving UDP broadcast or multicast, need it on iOS; **UDP unicast does not**.
+    "The multicast entitlement isn't required on macOS." The entitlement's page lists iOS, iPadOS and visionOS. **tvOS is not mentioned;
+    not verified.** With Xcode's automatic signing the Capabilities editor adds it once Apple has granted it.
+  - Source: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast
+  - Consequence: the iOS build can do unicast probes of saved and typed addresses without the entitlement. Broadcast discovery of the
+    Jellyfin kind needs Apple's approval first. Not verified: whether Apple approves it for a media client, and how long it takes.
+- macOS App Sandbox (if the Mac build is sandboxed): for UDP, `com.apple.security.network.client` allows only sending and
+  `com.apple.security.network.server` only receiving, "Apps using UDP usually require both". For TCP the entitlements only limit who initiates.
+  Sources: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.network.client and `.server`.
+  Whether the Mac app will be sandboxed is not decided.
+- App Transport Security applies to "all HTTP connections made with the URL Loading System—typically using the URLSession class"
+  (https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity). `ktor-client-darwin`
+  is built on `NSURLSession` (its sources reference it), so ATS governs our Apple HTTP calls. Network framework and BSD sockets are not
+  URLSession; the page does not name them. The ATS keys' reference pages list iOS, iPadOS, macOS and visionOS, **not tvOS; not verified for tvOS**.
+  - `NSAllowsLocalNetworking`: "controls whether ATS allows your app to connect to unqualified domains, `.local` domains, and IP addresses
+    using IPv4 or IPv6." Since iOS 17 and macOS 14 ATS does not allow IP addresses by default; this key re-allows them.
+    (https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)
+    The page does not say whether "IP addresses" means only local ones. Not verified.
+  - So `http://192.168.1.10:8096`, `http://nas:8096` (unqualified) and `http://media.local:8096` are allowed with the key. By the page's list,
+    **`http://media.lan:8096` is not**: a dotted name that does not end in `.local` is none of the three kinds. Inferred from the text; not tried on a device.
+  - `NSExceptionDomains` takes names, IPv4/IPv6 addresses and CIDR ranges (iOS 17, macOS 14), without ports or wildcards, but it is
+    fixed at build time, so it cannot cover addresses a user types.
+  - `NSAllowsArbitraryLoads` is "ignored—and the default value of NO used instead" when `NSAllowsLocalNetworking` (or
+    `NSAllowsArbitraryLoadsInWebContent` or `...ForMedia`) is present, and it needs a justification in App Store review. So the Store edition
+    can have the local-network exemption, or arbitrary loads, not both; arbitrary loads suits the Private edition (ADR 0014) only.
+  - Not verified: whether AVPlayer's loads of a local `http` URL follow `NSAllowsLocalNetworking`.
+
+## Local network, discovery and cleartext HTTP: Android (checked 2026-10-19 in the Android docs and AOSP `main`; nothing run on a device)
+- Android 17 local network permission, https://developer.android.com/privacy-and-security/local-network-permission and
+  https://developer.android.com/about/versions/17/behavior-changes-17
+  - `ACCESS_LOCAL_NETWORK`, a runtime permission in the `NEARBY_DEVICES` group, **mandatory for apps that target API 37**. An app with
+    `INTERNET` that targets 36 or lower gets it implicitly; do not request it there. Android 16 had an opt-in (`RESTRICT_LOCAL_NETWORK`
+    compat flag, `NEARBY_WIFI_DEVICES`).
+  - Covered, for "all networking APIs" (raw sockets, Cronet, OkHttp, `NsdManager`): outgoing TCP, accepting TCP, sending **and receiving** UDP
+    unicast, multicast and broadcast, and resolving `.local` names. Exempt: DNS to a local DNS server (port 53), and apps that use the system
+    picker (`DiscoveryRequest.FLAG_SHOW_PICKER` in `NsdManager`, Output Switcher). WebView inherits the host app's state.
+  - Denied: TCP "will typically result in a timeout error", UDP and other denials in `EPERM`. The page does not say which address
+    ranges count as the local network. Not verified.
+  - So against a target-37 build, plain `http://192.168.1.10:8096` and the UDP discovery both need the permission, and the app should
+    handle a denial by showing that local servers cannot be reached.
+- `INTERNET` and `ACCESS_NETWORK_STATE` (for network callbacks, below). A `WifiManager.MulticastLock` ("Allows an application to receive
+  Wifi Multicast packets ... can cause a noticeable battery drain") needs `CHANGE_WIFI_MULTICAST_STATE` (normal permission, `AndroidManifest.xml`
+  of the framework). It is described for multicast, not broadcast or unicast replies; whether a broadcast discovery needs it is not verified.
+- Cleartext, https://developer.android.com/privacy-and-security/security-config :
+  - Default for apps targeting API 28+ is `cleartextTrafficPermitted="false"` in `base-config`.
+  - `domain-config` matches DNS names (`includeSubdomains`); the page documents no wildcard, no CIDR and no `.local` special case. It only
+    mentions IP literals for loopback (Android 17 adds an implicit cleartext allowance for localhost). Whether a `<domain>` can be a LAN
+    IP literal is not documented. Not verified.
+  - The XML is fixed at build time, so user-chosen addresses need `base-config cleartextTrafficPermitted="true"` (every host over HTTP)
+    or the app enforcing its own rule above the platform's. A permissive base config cannot be narrowed later.
+  - `android:usesCleartextTraffic` is ignored on API 24+ when a network security config exists, and "is getting deprecated and will be ignored for
+    apps targeting API levels 38 and above" (https://developer.android.com/guide/topics/manifest/application-element).
+  - `NetworkSecurityPolicy` is enforced "on a best effort basis" by platform stacks (HTTP and FTP, `DownloadManager`, `MediaPlayer`; WebView
+    for target 26+). `java.net.Socket` does not; "Third-party libraries are strongly encouraged to honor" it. AOSP `NetworkSecurityPolicy.java`.
+    The Android engine (`ktor-client-android`, `HttpURLConnection`) is a platform stack, so the setting applies. Not verified for Media3's
+    data sources and Coil.
+- Network changes: `ConnectivityManager.registerDefaultNetworkCallback` (`@RequiresPermission(ACCESS_NETWORK_STATE)`; at most 100 callbacks per app;
+  unregister them). `NetworkCallback` has `onAvailable`, `onLosing`, `onLost`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`,
+  `onBlockedStatusChanged`. AOSP `ConnectivityManager.java`. Nothing run.
+
+## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
+- `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
+  `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
+  specific privileges". To receive broadcasts "a DatagramSocket should be bound to the wildcard address".
+  https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/net/DatagramSocket.html
+- `NetworkInterface.networkInterfaces()` with `InterfaceAddress.getBroadcast()` (null for IPv6 and when there is no broadcast address) gives the
+  directed broadcast address of each interface. Not verified: whether `255.255.255.255` leaves every interface on a multi-homed Windows PC
+  (the per-interface address avoids the question), and what a Windows firewall prompt does to a first-run listener.
+- `NetworkInterface` has no listener or event API (its methods are getters and predicates), so a change has to be found by polling and
+  comparing `NetworkInterface`/`InterfaceAddress` results. OS notifications (Windows, macOS, Linux) are not verified; any native route
+  would need JNA, JNI or a new dependency.
+
+## Local network and mixed content: browsers (checked 2026-10-19; Chrome and Firefox by their notes, Safari not verified)
+- No UDP: the standard web platform has no raw datagram API, so a browser app cannot do the Jellyfin broadcast discovery. The Direct Sockets
+  proposal (WICG explainer) offers `UDPSocket` but "is planned to be available only in Isolated Web Apps", and states no browser support.
+  Neither WebRTC nor WebTransport reaches an arbitrary server. A web build has to use saved or typed addresses, or ask a server it already knows.
+- Mixed content (https://www.w3.org/TR/mixed-content/): from a secure page, blockable requests (fetch, XHR, script) to a URL that is not
+  "potentially trustworthy" fail; upgradeable ones (image, audio, video) are rewritten from `http` to `https` instead (and not for IP hosts).
+  https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy : trustworthy are `https`/`wss`, `127.0.0.0/8`, `::1/128`,
+  `localhost` and `*.localhost`, `file:`. **LAN IPs and `.local` names are not.**
+  So an HTTPS-hosted web app cannot fetch `http://192.168.1.10:8096` unless the browser grants an exemption.
+- Chrome Local Network Access (https://developer.chrome.com/blog/local-network-access, update 2025-09-29 "launching in Chrome 142"):
+  - It replaces Private Network Access ("after PNA was put on hold"): a permission prompt, only for secure contexts, for requests from a
+    public page to the local network (private ranges, link-local, ULA) or loopback. Local page to local server is not covered yet; the blog
+    calls it a future extension. Covered: `fetch()`, subresources, subframe navigation. Enterprise policy `LocalNetworkAccessAllowedForUrls`.
+  - Mixed content is waived for permission-gated requests when Chrome knows before resolving that the target is local: a private IP
+    literal, a `.local` name, or `fetch(url, {targetAddressSpace: "local"})`. `http://example.com/ping` is **not** exempt even if it resolves
+    to a LAN address. A name such as `media.lan` therefore stays blocked on an HTTPS page, except for `fetch` with `targetAddressSpace`.
+    Media elements (`<video src>`, `<img>`) cannot set that option (inferred); how they are treated for a `.lan` host is not verified.
+  - WebSocket: "WebSockets connections to local addresses now trigger permission prompts" in Chrome 147 (stable 2026-04-07,
+    https://developer.chrome.com/release-notes/147). Third-party pages claim a Chrome 145 permission split and later changes; not verified.
+  - Denial behaviour and iframe `Permissions-Policy` details are not on that page. Not verified.
+- Firefox 151 (2026-05-19): "Local network access restrictions are now rolling out to all users", websites must ask before connecting to
+  local devices, as a progressive rollout (https://www.firefox.com/en-US/firefox/151.0/releasenotes/). Mozilla's support article could not be
+  opened; whether the exemption for mixed content exists is not verified.
+- Safari: TN3179 says traffic from Safari and WKWebView needs no local network access. A search found open WebKit work on a Local Network
+  Access check (bugs 319907 and 319908) and no shipped prompt; not opened, so Safari's behaviour with local HTTP is not verified.
+- Hosting: an app served over plain HTTP from the LAN (same network as the servers) has no mixed content to cope with, and Chrome's first
+  milestone does not prompt local-to-local requests. A public HTTPS deployment is the case that needs the permission, a LAN IP or `.local` name, or HTTPS on the server.
+  CORS is separate and unchanged (Jellyfin and Stash allow any origin, Seerr none; see their sections).
+
+## Detecting network changes (checked 2026-10-19; documentation only)
+- Apple: `NWPathMonitor` (iOS 12, macOS 10.14, tvOS 12): `pathUpdateHandler` receives `NWPath` values with `status`, `availableInterfaces`,
+  `gateways`, `usesInterfaceType(_:)`, `supportsIPv4/IPv6`, `isExpensive`, `isConstrained`, `unsatisfiedReason` (including
+  `.localNetworkDenied`). It gives no SSID. Whether a Wi-Fi to Wi-Fi switch fires an update, and whether `gateways` can tell two networks apart, is not verified.
+  https://developer.apple.com/documentation/network/nwpathmonitor
+- Android: `registerDefaultNetworkCallback`, see above; `onLinkPropertiesChanged` and `onCapabilitiesChanged` report address and capability changes on the same network.
+- Browsers: `online`/`offline` on `window` (Baseline since July 2015) but "inherently unreliable": a LAN counts as online even without
+  Internet, and on Windows the status depends on reaching a Microsoft server. `navigator.connection` and its `change` event
+  (Network Information API) are Chromium only (Chrome and Edge 61+, not Firefox or Safari, per MDN browser-compat-data on 2026-10-19), and describe
+  the connection type, not the network identity. https://developer.mozilla.org/en-US/docs/Web/API/Navigator/onLine
+- Desktop JVM: nothing in the JDK, see above.
+- Implication (inference): treat every platform signal as "something may have changed" and re-probe the server addresses; none of them
+  says which network the device is on.
+
+## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
+- Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
+  Ktor client 3.6.0. It is a new dependency, so it needs approval (CLAUDE.md, ADR 0009).
+- Targets published: jvm, js, wasm-js, iosArm64, iosSimulatorArm64, iosX64, macosArm64, macosX64, tvosArm64, tvosSimulatorArm64, tvosX64,
+  watchOS, linux, mingw, androidNative. No android variant: Android takes the jvm artifact, as with the other Ktor modules.
+- UDP: `aSocket(selector).udp().bind(...)`/`connect(...)` with `SocketOptions.UDPSocketOptions.broadcast` (`SO_BROADCAST`).
+  - jvm: NIO channels, `StandardSocketOptions.SO_BROADCAST`.
+  - Apple (iOS, macOS, tvOS): its own POSIX socket code (`posixMain`), `SO_BROADCAST` via `setSocketFlag`.
+  - js and wasm-js: **Node.js only**. The js source calls `node:dgram` and loads it only when `process.release.name === 'node'`; otherwise
+    it throws `UnsupportedOperationException("Module node:dgram is not available. Please verify that you are using Node.js")`. It
+    never works in a browser. The wasm-js source jar was not opened.
+- Platform permissions still apply: it is a plain socket library, so iOS needs the multicast entitlement for broadcast and the Local Network prompt;
+  Android 17 needs `ACCESS_LOCAL_NETWORK`. Not verified: ktor-network's behaviour on a real device in either case.
+- Versus `java.net` on the JVM: java.net is enough there and adds nothing. ktor-network would give one Kotlin API for jvm, Android, iOS,
+  macOS and tvOS; the web still needs an interface with a "not available" implementation. Choosing is a design decision (ADR), not made here.
+
 ## Not verified (research before depending on it)
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
   HDR on web as seen on screen (the HDR10 stream reaches the decoder in Chrome and Edge, ADR 0011), patent licensing for HEVC/AAC/AC-3 decoders.
-- Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
+- Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF). Mixed content
+  is covered under "Local network and mixed content: browsers"; it was read, not tried in a browser.
 - Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
   used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
 - Dolby Vision's base layer in browsers without Dolby Vision. The web profile accepts `DOVIWithHDR10`, `DOVIWithHDR10Plus`,
@@ -687,4 +930,33 @@ as of 2026-10-18.
       access unit after the RPU, so EL NALs (type 63) earlier in the unit may remain.
     - The live master playlist and init segment for each profile with and without `DOVI` in the device profile (only the code was read).
     - Whether `SUPPLEMENTAL-CODECS` without a `dvcC` box (profile 8, `DOVI` not listed) confuses any client.
+- Server addresses, discovery and roaming (2026-10-19; documentation and source only, no device, no LAN, no live server):
+  - Jellyfin:
+    - The discovery handshake was never sent to a server; the 12.2 files were read through a summarizing fetcher and spot-checked
+      (the port, the match string, the reply, `AutoDiscovery`, `PublicSystemInfo`, the id source).
+    - The `UserDto` shape of `/Users/Public`; the HTTPS redirect status code; whether `GetBindAddress` returns the interface address when
+      `LocalNetworkAddresses` is set; the jellyfin-web `AutoDiscovery` checkbox at the 12.2 tag; whether the server advertises mDNS
+      (not found, not exhaustively searched); whether broadcasts reach a server in a bridge-networked container (expected not, untried).
+  - Seerr and Stash:
+    - Whether an admin can change Seerr's `clientId`; what `commitTag` holds on a release image; the default `applicationTitle`; the
+      validator's 401 body.
+    - Stash: the `systemStatus` resolver, the open `/graphql` response, the `/css` and `/assets` bodies, the chi `/healthz` body (taken
+      from chi's source through a summarizer), the "local clients only" rule when no credentials are set.
+  - Apple:
+    - What tvOS does with local traffic and UDP broadcast (TN3179 lists no local network privacy for tvOS; the entitlement page does not
+      mention tvOS; the ATS key pages do not list tvOS).
+    - Whether Apple grants the multicast entitlement for a media client, and how fast.
+    - Whether `NSAllowsLocalNetworking` admits public IP addresses, and whether AVPlayer follows it.
+    - That a dotted non-`.local` name such as `media.lan` is blocked by ATS under `NSAllowsLocalNetworking` (read from the key's text, not tried).
+    - Whether `NWPathMonitor` fires for a Wi-Fi to Wi-Fi switch.
+  - Android:
+    - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
+    - Whether a broadcast discovery needs a `MulticastLock`; Media3's and Coil's handling of the cleartext policy.
+  - Desktop: whether `255.255.255.255` leaves every interface on a multi-homed Windows PC; firewall prompts for a first-run UDP listener;
+    OS-level network change notifications (Windows, macOS, Linux).
+  - Web:
+    - Safari's and Firefox's mixed-content exemption for LAN addresses (Mozilla's support article could not be opened; WebKit's Local
+      Network Access work was not opened); whether media elements can reach a `.lan` host from an HTTPS page in Chrome.
+    - Chrome 145 and 156 changes (third-party reports only); how a denied permission surfaces in `fetch`.
+  - ktor-network: the wasm-js source jar was not opened; nothing was run on any target.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
