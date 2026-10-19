@@ -13,10 +13,25 @@ private fun importHls(onLoaded: (JsAny) -> Unit, onFailed: (String) -> Unit): Un
 
 private fun hlsIsSupported(hlsClass: JsAny): Boolean = js("hlsClass.isSupported()")
 
+/**
+ * Jellyfin holds a segment request until ffmpeg has written it, so a busy or software-only transcode answers late: wait up to a minute
+ * for the first byte (hls.js waits 10 s by default), and recover from network and media errors a few times before giving up.
+ */
 private fun hlsAttach(hlsClass: JsAny, video: HTMLVideoElement, url: String, onFatal: (String) -> Unit): JsAny = js(
     """(function () {
-        var hls = new hlsClass({ enableWorker: true });
-        hls.on(hlsClass.Events.ERROR, function (event, data) { if (data.fatal) onFatal('hls.js: ' + data.type + ' / ' + data.details); });
+        var slow = { maxTimeToFirstByteMs: 60000, maxLoadTimeMs: 180000,
+                     timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+                     errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000 } };
+        var hls = new hlsClass({ enableWorker: true, fragLoadPolicy: { default: slow }, manifestLoadPolicy: { default: slow },
+                                 playlistLoadPolicy: { default: slow } });
+        var recoveries = 0;
+        hls.on(hlsClass.Events.ERROR, function (event, data) {
+            if (!data.fatal) return;
+            if (recoveries < 3 && data.type === hlsClass.ErrorTypes.NETWORK_ERROR) { recoveries++; hls.startLoad(); return; }
+            if (recoveries < 3 && data.type === hlsClass.ErrorTypes.MEDIA_ERROR) { recoveries++; hls.recoverMediaError(); return; }
+            onFatal('hls.js: ' + data.type + ' / ' + data.details);
+        });
+        hls.on(hlsClass.Events.FRAG_BUFFERED, function () { recoveries = 0; });
         hls.loadSource(url);
         hls.attachMedia(video);
         return hls;
@@ -28,6 +43,8 @@ private fun playQuietly(video: HTMLVideoElement): Unit = js("(function () { var 
 private fun mediaErrorText(video: HTMLVideoElement): String =
     js("video.error ? ('Media error ' + video.error.code + (video.error.message ? ': ' + video.error.message : '')) : ''")
 private fun isFullscreen(element: HTMLElement): Boolean = js("document.fullscreenElement === element")
+private fun exitFullscreenOf(element: HTMLElement): Unit =
+    js("(function () { if (document.fullscreenElement === element) { var p = document.exitFullscreen(); if (p) p.catch(function () {}); } })()")
 private fun toggleFullscreenOf(element: HTMLElement): Unit = js(
     """(function () {
         var p = document.fullscreenElement ? document.exitFullscreen() : element.requestFullscreen();
@@ -171,6 +188,9 @@ class HtmlVideoEngine(private val video: HTMLVideoElement, private val container
     }
 
     override fun release() {
+        // Leaving the player (Back, a link) must end its fullscreen; where the container outlives the page (the whole document in
+        // the canvas prototype), the browser would otherwise stay fullscreen.
+        exitFullscreenOf(container)
         loadGeneration++
         detachSource()
         videoListeners.forEach { (type, listener) -> video.removeEventListener(type, listener) }
