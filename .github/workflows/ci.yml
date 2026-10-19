@@ -21,8 +21,18 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webApp/package-lock.json
       - run: ./gradlew jvmTest :desktopApp:classes
-      - run: ./gradlew :webApp:wasmJsBrowserDistribution
+      - name: Web app (npm licences, Kotlin library, Vite build)
+        working-directory: webApp
+        run: |
+          npm ci
+          npm run licences
+          npm run build
       - run: ./gradlew :androidApp:assembleDebug
 
   windows:

@@ -48,10 +48,12 @@ Then:
 - [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources
 - [ ] Web shell (ADR 0011):
-  - pure-Kotlin modules gain a `js()` target;
-  - a Kotlin/JS umbrella module with the `@JsExport` facade;
-  - `webApp` becomes the Vite + React + TypeScript app, with the same sidebar layout, settings and states as desktop;
-  - routing through the core's History API router; npm in CI with a licence check
+  - [x] pure-Kotlin modules gain a `js()` target (they lose `wasmJs`, and the Compose modules leave the web);
+  - [x] a Kotlin/JS umbrella module (`web`) with the `@JsExport` facade;
+  - [x] the browser probes and web device profile in `core:playback`, tested against `docs/web-probes/`, with Dolby Vision probes;
+  - [ ] `webApp` becomes the Vite + React + TypeScript app, with the same sidebar layout, settings and states as desktop (the app,
+        a placeholder home and a playback support page are done; the layout waits for the Compose shell);
+  - [x] routing through the core's History API router; npm in CI with a licence check
 - [ ] Opt-in live smoke tests (read-only) that run only when test-server environment variables are set; never in CI
 
 Done when: sign in and out of Jellyfin on Windows and in the browser, the app restarts signed in, and a build without extensions passes CI.

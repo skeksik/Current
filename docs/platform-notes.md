@@ -226,6 +226,18 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   until `wasmJsProductionExecutableCompileSync --rerun`.
 - `wasmJsBrowserDevelopmentRun --continuous` once failed with `OutOfMemoryError` in the Kotlin daemon (`kotlin.daemon.jvmargs=-Xmx3072M`)
   after a few incremental builds; `gradlew --stop` and a restart fixed it.
+- Seen while building the web shell (2026-10-19, Kotlin 2.4.20, Vite 8.3.4, npm 10.9, Node 22.17 on Windows 11):
+  - A library distribution is assembled from the root build's `build/js/packages/<outputModuleName>`, which is shared by every module
+    with that `outputModuleName`. The spike's `current-core` files were still in it and were copied next to the new module's.
+    Not tried yet: deleting that generated folder. CI starts clean, and Vite only loads what `current-core.mjs` imports.
+  - Vite's dev server refuses files outside its root unless `server.fs.allow` lists them (the `:web` library is in `web/build`).
+    `appType: 'spa'` (the default) serves `index.html` for unknown paths in both `vite` and `vite preview`, so History API URLs reload.
+  - `tsc` over `vite.config.ts` needs `@types/node` for `node:url`. It is left out of the type check rather than adding the package.
+  - `npm query .prod` lists the root package itself (location `""`) besides the production dependencies.
+  - Node 22 runs a `.bat` file through `spawn` only with `shell: true`, given by its full path.
+  - JetBrains `lifecycle-viewmodel` 2.11.0's `viewModelScope` needs a main dispatcher, which plain JVM tests lack ("Module with the
+    Main dispatcher is missing"), so ViewModels take an optional scope for tests instead of adding `kotlinx-coroutines-test`.
+  - The browser pane's Chromium answered "false" to both Dolby Vision probes (`dvh1.05.06`, `dvh1.08.06`) through `decodingInfo`.
 
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
