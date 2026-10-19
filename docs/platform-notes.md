@@ -283,6 +283,11 @@ and resolved versions from `:desktopApp:dependencies`.
   - Engines: `ktor-client-android` (HttpURLConnection) and `ktor-client-java` (the JDK's `HttpClient`) are jvm only. `ktor-client-darwin`
     covers iOS, macOS and tvOS. `ktor-client-js` covers js and wasm-js. Unlike OkHttp, none of them adds a third-party library.
   - On the JVM it pulls `slf4j-api` 2.0.19 (MIT).
+  - Exceptions (checked 2026-10-20 in the 3.6.0 jvm classes and our tests): `HttpRequestTimeoutException` extends `IOException`,
+    `ConnectTimeoutException` extends `ConnectException`, and `ResponseException` (thrown with `expectSuccess`) extends
+    `IllegalStateException`. Their messages contain the full request URL. A refused connection on the Java engine is an `IOException`.
+  - `ktor-client-logging` 3.6.0 (checked 2026-10-20 in `Logging.kt` at the 3.6.0 tag): `sanitizeHeader` masks header values only; every
+    format writes the request URL unchanged, query included; body logging is filtered only by a `bodyFilter`. Not used (ADR 0015).
 - **kotlinx.serialization 1.12.0** (`core:network`), Apache-2.0. Released 2026-10-19 and "based on Kotlin 2.4.10"; every target.
   The compiler plugin is `org.jetbrains.kotlin.plugin.serialization` at Kotlin's own version. Ktor asks for 1.11.0 and Gradle takes 1.12.0.
   Behaviour change in 1.12.0: every exception thrown while decoding is wrapped in a `JsonException`.
@@ -647,6 +652,11 @@ as of 2026-10-18.
 - GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
 ## Not verified (research before depending on it)
+- Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
+  maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
+- Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
+- Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
+  private network access) for local addresses (roadmap, M1 spike).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
