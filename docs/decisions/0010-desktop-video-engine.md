@@ -1,6 +1,6 @@
 # 0010: Desktop video engine
 
-Status: proposed (2026-10-19), from the M1 "Desktop video" spike. Accepted once the hand checks at the end are reported.
+Status: accepted (2026-10-19), from the M1 "Desktop video" spike. The open checks and tuning are M2 follow-ups (Consequences).
 
 ## Context
 M1 needs a Windows desktop engine behind ADR 0007's headless `PlayerEngine`, with our own Compose controls over the video. Compose
@@ -105,6 +105,9 @@ mpv resets `frame-drop-count` on seeks, so drops were counted as the sum of incr
 - Every resize and fullscreen switch costs a few frames while mpv rebuilds its swap chain.
 - Media keys and the Windows media flyout come with `win32-smtc` in our build; until then they do not work.
 - HDR-to-SDR tone mapping (Windows HDR off, SDR monitors) needs a visual check against reference players.
+- M2 follow-ups from the spike: check by hand Alt+Tab, the taskbar and the title bar state with two windows, and clicking outside
+  borderless fullscreen; compare tones against a reference (the film's SDR release or the OS player) with Windows HDR on and off before
+  tuning `target-peak`, `tone-mapping` and `hdr-contrast-recovery`; keyframe seeks while a seek key repeats, an exact seek when it stops.
 
 ## Hand checks
 Reported 2026-10-19 on the first prototype (`spike/desktop-video-old`: Compose's fullscreen, keys after the focused control, keyframe
@@ -136,8 +139,10 @@ Second round, 2026-10-19, on the current prototype:
 Third round: entering fullscreen from a maximized window and leaving with F, Esc or a double click misaligned window and controls (the
 button happened to work). Cause and fix: see Decision (fullscreen from a maximized window); reproduced and fixed in the self-test.
 
-Still open by hand: Alt+Tab, taskbar and title bar state with two windows; clicking outside borderless fullscreen; the tone comparisons
-against a reference. Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.
+Not checked by hand before acceptance: Alt+Tab, taskbar and title bar state with two windows; clicking outside borderless fullscreen;
+tones against a reference. They are M2 follow-ups (Consequences).
 
 ## Prototype
-`spikes/desktop-video` on branch `spike/desktop-video`, deleted before merging; this ADR and docs/platform-notes.md are what remains.
+`spikes/desktop-video` up to commit `f07c629` on branch `spike/desktop-video` (in this ADR's PR history), removed before merging. Its
+README held the run steps; `make-test-media.ps1` made the synthetic files; the self-test drove resizing, monitors, fullscreen, tracks and
+real mouse and keyboard input. This ADR and docs/platform-notes.md are what remains.

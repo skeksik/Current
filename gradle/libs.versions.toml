@@ -14,9 +14,6 @@ junit = "4.13.2"
 kotlin = "2.4.20"
 kotlinx-coroutines = "1.11.0"
 material3 = "1.12.0-alpha03"
-# Spike only (spike/desktop-video): removed before the PR
-spike-jna = "5.19.1"
-spike-mediamp = "0.5.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -37,10 +34,6 @@ compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMul
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
-# Spike only (spike/desktop-video): removed before the PR
-spike-jna = { module = "net.java.dev.jna:jna", version.ref = "spike-jna" }
-spike-mediampMpv = { module = "org.openani.mediamp:mediamp-mpv-desktop", version.ref = "spike-mediamp" }
-spike-mpvRuntimeWindowsX64 = { module = "org.openani.mediamp:mediamp-mpv-runtime-windows-x64", version.ref = "spike-mediamp" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

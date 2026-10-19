@@ -62,6 +62,11 @@ Facts below were read from the linked sources on that date. Re-check before rely
      with its logical size applied as physical pixels while AWT kept the logical layout, so the child canvas was clipped. A borderless
      fullscreen on the same HWND (`SetWindowLongPtr` without the frame styles, `SetWindowPos` to the monitor rectangle) avoided it.
    - mpv rebuilds its swap chain on every size change: a few dropped frames per resize or fullscreen switch, none in steady playback.
+   - The controls window must follow the frame's content area (AWT resizes it at once; the canvas follows only after Compose's next
+     layout, and came out 2 px taller at 150 %), call `validate()` after `setBounds` (otherwise the Compose content kept its old size
+     during a drag-resize), and leave a maximized frame through AWT (restyling a maximized HWND directly left AWT with stale bounds).
+   - Hiding a window makes Windows send a mouse move to the window below although the cursor did not move; idle detection must compare
+     positions. Compose's `detectTapGestures` with `onDoubleTap` delays every single tap by the double-tap timeout.
 3. vlcj 4 + LibVLC 3: mature, but vlcj is GPLv3+ or paid, and rendering into Compose goes through CPU copies (LibVLC calls callback
    rendering "considerably less efficient").
 - Not suitable: Compose Media Player on Windows (Media Foundation: no MKV/WebM, first audio stream only), JavaFX Media (no MKV, AC-3, DTS),
