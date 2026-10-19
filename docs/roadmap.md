@@ -41,7 +41,8 @@ Then:
 - [x] Libraries per ADR 0002, versions checked against Kotlin/CMP: Ktor client, kotlinx.serialization, Koin, Navigation, Coil 3
       (2026-10-19; Navigation is 2.10.0-rc01, the line CMP 1.12.1 pairs with)
 - [ ] Extension points, capabilities state and the build switch (ADR 0008); CI builds a shell without extensions
-- [ ] `core:model`: media identity (service + id), open media kinds, artwork with aspect ratio, user and permissions
+- [x] `core:model`: media identity (service + id), open media kinds, artwork with aspect ratio, user and permissions (2026-10-19,
+      ADR 0013: the identity holds the server, not only the service; services are open like kinds)
 - [ ] `core:network`: client factory per service, error model, lenient JSON, log redaction of tokens, keys and cookies
 - [ ] Server setup: add a server by URL, check it (public info endpoint), warn about plain HTTP
 - [ ] Jellyfin sign-in with username and password or Quick Connect, one random device id per install (signing in again with the same id
@@ -90,7 +91,8 @@ Done when: a Jellyfin library is browsable and playable on Windows and web every
 - [ ] Web: Seerr has no CORS, so serve the web app on the same origin as Seerr's API (reverse proxy) or add CORS to Seerr (server change); decide
 - [ ] Discover rows as the server configures them, Movies/Series browse with filters, search merged with library results
 - [ ] Movie, series, person and collection pages joined with Jellyfin through Seerr's media records first, provider ids second (often missing)
-- [ ] Requests: request (seasons, 4K, advanced options when permitted), quotas, my requests; approve/decline for managers
+- [ ] Requests: request (seasons, 4K, advanced options when permitted), quotas, my requests; approve/decline for managers; request
+      and media status in `core:model`
 - [ ] Watchlist, blocklist (managers), issues
 
 Done when: a title can be found, requested and followed to "available", then played, without leaving the app.
