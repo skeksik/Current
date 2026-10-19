@@ -3,7 +3,7 @@
 Status: open
 
 ## Problem
-SQLDelight has no synchronous SQLite driver for Wasm, while Android, iOS and desktop do. `core:database` therefore cannot be
+SQLDelight has no synchronous SQLite driver for Wasm or Kotlin/JS (the web runs on Kotlin/JS since ADR 0011), while Android, iOS and desktop do. `core:database` therefore cannot be
 used unchanged on web, and nothing on web may depend on the cache until this is decided.
 
 ## Options

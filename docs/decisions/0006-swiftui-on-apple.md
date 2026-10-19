@@ -9,7 +9,7 @@ Kotlin/Native target tiers: macosArm64 and iOS targets are Tier 1; tvosArm64 and
 
 ## Decision
 - One SwiftUI codebase for iOS, macOS and tvOS (platform adaptation where needed).
-- Compose Multiplatform for Android, Windows (Linux free) and web. Compose modules have no Apple targets; macOS is not served by the JVM desktop app.
+- Compose Multiplatform for Android, Windows (Linux free) and web (web: superseded by ADR 0011, React + TypeScript). Compose modules have no Apple targets; macOS is not served by the JVM desktop app.
 - Kotlin core shared through the `apple` module as a static framework named `Shared`.
 - Swift interop for `Flow`/`suspend`/sealed classes: SKIE is the default choice (its latest release at the time of checking, 0.10.15, mentions Kotlin 2.4.20 support);
   Swift export is Alpha. Re-check both when the first Swift screen is written.

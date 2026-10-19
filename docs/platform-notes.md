@@ -143,6 +143,12 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
     has written it. A software-only server re-encoding 4K HEVC 10-bit to H.264 had no first segment before its reverse proxy's 504 (even
     capped at 1080p, 20 Mb/s); with NVENC, segments came in 0.1–0.2 s. A web engine needs longer first-byte timeouts and error recovery
     (`startLoad()`, `recoverMediaError()`), and 4K transcodes need hardware acceleration on the server or a quality limit.
+  - HDR through hls.js:
+    - For an HDR source, Jellyfin's master playlist lists the copied stream (`VIDEO-RANGE=PQ`, `hvc1.2.4...`) next to tone-mapped
+      `VIDEO-RANGE=SDR` variants (HEVC and H.264) at the same bandwidth. hls.js 1.7.3 picked SDR unless told otherwise.
+    - `videoPreference: { preferHDR: true, allowedVideoRanges: ['SDR', 'PQ'] }` made Chrome decode HEVC Main 10 with PQ.
+    - `chrome://media-internals` (`edge://media-internals`) shows the decoder's profile and colour space per player.
+    - `(video-dynamic-range: high)` was false in Chrome and Edge with an HDR display, while `(dynamic-range: high)` was true.
   - Compose for web's canvas did not follow a runtime `devicePixelRatio` change (browser zoom): its backing size stayed at the old ratio,
     so zoomed text is blurry (owner; reproduced with CDP `Emulation.setDeviceMetricsOverride`, CMP 1.12.1).
 
@@ -350,7 +356,7 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
-  the web hole surviving CMP updates (it works in 1.12.1: ADR 0011), HDR on web, patent licensing for HEVC/AAC/AC-3 decoders.
+  HDR on web as seen on screen (the HDR10 stream reaches the decoder in Chrome and Edge, ADR 0011), patent licensing for HEVC/AAC/AC-3 decoders.
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
 - Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
   used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").

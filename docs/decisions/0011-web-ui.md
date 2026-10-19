@@ -1,6 +1,7 @@
 # 0011: Web UI
 
-Status: proposed (2026-10-19), from the M1 "Web UI" spike. The owner's hand checks (Chrome, Edge, Firefox) are in; the choice is the owner's.
+Status: accepted (2026-10-19), from the M1 "Web UI" spike: **B, React + TypeScript over the Kotlin core**. The owner chose it after the
+hand checks in Chrome, Edge and Firefox.
 
 ## Context
 The web app is used every day (M2), so it must behave like a web page: password managers fill the sign-in form, posters are real links
@@ -174,29 +175,66 @@ per run and the cache disabled.
   Gradle invocation fails validation, and a production build after a development one shipped the 25 MB development Wasm until
   `wasmJsProductionExecutableCompileSync --rerun`.
 
-## Recommendation
-**B (React + TypeScript over the Kotlin core)**, pending the owner's hand checks. Reasons:
-- Of the three, B has the smallest bundle and the fastest loads.
-- Its dev loop is fast for UI work (instant reload with state kept), and its type-checked build takes a second.
-- All five web behaviours are native.
-- B brings the largest ecosystem for what comes next: accessible menus and dialogs, focus management, virtualised grids, i18n.
+## Decision
+**B: the web UI is React + TypeScript (Vite), over the shared Kotlin core compiled to Kotlin/JS.** It passed every hand check. It has
+the smallest bundle and fastest loads of the three, the fastest UI dev loop (about 0.1 s with state kept), and the ecosystem the next
+screens need: accessible menus and dialogs, focus management, virtualised grids, i18n.
 
-Its cost is a second language and toolchain, plus a facade that grows with every ViewModel (about 40 lines each). Kotlin changes need a
-Gradle rebuild before Vite reloads.
+Its costs, accepted:
+- A second language and toolchain (npm, Vite) next to Gradle.
+- A `@JsExport` facade per ViewModel (about 40 lines each) that changes with it.
+- Kotlin changes need a Gradle rebuild before Vite reloads (2–7 s).
 
-**A is the close alternative** if staying in one language matters more. It has the same native web behaviour, no facade, and the core
-used directly. Its bundle is somewhat larger, its reloads lose state, and it has no component library. Compose HTML is JS-only, with
-Wasm support still in the backlog.
+**A (Compose HTML)** was the close alternative: the same native web behaviour, no facade, one language. It lost on dev loop, bundle and
+the lack of ready-made components, and Compose HTML is JS-only with Wasm support still in the backlog.
 
-**C is not recommended for the web now.** Every page needed HTML patches for basic web behaviour, and the owner's checks failed for the
-right-click menu on links, find-in-page, translate, selection of canvas text and Narrator; zoomed text is blurry. It is 13 times the download and has the slowest dev loop. Revisit C when CMP ships autofill
-(CMP-9861, targeted at 1.15) and links (CMP-9997), since sharing Compose screens with Android and desktop is its real advantage.
+**C (Compose for web)** is not used. Every page needed HTML patches. The owner's checks failed for the links' right-click menu,
+find-in-page, translate, canvas text selection and Narrator, and zoomed text is blurry. It is 13 times the download, with the slowest
+dev loop. Revisit it if CMP ships autofill (CMP-9861, targeted at 1.15) and links (CMP-9997): sharing Compose screens with Android and
+desktop is its real advantage.
 
-Consequences of choosing A or B:
-- The web leaves the Compose umbrella: `shared`, `composeUi` and `webApp` stop targeting the web.
-- Pure-Kotlin modules need a `js()` target (they have `wasmJs` today).
-- Navigation for the web is the core's History API router, not Navigation Compose. Koin can still wire the core.
-- The web engine, probes, storage and router from `webMain` carry over.
+## Consequences
+- **Three UI codebases:** SwiftUI (Apple), Compose (Android, desktop), React + TypeScript (web). All logic stays in shared Kotlin
+  (ADR 0005); the web UI only renders state and calls actions.
+- **Modules:**
+  - `shared`, `composeUi` and `core:designsystem` stop targeting the web.
+  - Pure-Kotlin modules gain a `js()` target (they have `wasmJs` today, which no UI needs any more).
+  - A Kotlin/JS umbrella module, the web's counterpart of `apple`, holds the `@JsExport` facade and is built as an ES module library
+    with `.d.ts`.
+  - `webApp` becomes the Vite + React app that consumes it.
+- **Navigation:** the web uses the core's History API router, not Navigation Compose. Koin can still wire the core.
+- **Carried over from the spike:** the web engine (`<video>` + hls.js, Media Session, fullscreen, keys), the probe table and device
+  profile, storage and router from `webMain`.
+- **Build and CI:** npm joins the build, with a lockfile; CI builds the Kotlin library and the Vite app. npm dependencies need the same
+  licence check as Kotlin ones (ADR 0009). Build-only tools are not shipped: Vite's CSS minifier is MPL-2.0.
+- **Pitfalls already met:**
+  - Ktor's JS client imports Node's `ws`, which needs a stub.
+  - React's `StrictMode` double mount disposes a page's ViewModel, so create pages inside effects.
+  - The committed yarn lockfile must be upgraded when JS modules change.
+
+## HDR
+HDR on the web works for HDR10 in HEVC on Chrome and Edge with Windows HDR on, decided by the probes:
+- **Edge plays an HDR10 HEVC file directly.** Its media log shows the platform decoder receiving HEVC Main 10 in BT.2020/PQ with the
+  file's mastering metadata.
+- **Chrome** gets the server's HLS with the video copied (HEVC Main 10, PQ) and only the audio transcoded.
+  - Jellyfin's master playlist for an HDR source lists the copied PQ stream next to tone-mapped SDR variants (HEVC and H.264) at the
+    same bandwidth. hls.js picked an SDR variant, which made the server tone-map for nothing and lost HDR.
+  - The engine now passes the probed ranges to hls.js (`videoPreference: { preferHDR, allowedVideoRanges }`). Chrome's media log then
+    showed HEVC Main 10 with PQ instead of 8-bit SDR.
+- **Tone-mapped by the server instead** (with its hardware encoder and tone-mapping on):
+  - Firefox: no HDR video output on Windows, and it reports no HDR display.
+  - Any browser on an SDR display.
+  - AV1 and VP9 HDR in Chrome and Edge: their `decodingInfo` does not report it.
+  - HLG: no browser reported decoding it for display.
+- **Partial or never:**
+  - HDR10+ plays as HDR10: its dynamic metadata is dropped.
+  - Dolby Vision plays only as its HDR10 or SDR base layer; profiles without one go to the server.
+- **Not verified:**
+  - What reaches the screen. The media logs prove the HDR stream is decoded; whether Windows shows it in HDR needs the owner's eyes,
+    for example the same film in Edge next to Firefox's tone-mapped copy.
+  - How our SDR controls look over HDR video.
+- **M2 follow-up:** the probes run once per page load. Moving the window between an HDR and an SDR monitor, or switching Windows HDR,
+  keeps the old answer until a reload. Listen to `matchMedia('(dynamic-range: high)')` changes and ask for a new route.
 
 ## Hand checks
 Done by the owner on 2026-10-19 in Chrome, Edge and Firefox, on each of A, B and C:
@@ -230,14 +268,7 @@ Expected per-browser differences: see Web playback routes (everything is probed;
   folder outside the repo.
 
 ## Prototype
-`spikes/web-core`, `spikes/web-html` (A), `spikes/web-ts` (B) and `spikes/web-wasm` (C) on branch `spike/web-ui`, with `spike-` catalog
-entries. They stay on the branch until the owner decides, then are removed before merging: this ADR and docs/platform-notes.md are what
-remains. Run on Windows from the repository root:
-- A: `.\gradlew.bat :spikes:web-html:jsBrowserDevelopmentRun --continuous`, then http://localhost:8081
-- B: `.\gradlew.bat :spikes:web-ts:jsBrowserProductionLibraryDistribution`, then in `spikes\web-ts`: `npm install` and `npm run dev`;
-  http://localhost:5173
-- C: `.\gradlew.bat :spikes:web-wasm:wasmJsBrowserDevelopmentRun --continuous`, then http://localhost:8082
-
-If Gradle reports "Lock file was changed", run `.\gradlew.bat kotlinUpgradeYarnLock kotlinWasmUpgradeYarnLock` once. The live check of the
-core (read-only, against a test server named in `%USERPROFILE%\.current\test-server.env`) is
-`.\gradlew.bat :spikes:web-core:jvmTest -Pspike.live=true`.
+`spikes/web-core`, `spikes/web-html` (A), `spikes/web-ts` (B) and `spikes/web-wasm` (C), with `spike-` catalog entries and the JS yarn
+lockfile. They were removed before merging; they remain in this ADR's PR history (branch `spike/web-ui` up to commit `8a2564d`). This ADR
+and docs/platform-notes.md are what remains. The probe answers recorded in Chrome, Edge and Firefox were test fixtures of
+`spikes/web-core` and are summarised in Web playback routes.

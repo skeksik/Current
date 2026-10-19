@@ -8,4 +8,5 @@ Status: accepted
 
 ## Consequences
 - Reviewers reject Compose imports in those modules.
-- Navigation state: shared Compose navigation on Android/desktop/web; on Apple it is owned by SwiftUI's `NavigationStack`.
+- Navigation state: shared Compose navigation on Android/desktop; on Apple it is owned by SwiftUI's `NavigationStack`; on the web by the
+  core's History API router under React (ADR 0011).

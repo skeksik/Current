@@ -6,18 +6,21 @@ Anyone may use it against their own servers: every service is optional, and remo
 
 Package / app ID: `com.skeksik.current`. Root Gradle project name: `Current`.
 
-## Two UI codebases, one Kotlin core (ADR 0006)
+## Three UI codebases, one Kotlin core (ADR 0006, ADR 0011)
 - **Apple (iOS, macOS, tvOS): SwiftUI**, native look (Liquid Glass on supported OS versions). One SwiftUI codebase shared across the three, with per-platform adaptation.
-- **Android, Windows (Linux comes free), web: Compose Multiplatform.** Desktop and web look nearly the same.
+- **Android, Windows (Linux comes free): Compose Multiplatform.**
+- **Web: React + TypeScript (Vite)** over the core compiled to Kotlin/JS, through an `@JsExport` facade (StateFlow -> subscribe/getSnapshot for
+  `useSyncExternalStore`; no exported suspend functions). Desktop and web look nearly the same. Planned in M1: `webApp` is still the Compose
+  Wasm placeholder until then.
 - All logic (data, presentation, playback planning) is shared Kotlin and must stay UI-agnostic.
 
 ## Layout
 ```
 androidApp/   Android application shell (MainActivity -> App())
 desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
-webApp/       Wasm browser shell
+webApp/       browser shell: Compose Wasm placeholder today, the Vite + React + TypeScript app from M1 (ADR 0011)
 iosApp/       Xcode project (SwiftUI shell). macOS and tvOS Xcode targets/projects are still to be created.
-shared/       Compose umbrella for Android/desktop/web: App(), navigation, DI wiring. NO Apple targets.
+shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple targets. (Web leaves it in M1, ADR 0011.)
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
 
 composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop, web)
@@ -33,7 +36,8 @@ extensions/<name>/         (planned, ADR 0008) removable feature groups: own dat
 Dependencies only point down: `shared` -> `composeUi` -> `feature` -> `data` -> `core`; `apple` exports `feature`, `data`, `core` (not Compose).
 Features never depend on each other. Core never imports an extension; extensions plug in through extension points (ADR 0008).
 **Pure-Kotlin modules must not import Compose** (they are consumed by SwiftUI).
-Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, wasmJs. Compose modules target android, jvm, wasmJs only.
+Pure-Kotlin modules target android, iOS, macOS (arm64), tvOS, jvm, wasmJs (js replaces wasmJs for the web in M1, ADR 0011). Compose modules target
+android, jvm, wasmJs only (wasmJs dropped in M1).
 Every module's `build.gradle.kts` copies the shape of an existing one of the same kind (see `core/model` and `composeUi`). New module: `/new-module`.
 
 ## Stack (exact versions in gradle/libs.versions.toml)
