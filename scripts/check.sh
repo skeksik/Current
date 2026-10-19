@@ -3,6 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+echo "==> No team ID in committed Xcode files"
+./scripts/check-no-team-id.sh
+
 echo "==> Unit tests (JVM)"
 ./gradlew jvmTest
 
