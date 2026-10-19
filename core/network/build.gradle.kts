@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -31,9 +32,27 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:model"))
+            api(libs.ktor.clientCore)
+            api(libs.koin.core)
+            implementation(libs.ktor.clientContentNegotiation)
+            implementation(libs.ktor.serializationKotlinxJson)
+            implementation(libs.kotlinx.serializationJson)
+        }
+        androidMain.dependencies {
+            implementation(libs.ktor.clientAndroid)
+        }
+        jvmMain.dependencies {
+            implementation(libs.ktor.clientJava)
+        }
+        appleMain.dependencies {
+            implementation(libs.ktor.clientDarwin)
+        }
+        jsMain.dependencies {
+            implementation(libs.ktor.clientJs)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.clientMock)
         }
     }
 }

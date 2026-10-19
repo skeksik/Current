@@ -42,7 +42,8 @@ Every module's `build.gradle.kts` copies the shape of an existing one of the sam
 ## Stack (exact versions in gradle/libs.versions.toml)
 Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
 Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
-Planned, not added yet (ADR 0002): Navigation, Koin, Ktor client, kotlinx.serialization, SQLDelight, Coil 3, Media3, SKIE for Swift interop.
+Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`shared`), Coil 3 (`composeUi`).
+Planned, not added yet: SQLDelight, Media3, SKIE for Swift interop.
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
 ## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)

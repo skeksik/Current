@@ -25,6 +25,8 @@ kotlin {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.networkKtor)
             implementation(project(":core:model"))
             implementation(project(":core:designsystem"))
             implementation(project(":core:playback"))
