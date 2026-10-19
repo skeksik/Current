@@ -26,9 +26,9 @@ app, so services are optional and features removable (ADR 0008). Reorder later m
 Spikes first: they decide whether the first slice works at all. Each ends in an ADR or a docs/platform-notes.md entry.
 Compose Multiplatform has no supported way to draw Compose over native video on either platform, so every candidate is a workaround
 (details and sources: docs/platform-notes.md).
-- [ ] Desktop video, candidates in order: libmpv drawn into Compose as a GPU texture (as MediaMP does), libmpv in a native window with a
-      transparent controls window (the only route that keeps HDR), vlcj (GPLv3). Measure 1080p60 and 4K60, check ASS/PGS subtitles, audio
-      track switching, HDR and media keys (libmpv has Windows media controls built in)
+- [x] Desktop video (2026-10-19, ADR 0010): libmpv in a native child window with a transparent Compose controls window and our own
+      borderless fullscreen. The texture route works but is SDR only; vlcj not tried. Needs our own LGPL-2.1 libmpv/FFmpeg build (with
+      Windows media controls)
 - [ ] Web video, candidates in order: `<video>` (+ hls.js) behind a transparent hole in the Compose canvas, video drawn by Compose through
       the experimental WebGL render target (needs a CMP 1.13 pre-release), a plain DOM player screen. Browsers cannot direct-play AC-3/DTS
       or show ASS/PGS, so the web device profile transcodes that audio and burns in or separately renders those subtitles
@@ -63,7 +63,8 @@ Done when: sign in and out of Jellyfin on Windows and in the browser, the app re
       engine's capabilities: direct play, direct stream, remux or HLS transcode)
 - [ ] `feature:player`: `PlayerController` (resume, progress reporting with pings while paused, audio/subtitle tracks, quality limit,
       next episode, skip intro/credits where the server has a media-segment plugin, fall back to transcode on engine errors)
-- [ ] Engines: desktop (from the spike), web (HTML video + hls.js)
+- [ ] Engines: desktop (from the spike, ADR 0010: our LGPL-2.1 libmpv/FFmpeg build, JVM binding, window host and its follow-ups),
+      web (HTML video + hls.js)
 - [ ] Player UI in Compose: transport, seek bar with chapters, track and quality menus, fullscreen, keyboard shortcuts, auto-hide
 - [ ] Media keys: Windows (if the spike found a way), Media Session API on web
 - [ ] The rest of the player feature target (ADR 0007) as far as Windows and web allow: HDR output, subtitle appearance, delay and preferred

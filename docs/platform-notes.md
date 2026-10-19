@@ -44,28 +44,54 @@ Facts below were read from the linked sources on that date. Re-check before rely
 
 **Desktop engine candidates** (Windows first), in the order to try them:
 1. libmpv drawn into Compose as a GPU texture, as MediaMP does (https://github.com/open-ani/mediamp, Apache-2.0, pre-1.0, v0.5.2): mpv's
-   D3D11 render API (in mpv master, planned for 0.42) shares frames with Skia's D3D12 device without CPU copies. MediaMP reaches Skiko
-   internals by reflection, and the output is 8-bit SDR.
+   D3D11 render API shares frames with Skia's D3D12 device without CPU copies. MediaMP reaches Skiko internals by reflection, and the
+   output is 8-bit SDR. Checked 2026-10-19 (M1 spike, ADR 0010):
+   - The render API (https://github.com/mpv-player/mpv/pull/17764) was merged into mpv master on 2026-10-15; the latest release is still
+     0.41.0, so MediaMP ships its own patched libmpv. Its design notes (`mediamp-mpv/mpv-d3d11-rendering.md`, in Chinese) describe
+     `RGBA_8888` shared textures and reflection on Skiko's `Direct3DRedrawer`; its player forces tone mapping of HDR to SDR
+     (`MpvMediampPlayer.jvm.kt`). MediaMP 0.5.2 is built against CMP 1.12.0 and resolves to Skiko 0.150.1 with CMP 1.12.1.
+   - In the spike it played 4K60 HEVC with 2-3 dropped frames at start and none after, so performance is not the problem; HDR10 output is.
 2. libmpv in a native child window (`wid`) with our controls in a separate transparent window: the only route that keeps HDR; the controls
    window must follow the video window (vlcj's docs report lag when dragging or resizing with this pattern:
-   https://capricasoftware.co.uk/tutorials/vlcj/4/overlay).
+   https://capricasoftware.co.uk/tutorials/vlcj/4/overlay). Chosen in ADR 0010; checked 2026-10-19 in the spike:
+   - With `vo=gpu-next`, `gpu-api=d3d11` and `target-colorspace-hint=yes`, mpv switched its swap chain to `bt.2020/pq` on an HDR display
+     with Windows HDR on, and to `bt.709/gamma2.2` (tone-mapped, 203 nits) when the window moved to an SDR monitor on another GPU, without
+     restarting. Read the result from the `video-target-params` property.
+   - Compose's `WindowPlacement.Fullscreen` is AWT's full-screen exclusive mode on Windows and Linux: Skiko 0.150.1's `PlatformOperations`
+     calls `GraphicsDevice.setFullScreenWindow` (macOS uses its native fullscreen). Leaving it at 150 % display scale, the frame came back
+     with its logical size applied as physical pixels while AWT kept the logical layout, so the child canvas was clipped. A borderless
+     fullscreen on the same HWND (`SetWindowLongPtr` without the frame styles, `SetWindowPos` to the monitor rectangle) avoided it.
+   - mpv rebuilds its swap chain on every size change: a few dropped frames per resize or fullscreen switch, none in steady playback.
+   - The controls window must follow the frame's content area (AWT resizes it at once; the canvas follows only after Compose's next
+     layout, and came out 2 px taller at 150 %), call `validate()` after `setBounds` (otherwise the Compose content kept its old size
+     during a drag-resize), and leave a maximized frame through AWT (restyling a maximized HWND directly left AWT with stale bounds).
+   - Hiding a window makes Windows send a mouse move to the window below although the cursor did not move; idle detection must compare
+     positions. Compose's `detectTapGestures` with `onDoubleTap` delays every single tap by the double-tap timeout.
 3. vlcj 4 + LibVLC 3: mature, but vlcj is GPLv3+ or paid, and rendering into Compose goes through CPU copies (LibVLC calls callback
    rendering "considerably less efficient").
 - Not suitable: Compose Media Player on Windows (Media Foundation: no MKV/WebM, first audio stream only), JavaFX Media (no MKV, AC-3, DTS),
   GStreamer's Java bindings (last release 2021), JavaCV (a decoder, not a player).
 
 **Licences**
-- mpv: GPLv2+ by default, LGPL when built with `-Dgpl=false` (https://github.com/mpv-player/mpv/blob/master/Copyright). LGPL Windows
-  `libmpv-2.dll` builds exist: mpv's rolling development builds (https://github.com/mpv-player/mpv/releases/tag/git-release) and
-  https://github.com/zhongfly/mpv-winbuild (`mpv-dev-lgpl`). An app under any licence may load one if it stays a separate, replaceable DLL
-  and we ship its licence and source. MediaMP's own Linux runtime is GPL.
+- mpv: GPLv2+ by default, LGPL when built with `-Dgpl=false` (https://github.com/mpv-player/mpv/blob/master/Copyright). An app under any
+  licence may load an LGPL `libmpv-2.dll` if it stays a separate, replaceable DLL and we ship its licence and source. MediaMP's own Linux
+  runtime is GPL.
+- Prebuilt LGPL libmpv for Windows is LGPLv3, not 2.1 (checked 2026-10-19): https://github.com/zhongfly/mpv-winbuild's `mpv-dev-lgpl`
+  "statically links to ffmpeg under LGPLv3" (README), and mpv's rolling builds (https://github.com/mpv-player/mpv/releases/tag/git-release)
+  say "LGPL builds are LGPLv3". MediaMP's `mediamp-mpv-runtime-windows-x64` 0.5.2 jar is LGPL-2.1+ (POM: Apache-2.0 and
+  LGPL-2.1-or-later; read from the DLLs: libmpv `-Dgpl=false`, FFmpeg "LGPL version 2.1 or later" without `--enable-gpl`,
+  `--enable-version3` or `--enable-nonfree`), but its FFmpeg is configured with `--disable-everything` and a short list (51 decoders; no
+  VP8, MPEG-1, Theora, MJPEG, WavPack, APE, DVB subtitles, no MPEG-PS/VOB, FLV or WAV demuxers) and its libmpv has `-Dwin32-smtc=disabled`.
+  A shipped build is therefore our own (ADR 0009, ADR 0010).
 - vlcj: GPLv3+ or commercial (https://github.com/caprica/vlcj); LibVLC itself is LGPLv2+. Shipping vlcj makes the desktop build GPLv3.
 - FFmpeg: LGPL unless GPL parts are enabled. Patent licensing for HEVC, AAC and AC-3 decoders is a separate question (https://ffmpeg.org/legal.html).
 
 **Windows media keys.** System Media Transport Controls are a WinRT API
 (https://learn.microsoft.com/en-us/windows/apps/develop/media-playback/system-media-transport-controls). libmpv has them built in
 (`--media-controls`, Windows only, off by default for libmpv, since 0.39: https://github.com/mpv-player/mpv/blob/master/DOCS/man/options.rst).
-The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last released in 2024.
+The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last released in 2024. Checked 2026-10-19: with a libmpv built
+without `win32-smtc`, `media-controls=yes` is accepted but the process does not appear among the sessions of
+`GlobalSystemMediaTransportControlsSessionManager`, so media keys go to another app.
 
 **Web video**
 - Candidates: (1) `<video>` (+ hls.js) behind the canvas, shown through a transparent hole drawn with `BlendMode.Clear` (Compose Media
@@ -195,9 +221,10 @@ The JVM libraries (JavaMediaTransportControls, mediasession-kt) were last releas
 - GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
 ## Not verified (research before depending on it)
-- For the video spikes: real 1080p60/4K60 performance of each desktop route (also on hybrid-GPU laptops), interop blending over an OpenGL-rendered video,
-  Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window, the web hole surviving page CSS and CMP updates,
-  HDR on web, how an unpackaged JVM app shows up in Windows media controls, patent licensing for HEVC/AAC/AC-3 decoders, the Ktor engine for wasmJs.
+- For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
+  with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
+  interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
+  the web hole surviving page CSS and CMP updates, HDR on web, patent licensing for HEVC/AAC/AC-3 decoders, the Ktor engine for wasmJs.
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
 - Sign-in flows end to end: no POST was sent to Jellyfin or Seerr while checking (AuthenticateByName, Quick Connect, PlaybackInfo, reporting).
 - Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine, HTML video), and how they cope with Stash's 302-to-login and mislabelled mime types.
