@@ -31,6 +31,7 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 
+private val engineChoices = listOf("window", "texture")
 private val hwdecChoices = listOf("auto-safe", "d3d11va", "d3d11va-copy", "no")
 private val voChoices = listOf("gpu-next", "gpu")
 private val gpuApiChoices = listOf("d3d11", "opengl", "auto")
@@ -45,6 +46,7 @@ fun LauncherWindow(initial: PlayRequest?, onPlay: (PlayRequest) -> Unit, onClose
         MaterialTheme(colorScheme = darkColorScheme()) {
             Surface(Modifier.fillMaxSize()) {
                 var source by remember { mutableStateOf(initial?.source.orEmpty()) }
+                var engine by remember { mutableStateOf(initial?.engine ?: "window") }
                 var hwdec by remember { mutableStateOf(initial?.hwdec ?: "auto-safe") }
                 var vo by remember { mutableStateOf(initial?.vo ?: "gpu-next") }
                 var hdr by remember { mutableStateOf(initial?.hdrPassthrough ?: true) }
@@ -58,7 +60,7 @@ fun LauncherWindow(initial: PlayRequest?, onPlay: (PlayRequest) -> Unit, onClose
                 val isUrl = source.startsWith("http://") || source.startsWith("https://")
 
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("libmpv in a native window, Compose controls in a transparent window", style = MaterialTheme.typography.titleMedium)
+                    Text("Desktop video spike: libmpv with our own Compose controls", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = source,
@@ -73,6 +75,12 @@ fun LauncherWindow(initial: PlayRequest?, onPlay: (PlayRequest) -> Unit, onClose
                     }
                     if (isUrl) Text("URL: ${redact(source)}", style = MaterialTheme.typography.bodySmall)
 
+                    ChoiceRow("engine", engineChoices, engine) { engine = it }
+                    Text(
+                        "window: candidate 2, libmpv in a native window, controls in a transparent window (all options below). " +
+                            "texture: candidate 1, MediaMP draws libmpv into Compose (SDR only; uses hwdec and extra options, ignores the rest).",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     ChoiceRow("hwdec", hwdecChoices, hwdec) { hwdec = it }
                     ChoiceRow("vo", voChoices, vo) { vo = it }
                     ChoiceRow("gpu-api", gpuApiChoices, gpuApi) { gpuApi = it }
@@ -102,6 +110,7 @@ fun LauncherWindow(initial: PlayRequest?, onPlay: (PlayRequest) -> Unit, onClose
                             onPlay(
                                 PlayRequest(
                                     source = source,
+                                    engine = engine,
                                     hwdec = hwdec,
                                     vo = vo,
                                     gpuApi = gpuApi,

@@ -53,7 +53,7 @@ import androidx.compose.ui.window.WindowState
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerControls(
-    player: MpvPlayer,
+    player: SpikePlayer,
     recorder: StatsRecorder?,
     title: String,
     overlay: OverlayState,
@@ -109,7 +109,7 @@ fun PlayerControls(
 
 @Composable
 private fun BottomBar(
-    player: MpvPlayer,
+    player: SpikePlayer,
     state: PlayerState,
     overlay: OverlayState,
     isFullscreen: Boolean,
@@ -212,7 +212,7 @@ private fun TrackMenu(
 }
 
 /** Keyboard shortcuts, handled by both the video window and the controls window (whichever has focus). */
-fun handleKey(event: KeyEvent, player: MpvPlayer, windowState: WindowState, overlay: OverlayState): Boolean {
+fun handleKey(event: KeyEvent, player: SpikePlayer, windowState: WindowState, overlay: OverlayState): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     overlay.activity()
     val state = player.state.value
@@ -221,7 +221,7 @@ fun handleKey(event: KeyEvent, player: MpvPlayer, windowState: WindowState, over
         Key.DirectionLeft -> player.seekBy(-5.0)
         Key.DirectionRight -> player.seekBy(5.0)
         Key.F -> toggleFullscreen(windowState)
-        Key.Escape -> if (windowState.placement == WindowPlacement.Fullscreen) windowState.placement = WindowPlacement.Floating else return false
+        Key.Escape -> if (Fullscreen.isOn(windowState)) Fullscreen.set(windowState, false) else return false
         Key.A -> cycle(state.audioTracks)?.let(player::selectAudio)
         Key.S -> {
             val subs = state.subtitleTracks

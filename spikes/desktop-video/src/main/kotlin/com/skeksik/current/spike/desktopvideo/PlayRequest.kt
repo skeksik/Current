@@ -6,6 +6,8 @@ import java.io.File
 data class PlayRequest(
     /** A local path or an http(s) URL (for example a Jellyfin direct-play URL carrying `ApiKey=`). */
     val source: String,
+    /** `window`: candidate 2 (libmpv in a native window, controls in a transparent window). `texture`: candidate 1 (MediaMP). */
+    val engine: String = "window",
     val hwdec: String = "auto-safe",
     val vo: String = "gpu-next",
     /** `d3d11`, `opengl` or `auto` (mpv picks). */
@@ -20,6 +22,8 @@ data class PlayRequest(
     val controlsWindow: Boolean = true,
     /** Isolation switch: sample stats every second (overlay and CSV). */
     val stats: Boolean = true,
+    /** `compose`, `compose-fix` or `borderless`; see [Fullscreen]. */
+    val fullscreen: String = "compose",
     /** Run the scripted self-test (resize, move, fullscreen, tracks, seek, close), then exit. */
     val selfTest: Boolean = false,
     /** More mpv options as `name=value`, comma-separated; they override the ones above. */
@@ -31,14 +35,20 @@ data class PlayRequest(
         .associate { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
 
     companion object {
-        /** A request from `-Dspike.source=...` and friends (`.\gradlew.bat ... -Pspike.source=...`), or null. */
+        /**
+         * A request from `-Dspike.source=...` and friends (`.\gradlew.bat ... -Pspike.source=...`), or null. The environment
+         * variable `SPIKE_SOURCE` wins over `spike.source`, so a URL with an API key stays out of Gradle's caches.
+         */
         fun fromSystemProperties(): PlayRequest? {
-            val source = System.getProperty("spike.source")?.takeIf { it.isNotBlank() } ?: return null
+            val source = System.getenv("SPIKE_SOURCE")?.takeIf { it.isNotBlank() }
+                ?: System.getProperty("spike.source")?.takeIf { it.isNotBlank() }
+                ?: return null
             fun prop(name: String) = System.getProperty("spike.$name")?.takeIf { it.isNotBlank() }
             fun flag(name: String, default: Boolean) = prop(name)?.toBooleanStrictOrNull() ?: default
             val defaults = PlayRequest(source)
             return PlayRequest(
                 source = source,
+                engine = prop("engine") ?: defaults.engine,
                 hwdec = prop("hwdec") ?: defaults.hwdec,
                 vo = prop("vo") ?: defaults.vo,
                 gpuApi = prop("gpuApi") ?: defaults.gpuApi,
@@ -47,6 +57,7 @@ data class PlayRequest(
                 embed = flag("embed", defaults.embed),
                 controlsWindow = flag("controlsWindow", defaults.controlsWindow),
                 stats = flag("stats", defaults.stats),
+                fullscreen = prop("fullscreen") ?: defaults.fullscreen,
                 selfTest = flag("selfTest", defaults.selfTest),
                 extraOptions = prop("mpvOptions").orEmpty(),
             )

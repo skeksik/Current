@@ -23,6 +23,7 @@ fun main() {
             var request by remember { mutableStateOf(initialRequest) }
             var lastRequest by remember { mutableStateOf(initialRequest) }
             val current = request
+            current?.let { Fullscreen.mode = it.fullscreen }
             if (current == null) {
                 LauncherWindow(
                     initial = lastRequest,
@@ -31,6 +32,11 @@ fun main() {
                         request = it
                     },
                     onCloseRequest = ::exitApplication,
+                )
+            } else if (current.engine == "texture") {
+                TexturePlayerWindow(
+                    request = current,
+                    onClosed = { if (current.selfTest) exitApplication() else request = null },
                 )
             } else {
                 PlayerWindow(

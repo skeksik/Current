@@ -38,7 +38,7 @@ private val sampledProperties = listOf(
     "container-fps", "estimated-vf-fps", "display-fps",
     "frame-drop-count", "decoder-frame-drop-count", "vo-delayed-frame-count", "mistimed-frame-count", "avsync",
     "audio-codec-name", "audio-params/channel-count", "audio-params/samplerate", "current-ao",
-    "demuxer-cache-duration", "cache-speed", "osd-width", "osd-height",
+    "demuxer-cache-duration", "cache-speed", "osd-width", "osd-height", "sid", "sub-start", "sub-end",
 )
 
 private val extraColumns = listOf(
@@ -51,7 +51,7 @@ private val extraColumns = listOf(
  * CPU is the whole JVM process (libmpv runs inside it). GPU load comes from Windows' "GPU Engine" counters via
  * typeperf: an approximation of Task Manager, which stays the reference.
  */
-class StatsRecorder(private val player: MpvPlayer) {
+class StatsRecorder(private val player: SpikePlayer) {
     private val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
     val csvFile = File(SpikePaths.outDir, "stats-$stamp.csv")
     private val _latest = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -221,7 +221,7 @@ fun StatsPanel(recorder: StatsRecorder, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun rememberStatsRecorder(player: MpvPlayer, isFullscreen: () -> Boolean, isControlsWindowVisible: () -> Boolean): StatsRecorder {
+fun rememberStatsRecorder(player: SpikePlayer, isFullscreen: () -> Boolean, isControlsWindowVisible: () -> Boolean): StatsRecorder {
     val recorder = remember(player) { StatsRecorder(player) }
     LaunchedEffect(recorder) { recorder.run(isFullscreen, isControlsWindowVisible) }
     return recorder

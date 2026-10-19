@@ -53,11 +53,11 @@ class MpvPlayer(
     request: PlayRequest,
     wid: Long,
     extraOptions: Map<String, String> = emptyMap(),
-) : AutoCloseable {
+) : SpikePlayer, AutoCloseable {
     private val mpv = Mpv.lib
     private val handle: Pointer = mpv.mpv_create() ?: error("mpv_create failed")
     private val _state = MutableStateFlow(PlayerState())
-    val state: StateFlow<PlayerState> = _state.asStateFlow()
+    override val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
     val logFile = File(SpikePaths.outDir, "mpv-$stamp.log")
@@ -67,13 +67,10 @@ class MpvPlayer(
     private val lock = ReentrantReadWriteLock()
     @Volatile private var closed = false
     private lateinit var eventThread: Thread
-    @Volatile private var audioSwitchStartedAt = 0L
-    @Volatile private var audioSwitchTarget = ""
     @Volatile private var subtitleSwitchStartedAt = 0L
     @Volatile private var seekStartedAt = 0L
 
-    /** Options mpv rejected or that do not exist in this libmpv build, reported in the stats overlay. */
-    val rejectedOptions = mutableListOf<String>()
+    override val rejectedOptions = mutableListOf<String>()
 
     init {
         note("libmpv client API ${apiVersion()}, request: ${redact(request.toString())}, wid=$wid")
@@ -119,31 +116,52 @@ class MpvPlayer(
         command("loadfile", request.source)
     }
 
-    fun togglePause() = command("cycle", "pause")
+    override fun togglePause() = command("cycle", "pause")
 
-    fun seekTo(seconds: Double) {
+    override fun seekTo(seconds: Double) {
         seekStartedAt = System.nanoTime()
         command("seek", seconds.toString(), "absolute")
     }
 
-    fun seekBy(seconds: Double) {
+    override fun seekBy(seconds: Double) {
         seekStartedAt = System.nanoTime()
         command("seek", seconds.toString(), "relative")
     }
 
-    fun selectAudio(id: Int) {
-        audioSwitchTarget = id.toString()
-        audioSwitchStartedAt = System.nanoTime()
+    /**
+     * Switches the audio track and measures how long until the new track's audio is playing: `current-tracks/audio/id` names
+     * it and `audio-pts` has advanced twice after that, polled every 5 ms (the A/V sync right after goes to the log).
+     */
+    override fun selectAudio(id: Int) {
+        val started = System.nanoTime()
         setProperty("aid", id.toString())
+        thread(name = "audio-switch-timer", isDaemon = true) {
+            var lastPts: Double? = null
+            var advances = 0
+            while (advances < 2) {
+                if (System.nanoTime() - started > 5_000_000_000L) {
+                    note("audio track switch to $id: no audio progress after 5 s")
+                    return@thread
+                }
+                Thread.sleep(5)
+                if (getString("current-tracks/audio/id") != id.toString()) continue
+                val pts = getString("audio-pts")?.toDoubleOrNull() ?: continue
+                if (lastPts != null && pts > lastPts) advances++
+                lastPts = pts
+            }
+            val ms = (System.nanoTime() - started) / 1_000_000
+            note("audio track switch to $id: playing after $ms ms, avsync ${getString("avsync")}")
+            Diagnostics.event("audio track switch to $id: playing after $ms ms")
+            _state.update { it.copy(lastAudioSwitchMs = ms) }
+        }
     }
 
-    /** [id] null turns subtitles off. */
-    fun selectSubtitle(id: Int?) {
+    override fun selectSubtitle(id: Int?) {
         subtitleSwitchStartedAt = System.nanoTime()
         setProperty("sid", id?.toString() ?: "no")
     }
 
-    fun getString(name: String): String? {
+    override fun getString(name: String): String? {
         lock.read {
             if (closed) return null
             val p = mpv.mpv_get_property_string(handle, name) ?: return null
@@ -171,7 +189,7 @@ class MpvPlayer(
         }
     }
 
-    fun note(message: String) {
+    override fun note(message: String) {
         log.println("${LocalDateTime.now()} [spike] ${redact(message)}")
     }
 
@@ -226,13 +244,6 @@ class MpvPlayer(
                     Diagnostics.event("mpv: $message")
                     _state.update { it.copy(error = message) }
                 }
-                // Counts only the reconfiguration that brings up the requested track.
-                Mpv.EVENT_AUDIO_RECONFIG -> audioSwitchStartedAt.takeIf { it != 0L && getString("current-tracks/audio/id") == audioSwitchTarget }?.let { started ->
-                    audioSwitchStartedAt = 0L
-                    val ms = (System.nanoTime() - started) / 1_000_000
-                    note("audio track switch: audio reconfigured after $ms ms")
-                    _state.update { it.copy(lastAudioSwitchMs = ms) }
-                }
                 Mpv.EVENT_PLAYBACK_RESTART -> seekStartedAt.takeIf { it != 0L }?.let { started ->
                     seekStartedAt = 0L
                     val ms = (System.nanoTime() - started) / 1_000_000
@@ -270,27 +281,5 @@ class MpvPlayer(
         }
     }
 
-    private fun readTracks(): List<Track> {
-        val count = getString("track-list/count")?.toIntOrNull() ?: return emptyList()
-        return (0 until count).mapNotNull { i ->
-            fun p(name: String) = getString("track-list/$i/$name")
-            val id = p("id")?.toIntOrNull() ?: return@mapNotNull null
-            val type = p("type") ?: return@mapNotNull null
-            val details = when (type) {
-                "video" -> listOfNotNull(p("demux-w")?.let { w -> "${w}x${p("demux-h")}" }, p("demux-fps")?.let { "$it fps" }).joinToString(" ")
-                "audio" -> listOfNotNull(p("demux-channel-count")?.let { "$it ch" }, p("demux-samplerate")?.let { "$it Hz" }).joinToString(" ")
-                else -> ""
-            }
-            Track(
-                id = id,
-                type = type,
-                title = p("title"),
-                lang = p("lang"),
-                codec = p("codec"),
-                selected = p("selected") == "yes",
-                external = p("external") == "yes",
-                details = details,
-            )
-        }
-    }
+    private fun readTracks(): List<Track> = readTracks(::getString)
 }

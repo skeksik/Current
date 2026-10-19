@@ -1,5 +1,6 @@
 // Spike prototype for the M1 "Desktop video" spike (docs/roadmap.md). Not used by the app.
-// libmpv in a native child window, with Compose controls in a transparent window on top.
+// Candidate 2: libmpv in a native child window, with Compose controls in a transparent window on top.
+// Candidate 1 (measured briefly): MediaMP draws libmpv into Compose as a GPU texture.
 plugins {
     alias(libs.plugins.kotlinJvm)
     alias(libs.plugins.composeMultiplatform)
@@ -7,7 +8,7 @@ plugins {
 }
 
 // libmpv-2.dll and its dependencies (an LGPL-2.1 build: mpv -Dgpl=false, FFmpeg without --enable-gpl/--enable-version3),
-// taken from MediaMP's Windows runtime jar. Only the DLLs are used, none of MediaMP's Kotlin code.
+// taken from MediaMP's Windows runtime jar. Candidate 2 uses only the DLLs; candidate 1 also uses MediaMP's code.
 val mpvRuntime: Configuration by configurations.creating {
     isTransitive = false
 }
@@ -17,6 +18,8 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.spike.jna)
+    implementation(libs.spike.mediampMpv)
+    runtimeOnly(libs.spike.mpvRuntimeWindowsX64)
 
     mpvRuntime(libs.spike.mpvRuntimeWindowsX64)
 

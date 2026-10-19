@@ -39,6 +39,7 @@ compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-previ
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 # Spike only (spike/desktop-video): removed before the PR
 spike-jna = { module = "net.java.dev.jna:jna", version.ref = "spike-jna" }
+spike-mediampMpv = { module = "org.openani.mediamp:mediamp-mpv-desktop", version.ref = "spike-mediamp" }
 spike-mpvRuntimeWindowsX64 = { module = "org.openani.mediamp:mediamp-mpv-runtime-windows-x64", version.ref = "spike-mediamp" }
 
 [plugins]

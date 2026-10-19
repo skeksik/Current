@@ -41,6 +41,7 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
             stepName = name
             Diagnostics.event("[selftest] step: $name")
             block()
+            GeometryProbe.dump("after $name")
         }
         suspend fun awaitTrue(what: String, timeoutMs: Long, condition: () -> Boolean) {
             val end = System.currentTimeMillis() + timeoutMs
@@ -77,19 +78,42 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
                 delay(500)
             }
         }
+        step("other monitor") {
+            // Moves the window to every other screen (another monitor, possibly on another GPU) and back.
+            val screens = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+            val home = windowState.position
+            for (screen in screens.drop(1)) {
+                val b = screen.defaultConfiguration.bounds
+                windowState.position = WindowPosition((b.x + 60).dp, (b.y + 60).dp)
+                delay(3_000)
+                GeometryProbe.dump("on ${screen.iDstring}")
+                val p = player()
+                Diagnostics.event(
+                    "[selftest] on ${screen.iDstring}: output ${p.getString("video-target-params/primaries")}/" +
+                        "${p.getString("video-target-params/gamma")} peak ${p.getString("video-target-params/max-luma")}, " +
+                        "display ${p.getString("display-fps")} Hz, drops ${p.getString("frame-drop-count")}",
+                )
+                screenshot("02c-${screen.iDstring.filter { it.isLetterOrDigit() }}")
+            }
+            windowState.position = home
+            delay(2_000)
+        }
         step("maximize") {
             windowState.placement = WindowPlacement.Maximized
             delay(1_500)
+            GeometryProbe.dump("maximized")
             screenshot("03-maximized")
             windowState.placement = WindowPlacement.Floating
             delay(1_000)
         }
         step("fullscreen") {
-            windowState.placement = WindowPlacement.Fullscreen
+            Fullscreen.set(windowState, true)
             delay(2_000)
+            GeometryProbe.dump("in fullscreen (${Fullscreen.mode})")
             screenshot("04-fullscreen")
-            windowState.placement = WindowPlacement.Floating
+            Fullscreen.set(windowState, false)
             delay(1_000)
+            screenshot("04b-left-fullscreen")
         }
         step("audio tracks") {
             for (track in player().state.value.audioTracks) {
@@ -135,6 +159,7 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
             val p = player()
             val keys = listOf("current-vo", "current-gpu-context", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "video-target-params/gamma")
             Diagnostics.event("[selftest] stats: " + keys.joinToString { "$it=${p.getString(it)}" } + ", state=${p.state.value.copy(tracks = emptyList())}")
+            Diagnostics.event("[selftest] controls window misaligned in ${overlay.misalignedSamples} of ${overlay.alignmentSamples} samples")
         }
         step("close") {
             watchdog.interrupt()

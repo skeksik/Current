@@ -36,6 +36,7 @@ import java.awt.Cursor
 import java.awt.Dialog
 import java.awt.Graphics
 import java.awt.Point
+import java.awt.Rectangle
 import java.awt.Toolkit
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -52,6 +53,10 @@ class OverlayState {
 
     /** Hide the whole controls window (not just its content) while idle, so nothing sits above the video. */
     var hideWindowWhenIdle by mutableStateOf(false)
+
+    /** Alignment samples (every 250 ms) in which the controls window did not cover exactly the video canvas. */
+    @Volatile var misalignedSamples = 0
+    @Volatile var alignmentSamples = 0
 
     fun activity() {
         lastActivity = System.nanoTime()
@@ -131,6 +136,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
     ) {
         DisposableEffect(window) {
             val listener = WindowEventLogger(window)
+            GeometryProbe.frame = window
             onDispose { listener.remove() }
         }
         val canvas = remember {
@@ -141,6 +147,8 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
                 onDoubleClick = { toggleFullscreen(windowState) },
             )
         }
+        GeometryProbe.canvas = canvas
+        GeometryProbe.player = session.player
         Box(Modifier.fillMaxSize()) {
             SwingPanel(background = Color.Black, factory = { canvas }, modifier = Modifier.fillMaxSize())
             session.error?.let { Text(it, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xCCB00020)).padding(16.dp)) }
@@ -152,7 +160,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
             val recorder = if (request.stats) {
                 rememberStatsRecorder(
                     currentPlayer,
-                    isFullscreen = { windowState.placement == WindowPlacement.Fullscreen },
+                    isFullscreen = { Fullscreen.isOn(windowState) },
                     isControlsWindowVisible = { request.controlsWindow && (overlay.controlsVisible || !overlay.hideWindowWhenIdle) },
                 )
             } else {
@@ -180,7 +188,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
                         recorder = recorder,
                         title = displayName(request.source),
                         overlay = overlay,
-                        isFullscreen = windowState.placement == WindowPlacement.Fullscreen,
+                        isFullscreen = Fullscreen.isOn(windowState),
                         onToggleFullscreen = { toggleFullscreen(windowState) },
                     )
                 }
@@ -192,10 +200,46 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
     }
 }
 
-fun toggleFullscreen(windowState: WindowState) {
-    windowState.placement =
-        if (windowState.placement == WindowPlacement.Fullscreen) WindowPlacement.Floating else WindowPlacement.Fullscreen
+/**
+ * Fullscreen, in the mode chosen by `spike.fullscreen`:
+ * - `compose`: Compose's `WindowPlacement.Fullscreen` (AWT's full-screen exclusive mode on Windows);
+ * - `compose-fix`: the same, then the frame's bounds are applied again after leaving, so AWT resizes the native window;
+ * - `borderless`: [BorderlessFullscreen] on the same HWND, without AWT's full-screen mode.
+ */
+object Fullscreen {
+    var mode: String = "compose"
+    var borderlessOn by mutableStateOf(false)
+        private set
+
+    fun isOn(windowState: WindowState) =
+        if (mode == "borderless") borderlessOn else windowState.placement == WindowPlacement.Fullscreen
+
+    fun set(windowState: WindowState, on: Boolean) {
+        if (isOn(windowState) == on) return
+        if (mode == "borderless") {
+            val frame = GeometryProbe.frame ?: return
+            if (on) {
+                borderlessOn = BorderlessFullscreen.enter(frame)
+            } else {
+                BorderlessFullscreen.exit(frame)
+                borderlessOn = false
+            }
+            return
+        }
+        windowState.placement = if (on) WindowPlacement.Fullscreen else WindowPlacement.Floating
+        if (!on && mode == "compose-fix") {
+            javax.swing.Timer(300) {
+                val frame = GeometryProbe.frame ?: return@Timer
+                val b = frame.bounds
+                frame.setBounds(b.x, b.y, b.width + 1, b.height)
+                frame.bounds = b
+                Diagnostics.event("compose-fix: frame bounds applied again after fullscreen")
+            }.apply { isRepeats = false }.start()
+        }
+    }
 }
+
+fun toggleFullscreen(windowState: WindowState) = Fullscreen.set(windowState, !Fullscreen.isOn(windowState))
 
 @OptIn(ExperimentalComposeUiApi::class) // ComposeDialog.setContent with key handlers, exceptionHandler
 @Composable
@@ -234,6 +278,7 @@ private fun ControlsWindow(
         owner.addComponentListener(listener)
         anchor.addComponentListener(listener)
         follow()
+        GeometryProbe.dialog = dialog
         dialog.isVisible = true
         Diagnostics.event("controls window: shown")
         onDispose {
@@ -241,6 +286,35 @@ private fun ControlsWindow(
             anchor.removeComponentListener(listener)
             dialog.dispose()
             Diagnostics.event("controls window: disposed")
+        }
+    }
+
+    // Measures how well the controls window follows the video: compares AWT bounds and the native window rectangles every 250 ms
+    // and logs each stretch of misalignment. It does not correct anything, so what the user sees is what the listeners achieve.
+    LaunchedEffect(dialog, anchor) {
+        var misalignedSince = 0L
+        while (true) {
+            delay(250)
+            if (!anchor.isShowing || !dialog.isVisible) continue
+            val p = anchor.locationOnScreen
+            val canvas = Rectangle(p.x, p.y, anchor.width, anchor.height)
+            val canvasNative = nativeRect(anchor)
+            val dialogNative = nativeRect(dialog)
+            val aligned = dialog.bounds == canvas && (canvasNative == null || canvasNative == dialogNative)
+            overlay.alignmentSamples++
+            if (!aligned) {
+                overlay.misalignedSamples++
+                if (misalignedSince == 0L) {
+                    misalignedSince = System.currentTimeMillis()
+                    Diagnostics.event(
+                        "controls window misaligned: dialog=${dialog.bounds.str()} canvas=${canvas.str()} " +
+                            "native dialog=${dialogNative?.str()} canvas=${canvasNative?.str()}",
+                    )
+                }
+            } else if (misalignedSince != 0L) {
+                Diagnostics.event("controls window aligned again after ${System.currentTimeMillis() - misalignedSince} ms")
+                misalignedSince = 0L
+            }
         }
     }
 
@@ -325,6 +399,8 @@ private class WindowEventLogger(private val window: ComposeWindow) {
         window.removePropertyChangeListener("graphicsConfiguration", gc)
     }
 }
+
+private fun Rectangle.str() = "${width}x$height@$x,$y"
 
 private fun describe(value: Any?): String {
     val gc = value as? java.awt.GraphicsConfiguration ?: return value.toString()
