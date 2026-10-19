@@ -29,13 +29,9 @@ Compose Multiplatform has no supported way to draw Compose over native video on 
 - [x] Desktop video (2026-10-19, ADR 0010): libmpv in a native child window with a transparent Compose controls window and our own
       borderless fullscreen. The texture route works but is SDR only; vlcj not tried. Needs our own LGPL-2.1 libmpv/FFmpeg build (with
       Windows media controls)
-- [ ] Web UI: three prototypes with the same scope, compared side by side; the owner picks one (ADR 0011). Compose for web draws on a
-      canvas, so password managers, real links, find-in-page, translate and text selection do not work there (docs/platform-notes.md,
-      "Web UI options"). (A) Compose HTML (real DOM, Kotlin) over a shared Kotlin/JS core; (B) a TypeScript UI over the same core
-      exported to JS; (C) Compose for web (Wasm, canvas) with HTML elements patched in for inputs, links and video. Scope of each: sign-in
-      with autofill, a library grid of real links, an item page with selectable text, playback with our own controls over `<video>`
-      (+ hls.js). Browsers cannot direct-play AC-3/DTS or show ASS/PGS, so the web device profile transcodes that audio and burns in or
-      separately renders those subtitles
+- [x] Web UI (2026-10-19, ADR 0011): React + TypeScript (Vite) over the Kotlin core compiled to Kotlin/JS, chosen over Compose HTML and
+      Compose for web after three prototypes and the owner's hand checks. Web playback is `<video>` + hls.js with a device profile built
+      only from browser probes (direct play, server remux, server transcode); HDR10 HEVC plays in HDR on Chrome and Edge
 - [x] Dependency licences: permissive and LGPL-2.1 only, no GPL in distributed builds; Store, Full and Personal editions (ADR 0009)
 - [x] Current's own code is proprietary: no open-source licence, no LICENSE file (ADR 0009)
 - [x] Supported server versions: the latest releases only (Jellyfin 12.2 and Seerr 3.5.0 on 2026-10-18); follow new releases rather than
@@ -49,8 +45,13 @@ Then:
 - [ ] Server setup: add a server by URL, check it (public info endpoint), warn about plain HTTP
 - [ ] Jellyfin sign-in with username and password or Quick Connect, one random device id per install (signing in again with the same id
       revokes the old token), sign out; token in secure storage (desktop: OS credential store; web: browser storage, documented risk)
-- [ ] Compose shell: theme from design tokens, navigation assembled from registered destinations, sidebar layout for desktop/web,
+- [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources
+- [ ] Web shell (ADR 0011):
+  - pure-Kotlin modules gain a `js()` target;
+  - a Kotlin/JS umbrella module with the `@JsExport` facade;
+  - `webApp` becomes the Vite + React + TypeScript app, with the same sidebar layout, settings and states as desktop;
+  - routing through the core's History API router; npm in CI with a licence check
 - [ ] Opt-in live smoke tests (read-only) that run only when test-server environment variables are set; never in CI
 
 Done when: sign in and out of Jellyfin on Windows and in the browser, the app restarts signed in, and a build without extensions passes CI.
@@ -67,7 +68,12 @@ Done when: sign in and out of Jellyfin on Windows and in the browser, the app re
       next episode, skip intro/credits where the server has a media-segment plugin, fall back to transcode on engine errors)
 - [ ] Engines: desktop (from the spike, ADR 0010: our LGPL-2.1 libmpv/FFmpeg build, JVM binding, window host and its follow-ups),
       web (HTML video + hls.js)
-- [ ] Player UI in Compose: transport, seek bar with chapters, track and quality menus, fullscreen, keyboard shortcuts, auto-hide
+- [ ] Player UI in Compose (desktop) and React (web): transport, seek bar with chapters, track and quality menus, fullscreen, keyboard
+      shortcuts, auto-hide
+- [ ] Web player follow-ups (ADR 0011):
+  - ask for a new route when the display's dynamic range changes;
+  - check HDR on screen by eye;
+  - render ASS in the browser instead of burning it in (a JavaScript renderer; check its licence first)
 - [ ] Media keys: Windows (System Media Transport Controls, in our libmpv build per ADR 0010), Media Session API on web
 - [ ] The rest of the player feature target (ADR 0007) as far as Windows and web allow: HDR output, subtitle appearance, delay and preferred
       languages, remembered quality and zoom, a playback info overlay, a problem report with redacted logs

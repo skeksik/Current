@@ -110,6 +110,56 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   `<track>` need it (https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
 - Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
   Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
+- Checked 2026-10-19 in the web UI spike (ADR 0011; Playwright's Chromium 156 and Edge 155 on Windows):
+  - Candidate (1) works with CMP 1.12.1, but the canvas is painted white where nothing is drawn. The player clears the *root* canvas with
+    `drawBehind { drawRect(..., blendMode = BlendMode.Clear) }`; an offscreen `graphicsLayer` only clears its own layer. A `<video>` in a
+    fixed layer under the Compose viewport then shows through, and the Compose controls on top get the input.
+  - Probes:
+    - `canPlayType('video/x-matroska; codecs="avc1.640029, mp4a.40.2"')` is "probably" in both browsers; MSE `isTypeSupported` for MKV is
+      false.
+    - HEVC (Main and Main10) through MSE is true with hardware (headed browser; false in headless Chromium).
+    - Edge reports AC-3 and E-AC-3 as "probably" (Windows decoders); Chromium does not.
+    - `application/vnd.apple.mpegurl` is "maybe" in Chromium 156.
+    - Playwright launches Chromium with `--force-color-profile=srgb` by default, so `(dynamic-range: high)` is false even on an HDR
+      display; pass `ignoreDefaultArgs: ['--force-color-profile=srgb']` to test HDR.
+    - Full probe table recorded in installed Chrome 155, Edge 155 and Firefox 158 (ADR 0011, "Web playback routes"):
+      - Both: MP4/WebM/MKV with H.264 (High 10 too), HEVC Main/Main10, AV1 8/10-bit, VP9 profiles 0/2, VP8; AAC, MP3, Opus, FLAC,
+        Vorbis. No MOV or MPEG-TS through `src`, no DTS or TrueHD anywhere.
+      - MSE in fMP4: no MP3 (`mp4a.6B`).
+      - `decodingInfo` reports HDR10 (PQ) only for HEVC Main10, not AV1 10-bit or VP9 profile 2, and HLG for none.
+      - `decodingInfo` reports 2160p smooth for H.264, HEVC, AV1 and VP9.
+      - Edge adds AC-3 and E-AC-3 in `src` and MSE.
+      - With Windows HDR on, Chrome and Edge report `(dynamic-range: high)`. Firefox does not; it has no HDR video output on Windows,
+        though `decodingInfo` says it decodes HDR10 and HLG.
+      - Firefox 158 plays MKV and MOV, HEVC Main/Main10, AV1 and VP9, but not 10-bit H.264, AC-3/E-AC-3, or FLAC in MKV.
+      - `maxChannelCount` was 2 everywhere (stereo output).
+    - Safari on macOS (recorded by the owner, 2026-10-19):
+      - No MKV. MP4, WebM, MOV and MPEG-TS play (TS only with H.264 and AC-3/E-AC-3, and AAC in TS answered "").
+      - HEVC answers only as `hvc1`, not `hev1`.
+      - No AV1 on that Mac.
+      - AC-3, E-AC-3, FLAC and ALAC play in MP4. FLAC in MSE answers only as `fLaC`, not `flac`.
+      - MP3 inside MP4 answered "" under `mp4a.6B`, `mp4a.69` and `mp3`.
+      - Native HLS is "maybe", and MSE is present.
+      - `decodingInfo` reports HDR10 and HLG for HEVC Main10, but the display reported no HDR.
+    - Raw answers of all four browsers: `docs/web-probes/`.
+  - hls.js loaded with `import('hls.js')` from a `js()` function works in Kotlin/JS (webpack), Kotlin/Wasm (webpack) and Vite. It
+    becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
+  - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the
+    subtitle file.
+  - Media Session metadata and action handlers set from Kotlin are present (`navigator.mediaSession.metadata`), and the owner saw the title
+    and play/pause in the Windows media flyout.
+  - hls.js gives up on a segment after 10 s without a first byte (`fragLoadTimeOut`), while Jellyfin holds a segment request until ffmpeg
+    has written it. A software-only server re-encoding 4K HEVC 10-bit to H.264 had no first segment before its reverse proxy's 504 (even
+    capped at 1080p, 20 Mb/s); with NVENC, segments came in 0.1–0.2 s. A web engine needs longer first-byte timeouts and error recovery
+    (`startLoad()`, `recoverMediaError()`), and 4K transcodes need hardware acceleration on the server or a quality limit.
+  - HDR through hls.js:
+    - For an HDR source, Jellyfin's master playlist lists the copied stream (`VIDEO-RANGE=PQ`, `hvc1.2.4...`) next to tone-mapped
+      `VIDEO-RANGE=SDR` variants (HEVC and H.264) at the same bandwidth. hls.js 1.7.3 picked SDR unless told otherwise.
+    - `videoPreference: { preferHDR: true, allowedVideoRanges: ['SDR', 'PQ'] }` made Chrome decode HEVC Main 10 with PQ.
+    - `chrome://media-internals` (`edge://media-internals`) shows the decoder's profile and colour space per player.
+    - `(video-dynamic-range: high)` was false in Chrome and Edge with an HDR display, while `(dynamic-range: high)` was true.
+  - Compose for web's canvas did not follow a runtime `devicePixelRatio` change (browser zoom): its backing size stayed at the old ratio,
+    so zoomed text is blurry (owner; reproduced with CDP `Emulation.setDeviceMetricsOverride`, CMP 1.12.1).
 
 ## Web UI options (checked 2026-10-19; input for the M1 web UI spike)
 - **Compose for web draws on a canvas** (Kotlin/Wasm; Beta, while Android, iOS and desktop are Stable:
@@ -142,6 +192,40 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   kotlinx.coroutines 1.11.0, Koin 4.2.2, JetBrains lifecycle-viewmodel 2.11.0; all also publish wasm-js.
 - **Other Kotlin DOM toolkits**: Kobweb (Apache-2.0, on Compose HTML, pre-1.0: https://github.com/varabyte/kobweb), KVision (MIT, JS only:
   https://github.com/rjaros/kvision).
+- **Checked in the spike** (2026-10-19, ADR 0011: the same app built three ways on one Kotlin core):
+  - `js()` works in the shared `webMain` source set for both `js` and `wasmJs` (Kotlin 2.4.20, with `kotlin.js.ExperimentalWasmJsInterop`),
+    including Kotlin lambdas passed as callbacks and `import()`. `kotlinx-browser` 0.5.0 DOM types work in `webMain` too.
+  - Compose HTML:
+    - ViewModels held per page (a `ViewModelStore` cleared in `DisposableEffect`) and `collectAsState()` work.
+    - Compose HTML removes attributes set from outside on recomposition (it dropped `crossorigin` from `<video>`), so declare them in
+      the composable.
+  - Kotlin/JS library for TypeScript:
+    - `binaries.library()`, `useEsModules()`, `generateTypeScriptDefinitions()` and `outputModuleName` give `current-core.mjs` +
+      `.d.mts`. Generic exported classes and function types (`() -> Unit`) export cleanly.
+    - Ktor's JS client contains `import('ws')` (Node only), which Vite must alias to an empty module.
+    - React's `StrictMode` double mount disposes a Kotlin ViewModel created in `useMemo`.
+  - Compose for web with `HtmlElementView`:
+    - Elements go to an interop layer after the canvas host, in the light DOM, so password managers and link handling see them.
+    - They also take the wheel. Re-dispatching it to the canvas, which sits in the open shadow root of the host `div`, restores
+      scrolling.
+    - Their size comes from Compose.
+    - Accessibility: `DropdownMenuItem` is exposed as a button, and a closed menu stayed in the accessibility tree. `window.find`
+      matches the hidden accessibility text.
+  - Sizes, load times and build times per prototype: ADR 0011.
+
+## Kotlin/JS and Wasm build tooling (checked 2026-10-19)
+- Kotlin's JS/Wasm toolchain installs npm packages with yarn and pins Karma as `github:Kotlin/karma#6.4.5`, resolved to a codeload tarball at
+  commit `239a8fc984584f0d96b1dd750e7a5e2c79da93a6` (`kotlin-js-store/yarn.lock`).
+  - On a Windows machine with direct network access, the tarball downloaded without trouble.
+  - Cloud sessions get HTTP 403 for codeload tarballs from their GitHub proxy. The suggested workarounds are not tried yet: cloning
+    Kotlin/karma at that commit and pointing yarn at the local copy, or an offline npm option of the Kotlin Gradle plugin.
+- With a committed `kotlin-js-store/yarn.lock`, adding a JS module fails `kotlinStoreYarnLock` ("Lock file was changed") until
+  `kotlinUpgradeYarnLock` runs (`kotlinWasmUpgradeYarnLock` for `kotlin-js-store/wasm/yarn.lock`).
+- Development and production Wasm builds of one module share `build/wasm/packages/<module>/kotlin`: running both in one Gradle
+  invocation fails task validation, and a production distribution built after a development one shipped the 25 MB development Wasm
+  until `wasmJsProductionExecutableCompileSync --rerun`.
+- `wasmJsBrowserDevelopmentRun --continuous` once failed with `OutOfMemoryError` in the Kotlin daemon (`kotlin.daemon.jvmargs=-Xmx3072M`)
+  after a few incremental builds; `gradlew --stop` and a restart fixed it.
 
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
@@ -198,6 +282,31 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Reporting: `POST /Sessions/Playing`, `/Sessions/Playing/Progress` about every 10 s, `/Sessions/Playing/Stopped`, and
   `/Sessions/Playing/Ping?playSessionId=` while paused. The server stops an HLS transcode after 60 s without progress or ping.
   `Stopped` without `PositionTicks` marks the item fully watched.
+- PlaybackInfo with a device profile (checked live 2026-10-19, read-only with an API key; ADR 0011):
+  - An API key works as `Token` in the `MediaBrowser` header. `/UserViews`, `/Items` and `PlaybackInfo` then need the user passed
+    (`userId`, `UserId`).
+  - A non-default `AudioStreamIndex` keeps `SupportsDirectPlay: true`, although a browser plays only a file's default track, so a web
+    client turns direct play off itself to switch audio.
+  - The transcode reasons are in the `TranscodingUrl` query (`TranscodeReasons=`); the media source JSON had none.
+  - HLS profile:
+    - With an fMP4 HLS transcoding profile (`Container: mp4`) whose `VideoCodec` lists `h264,hevc`, HEVC sources that need only an audio
+      transcode keep their video (`TranscodeReasons=AudioCodecNotSupported`).
+    - With MPEG-TS and H.264 only, they were re-encoded.
+  - Device profile conditions (checked live 2026-10-19):
+    - A `CodecProfile` condition `VideoRangeType EqualsAny SDR|...` sends HDR10 sources to a tone-mapped transcode
+      (`VideoRangeTypeNotSupported`).
+    - `Width LessThanEqual 1920` caps the transcode (`MaxWidth=1920`, `VideoResolutionNotSupported`). Codec conditions also travel
+      in the `TranscodingUrl` (`hevc-rangetype=`, `hevc-videobitdepth=`).
+  - HLS codec lists:
+    - In the fMP4 HLS profile, the first video and audio codec is what the server encodes to; any listed codec is copied when the
+      source has it. E-AC-3 was copied with `aac,ac3,eac3,...`.
+    - A source with more channels than `MaxAudioChannels` is transcoded anyway (`AudioChannelsNotSupported`).
+  - `AudioStreamIndex` is ignored without `MediaSourceId` (the server then uses the default track).
+  - Subtitles:
+    - ASS, with a profile listing ASS as `Encode`, came back with `DeliveryMethod: Encode` and `SubtitleMethod=Encode` in the URL
+      (burn-in).
+    - SubRip, with only `vtt` as `External`, came back as an external `.vtt` `DeliveryUrl` (carrying `ApiKey`), under direct play too.
+    - The test server had no PGS file, so PGS burn-in was not seen live.
 - Subtitles: delivery `Encode`, `Embed`, `External`, `Hls`, `Drop`; external files at
   `/Videos/{id}/{mediaSourceId}/Subtitles/{index}[/{startTicks}]/Stream.{vtt|srt|ass|ssa|ttml|json}`.
 - Intro/outro: `/MediaSegments/{id}`, but core ships no segment provider (a plugin must supply them), so expect none.
@@ -256,10 +365,13 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
-  the web hole surviving page CSS and CMP updates, HDR on web, patent licensing for HEVC/AAC/AC-3 decoders, the Ktor engine for wasmJs.
+  HDR on web as seen on screen (the HDR10 stream reaches the decoder in Chrome and Edge, ADR 0011), patent licensing for HEVC/AAC/AC-3 decoders.
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
-- Sign-in flows end to end: no POST was sent to Jellyfin or Seerr while checking (AuthenticateByName, Quick Connect, PlaybackInfo, reporting).
-- Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine, HTML video), and how they cope with Stash's 302-to-login and mislabelled mime types.
-- Compose Multiplatform web accessibility (screen reader support); the accessibility docs page does not cover web.
+- Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
+  used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
+- Firefox playback was checked only by hand (Playwright cannot drive a stock Firefox); the ADR 0011 hand checks are recorded there.
+- Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine; HTML video: ADR 0011), and how they cope with Stash's 302-to-login and mislabelled mime types.
+- Compose Multiplatform web accessibility with a real screen reader. The accessibility docs page does not cover web. The web spike saw
+  the accessibility tree only through Playwright: buttons and headings present, a closed menu's items left behind (ADR 0011).
 - Media3 capabilities for the Android fallback (e.g. FFmpeg extension) and licences of any custom Apple fallback engine library.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).

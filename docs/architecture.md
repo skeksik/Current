@@ -3,7 +3,8 @@
 > Status: module tree and build files exist; sources are empty. None of the classes named here exist yet.
 
 ## Goals
-One Kotlin core shared by every platform. Two UI codebases: SwiftUI on Apple (iOS, macOS, tvOS), Compose Multiplatform on Android, Windows/Linux and web (ADR 0006).
+One Kotlin core shared by every platform. Three UI codebases: SwiftUI on Apple (iOS, macOS, tvOS; ADR 0006), Compose Multiplatform on
+Android and Windows/Linux, and React + TypeScript on the web over the core compiled to Kotlin/JS (ADR 0011).
 The playback UI is always custom; engines are headless (ADR 0007).
 Every service is optional and removable features are extensions, so the app works for anyone with any subset of servers (ADR 0008).
 
@@ -43,12 +44,13 @@ Dependencies point down. Features never import each other. Core never imports an
 | `core:network` | `HttpClient` factory per service, server configuration, error model, log redaction |
 | `core:database` | Cache. Web persistence is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types |
-| `core:designsystem` | Compose theme and components (Android/desktop/web) |
+| `core:designsystem` | Compose theme and components (Android/desktop) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
 | `composeUi` | Compose screens for every feature, custom player controls, per-platform video surface |
 | `shared` | Compose umbrella: `App()`, navigation, DI wiring, the extensions this build includes |
 | `apple` | Static framework `Shared` exporting core/data/feature (and included extensions) to Swift |
+| web umbrella (planned) | Kotlin/JS library with an `@JsExport` facade over the ViewModels, consumed by the React app (ADR 0011) |
 | `extensions/<name>/*` | Planned. Removable features with their own data, presentation and UI modules |
 
 ## Extension points (ADR 0008)
@@ -58,12 +60,13 @@ to something playable, settings sections, and content filters. Lists that can mi
 items of a kind no installed renderer handles are dropped.
 
 ## Data flow
-UI observes `StateFlow<UiState>` from a ViewModel (Compose collects it directly; SwiftUI through SKIE-generated async sequences, see docs/platform-notes.md)
+UI observes `StateFlow<UiState>` from a ViewModel (Compose collects it directly; SwiftUI through SKIE-generated async sequences, see
+docs/platform-notes.md; React through the facade's subscribe/getSnapshot with `useSyncExternalStore`, ADR 0011)
 -> ViewModel calls a repository -> repository calls the service API and maps DTOs to models. A read-through cache comes later.
 
 ## Playback
 ```
-PlayerUI (SwiftUI | Compose)  ->  PlayerController (feature:player)  ->  PlaybackPlanner (core:playback)
+PlayerUI (SwiftUI | Compose | React)  ->  PlayerController (feature:player)  ->  PlaybackPlanner (core:playback)
                                           |                                      |
                                     PlayerEngine (headless, per platform) <-- plan: DirectPlay | DirectStream | Remux | Transcode
 ```
@@ -76,6 +79,6 @@ Sources: Jellyfin (the server negotiates routes from a device profile built from
 | iOS / macOS / tvOS | SwiftUI | AVPlayer; custom fallback engine later |
 | Android | Compose | Media3 |
 | Windows / Linux | Compose Desktop | libmpv in a child window, our controls in a transparent window (ADR 0010) |
-| Web | Decided by the M1 web UI spike (Compose HTML, TypeScript or Compose Wasm) | HTML video (+ hls.js where needed) |
+| Web | React + TypeScript over Kotlin/JS (ADR 0011) | HTML video + hls.js, device profile from browser probes (ADR 0011) |
 
 Order of work (docs/roadmap.md): Windows desktop and web first, then Android and Apple, then TV.

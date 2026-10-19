@@ -1,6 +1,6 @@
 # 0001: Compose Multiplatform for UI (partly superseded by 0006)
 
-Status: superseded for Apple platforms by ADR 0006; still valid for Android, Windows/Linux and web
+Status: superseded for Apple platforms by ADR 0006 and for the web by ADR 0011; still valid for Android and Windows/Linux
 
 ## Context
 Targets are Android, iOS, macOS, Windows and web, with TV later. A solo developer cannot maintain several native UIs.
