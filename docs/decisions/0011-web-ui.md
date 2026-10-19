@@ -64,18 +64,21 @@ Not probeable: subtitle formats (only WebVTT is native; ASS and PGS need a JavaS
 browser API). Dolby Vision with an HDR10 or SDR base layer plays as that layer (`DOVIWithHDR10`, `DOVIWithSDR`); other profiles go to
 the server.
 
-Recorded on the owner's PC: Windows 11, Windows HDR on, hardware decoding, stereo output. Chrome and Edge were recorded through
-Playwright, headed and without its default `--force-color-profile=srgb`, which hides an HDR display from the page. Firefox was recorded
-by the owner from the console.
+Recorded on 2026-10-19; the raw answers are in `docs/web-probes/` for the web shell's tests:
+- **Chrome, Edge, Firefox:** on the owner's PC (Windows 11, Windows HDR on, hardware decoding, stereo output).
+  - Chrome and Edge were recorded through Playwright, headed and without its default `--force-color-profile=srgb`, which hides an HDR
+    display from the page.
+  - Firefox was recorded by the owner from the console.
+- **Safari:** on the owner's Mac, from the console. Its display reported no HDR.
 
-| | Chrome 155 | Edge 155 | Firefox 158 |
-|---|---|---|---|
-| Direct play containers | MP4, WebM, MKV | same | MP4, WebM, MKV, MOV |
-| Video | H.264 (also 10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 0/2, VP8 | same | same, but no 10-bit H.264 |
-| Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 | AAC, Opus, FLAC (not in MKV), Vorbis |
-| MSE (HLS copy) | video H.264, HEVC, AV1; audio AAC, Opus, FLAC | adds AC-3, E-AC-3 | as Chrome |
-| HDR display / HDR10 decoding | yes / HEVC Main10 | yes / HEVC Main10 | no / HEVC, AV1 (HLG too) |
-| 2160p, channels | H.264, HEVC, AV1, VP9; 2 | same | same |
+| | Chrome 155 | Edge 155 | Firefox 158 | Safari (macOS) |
+|---|---|---|---|---|
+| Direct play containers | MP4, WebM, MKV | same | MP4, WebM, MKV, MOV | MP4, WebM, MOV, MPEG-TS (H.264 with AC-3/E-AC-3); no MKV |
+| Video | H.264 (also 10-bit), HEVC Main/Main10, AV1 8/10-bit, VP9 0/2, VP8 | same | same, but no 10-bit H.264 | H.264 (also 10-bit), HEVC Main/Main10 (`hvc1` only, not `hev1`), VP9 0/2, VP8; no AV1 |
+| Audio | AAC, MP3, Opus, FLAC, Vorbis | same plus AC-3, E-AC-3 | AAC, Opus, FLAC (not in MKV), Vorbis | AAC, AC-3, E-AC-3, FLAC, ALAC; Opus and Vorbis only in WebM; MP3 in MP4 under no spelling |
+| MSE (HLS copy) | video H.264, HEVC, AV1; audio AAC, Opus, FLAC | adds AC-3, E-AC-3 | as Chrome | video H.264, HEVC; audio AAC, AC-3, E-AC-3, FLAC (only as `fLaC`), ALAC |
+| HDR display / HDR10 decoding | yes / HEVC Main10 | yes / HEVC Main10 | no / HEVC, AV1 (HLG too) | no / HEVC Main10 (HLG too) |
+| 2160p, channels, native HLS | H.264, HEVC, AV1, VP9; 2; no | same | same | H.264, HEVC, VP9; 2; yes ("maybe") |
 
 MP3 in Firefox: "no" to `mp4a.6B`; the other spellings were added after its recording.
 
@@ -85,7 +88,10 @@ Live routes with these answers (test server, NVENC on):
   - Chrome gets server HLS with the video copied in HDR and only the audio transcoded to stereo AAC.
   - Firefox gets HLS tone-mapped to SDR, as its probe says no HDR display.
   - In real Edge and Chrome, both reached 8 s of playback about 9–10 s after Play, so it started within roughly 2 s.
-- **MKV with 8-bit H.264 or HEVC and AAC:** direct play in all three.
+- **MKV with 8-bit H.264 or HEVC and AAC:** direct play in Chrome, Edge and Firefox. Safari has no MKV, so the server remuxes it with
+  video and audio copied (`ContainerNotSupported` only); that is Safari's usual route for an MKV library.
+- **Safari and the HDR10 film:** tone-mapped (its display reported no HDR), with 5.1 E-AC-3 downmixed to stereo AAC. On an HDR display,
+  Safari's HEVC Main10 HDR10 and HLG decoding would let it pass through.
 - **10-bit H.264:** goes to the server in Firefox only (`VideoBitDepthNotSupported`).
 - **AC-3, DTS and TrueHD:** go to the server for audio only, except AC-3 in Edge. A default image subtitle (DVD, PGS) or ASS forces a video
   transcode everywhere.
@@ -229,6 +235,8 @@ HDR on the web works for HDR10 in HEVC on Chrome and Edge with Windows HDR on, d
 - **Partial or never:**
   - HDR10+ plays as HDR10: its dynamic metadata is dropped.
   - Dolby Vision plays only as its HDR10 or SDR base layer; profiles without one go to the server.
+- **Dolby Vision is not probed yet.** Safari and some Edge setups decode it natively, with codec strings `dvh1.05.06` (profile 5) and
+  `dvh1.08.06` (profile 8). The web shell adds those probes and allows `DOVI` ranges where they pass on an HDR display.
 - **Not verified:**
   - What reaches the screen. The media logs prove the HDR stream is decoded; whether Windows shows it in HDR needs the owner's eyes,
     for example the same film in Edge next to Firefox's tone-mapped copy.
@@ -270,5 +278,5 @@ Expected per-browser differences: see Web playback routes (everything is probed;
 ## Prototype
 `spikes/web-core`, `spikes/web-html` (A), `spikes/web-ts` (B) and `spikes/web-wasm` (C), with `spike-` catalog entries and the JS yarn
 lockfile. They were removed before merging; they remain in this ADR's PR history (branch `spike/web-ui` up to commit `8a2564d`). This ADR
-and docs/platform-notes.md are what remains. The probe answers recorded in Chrome, Edge and Firefox were test fixtures of
-`spikes/web-core` and are summarised in Web playback routes.
+and docs/platform-notes.md are what remains, with the probe answers recorded in Chrome, Edge, Firefox and Safari in `docs/web-probes/`
+(test fixtures for the web shell).

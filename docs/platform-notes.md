@@ -133,6 +133,15 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
         though `decodingInfo` says it decodes HDR10 and HLG.
       - Firefox 158 plays MKV and MOV, HEVC Main/Main10, AV1 and VP9, but not 10-bit H.264, AC-3/E-AC-3, or FLAC in MKV.
       - `maxChannelCount` was 2 everywhere (stereo output).
+    - Safari on macOS (recorded by the owner, 2026-10-19):
+      - No MKV. MP4, WebM, MOV and MPEG-TS play (TS only with H.264 and AC-3/E-AC-3, and AAC in TS answered "").
+      - HEVC answers only as `hvc1`, not `hev1`.
+      - No AV1 on that Mac.
+      - AC-3, E-AC-3, FLAC and ALAC play in MP4. FLAC in MSE answers only as `fLaC`, not `flac`.
+      - MP3 inside MP4 answered "" under `mp4a.6B`, `mp4a.69` and `mp3`.
+      - Native HLS is "maybe", and MSE is present.
+      - `decodingInfo` reports HDR10 and HLG for HEVC Main10, but the display reported no HDR.
+    - Raw answers of all four browsers: `docs/web-probes/`.
   - hls.js loaded with `import('hls.js')` from a `js()` function works in Kotlin/JS (webpack), Kotlin/Wasm (webpack) and Vite. It
     becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
   - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the
