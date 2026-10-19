@@ -36,6 +36,28 @@ jobs:
           npm run build
       - run: ./gradlew :androidApp:assembleDebug
 
+  # Reports to GitHub's dependency graph (and so to Dependabot) only what ships: the Android release app, the desktop app, the web
+  # library and the Apple framework. Build tooling (Gradle plugins, Android test-device tools) is left out on purpose. Replaces
+  # GitHub's automatic dependency submission, which must stay turned off in the repository settings.
+  dependency-graph:
+    name: Dependency graph (shipped code)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/dependency-submission@v6
+        with:
+          dependency-graph-include-projects: ':(androidApp|desktopApp|web|apple)'
+          dependency-graph-include-configurations: 'releaseRuntimeClasspath|runtimeClasspath|jsRuntimeClasspath|(ios|macos|tvos)Arm64CompileKlibraries'
+        env:
+          DEPENDENCY_GRAPH_RUNTIME_INCLUDE_CONFIGURATIONS: '.*'
+
   windows:
     name: Desktop (Windows)
     runs-on: windows-latest

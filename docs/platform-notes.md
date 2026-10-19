@@ -317,9 +317,26 @@ and resolved versions from `:desktopApp:dependencies`.
   - Kotlin's yarn lockfile (`kotlin-js-store/yarn.lock`, upgraded with `kotlinUpgradeYarnLock`) gains `ws` 8.20.1 (MIT) for
     `ktor-client-js` and `@js-joda/core` 3.2.0 (BSD-3-Clause). The second comes from `kotlinx-datetime` 0.8.0, which
     `ktor-serialization-kotlinx-json` pulls in.
+  - Since 2026-10-20, a yarn resolution in the root `build.gradle.kts` lifts `ws` to 8.21.3 (8.20.1 has a memory exhaustion DoS, fixed
+    in 8.21.0). After changing a resolution, `kotlinUpgradeYarnLock` reused the old generated `package.json` until it ran with
+    `--rerun-tasks`.
   - The Vite bundle has none of them yet, because the facade does not call `core:network` and Kotlin/JS drops the unused code. Once it
     does, the `ws` stub in `webApp/vite.config.ts` applies (ADR 0011), and `@js-joda/core` has to be checked again: it may need to be
     in `webApp/package.json` and in the npm licence check.
+
+## Dependency graph and Dependabot (checked 2026-10-20)
+- GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
+  configuration under `settings.gradle.kts`. All 52 Maven alerts on 2026-10-20 were build tooling: Netty from the Android Gradle
+  plugin's test-device tooling (`_internal-unified-test-platform-*`); Bouncy Castle, jdom2, jose4j, Apache httpclient, commons-lang3
+  and OpenTelemetry on the plugin classpath. None was in `:desktopApp` `runtimeClasspath` or `:androidApp` `releaseRuntimeClasspath`.
+- CI now submits instead (`gradle/actions/dependency-submission@v6`, job `dependency-graph`), limited to the shipped configurations of
+  `:androidApp`, `:desktopApp`, `:web` and `:apple`. The plugin matches its project and configuration regexes against the whole
+  project path and configuration name (`Regex.matches`). Automatic dependency submission must stay off (Settings, Advanced Security,
+  Dependency graph), or it reports the build tooling again.
+- The 4 npm alerts were in `kotlin-js-store/yarn.lock` (Kotlin/JS tooling: karma, mocha, chokidar, and `ws`); `npm audit` on `webApp`
+  found none.
+  Sources: https://github.com/gradle/actions/blob/main/docs/dependency-submission.md ,
+  https://github.com/gradle/github-dependency-graph-gradle-plugin
 
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
