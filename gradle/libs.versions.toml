@@ -14,6 +14,11 @@ junit = "4.13.2"
 kotlin = "2.4.20"
 kotlinx-coroutines = "1.11.0"
 material3 = "1.12.0-alpha03"
+# Spike only (spike/web-ui): removed before merging
+spike-composeHtml = "1.12.1"
+spike-kotlinxBrowser = "0.5.0"
+spike-kotlinxSerialization = "1.11.0"
+spike-ktor = "3.6.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -34,6 +39,18 @@ compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMul
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+# Spike only (spike/web-ui): removed before merging
+spike-composeHtmlCore = { module = "org.jetbrains.compose.html:html-core", version.ref = "spike-composeHtml" }
+spike-coroutinesCore = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+spike-coroutinesTest = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+spike-kotlinxBrowser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "spike-kotlinxBrowser" }
+spike-ktorClientContentNegotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "spike-ktor" }
+spike-ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "spike-ktor" }
+spike-ktorClientJs = { module = "io.ktor:ktor-client-js", version.ref = "spike-ktor" }
+spike-ktorClientMock = { module = "io.ktor:ktor-client-mock", version.ref = "spike-ktor" }
+spike-ktorSerializationJson = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "spike-ktor" }
+spike-lifecycleViewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
+spike-serializationJson = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "spike-kotlinxSerialization" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -42,3 +59,5 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+# Spike only (spike/web-ui): removed before merging
+spike-kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
