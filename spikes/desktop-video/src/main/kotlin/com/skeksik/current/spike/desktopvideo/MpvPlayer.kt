@@ -120,12 +120,12 @@ class MpvPlayer(
 
     override fun seekTo(seconds: Double) {
         seekStartedAt = System.nanoTime()
-        command("seek", seconds.toString(), "absolute")
+        command("seek", seconds.toString(), "absolute+exact")
     }
 
     override fun seekBy(seconds: Double) {
         seekStartedAt = System.nanoTime()
-        command("seek", seconds.toString(), "relative")
+        command("seek", seconds.toString(), "relative+exact")
     }
 
     /**

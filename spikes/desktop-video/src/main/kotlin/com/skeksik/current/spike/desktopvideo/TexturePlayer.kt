@@ -157,7 +157,7 @@ fun TexturePlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
         onCloseRequest = close,
         state = windowState,
         title = "Spike (texture): ${displayName(request.source)}",
-        onKeyEvent = { handleKey(it, player, windowState, overlay) },
+        onPreviewKeyEvent = { handleKey(it, player, windowState, overlay) },
     ) {
         val state by player.state.collectAsState()
         val recorder = if (request.stats) {

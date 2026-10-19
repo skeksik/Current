@@ -47,9 +47,9 @@ Names: `source`, `engine` (`window`, `texture`), `fullscreen` (`compose`, `compo
 (`true`/`false`) and `mpvOptions` (`name=value,name=value`, e.g. `start=40%,sid=1`). `-PmpvDir=C:\path` loads another
 `libmpv-2.dll` (for example one built with `win32-smtc`); `-PskikoRenderApi=OPENGL` moves Compose off Direct3D 12.
 
-**Fullscreen modes** (`spike.fullscreen`): `compose` is Compose's `WindowPlacement.Fullscreen` (AWT's exclusive
-full-screen mode); `compose-fix` applies the frame's bounds again after leaving it; `borderless` strips the frame
-from the same HWND with Win32 and covers the monitor. With `compose` at a display scale above 100 %, the window comes
+**Fullscreen modes** (`spike.fullscreen`): `borderless` (the default) strips the frame from the same HWND with Win32
+and covers the monitor; `compose` is Compose's `WindowPlacement.Fullscreen` (AWT's exclusive full-screen mode);
+`compose-fix` applies the frame's bounds again after leaving it. With `compose` at a display scale above 100 %, the window comes
 back from fullscreen at the right size in logical pixels applied as physical ones, so the video is clipped and the
 controls window sticks out (ADR 0010).
 
@@ -66,7 +66,9 @@ A next audio track, S next subtitle (then off), I stats overlay, H "hide the con
 
 **Self-test** (`-Pspike.selfTest=true`, candidate 2): waits for playback, resizes five times, moves, visits every
 other monitor and comes back, maximizes, goes fullscreen and back, switches every audio and subtitle track, seeks,
-hides the controls window, pauses and resumes, then exits 0 (pass), 2 (a step failed), 3 (an exception) or 4 (hung).
+hides the controls window, pauses and resumes, then drives real mouse and keyboard input through `java.awt.Robot`
+(click to pause, double click for fullscreen, Esc, Right arrow with the seek bar focused, Space with a button
+focused: do not touch the mouse or keyboard meanwhile), then exits 0 (pass), 2 (a step failed), 3 (an exception) or 4 (hung).
 After each step it logs the geometry of the frame, the video canvas and the controls window as AWT and Win32 see them,
 and it takes full-screen screenshots (`selftest-*.png`: they show everything on your screen, keep them private).
 
@@ -88,9 +90,11 @@ play, and whether the app registers with Windows' media controls.
 | 3 | Audio switching by ear | while playing, A (or the Audio menu) across AAC/AC-3/E-AC-3 and TrueHD/E-AC-3: audible gap, click, or sync drift? |
 | 4 | Media keys | keyboard Play/Pause, Next with the player focused and unfocused: expected to do nothing (no `win32-smtc`); is the app in the Windows media flyout? |
 | 5 | Two windows | Alt+Tab and the taskbar: one entry or two? Clicking the controls: does the video window's title bar turn inactive? Minimize/restore |
-| 6 | Dragging | drag the window around and resize by its edges with the mouse (the self-test only sets sizes): does the controls window lag visibly? |
-| 7 | Fullscreen modes | F / double-click / Esc with `-Pspike.fullscreen=compose`, `compose-fix` and `borderless`: taskbar hidden? Controls on top? Click another monitor: does the player stay fullscreen? |
-| 8 | H mode | press H, wait 3 s: the controls window disappears; does moving the mouse over the video bring it back? |
+| 6 | Dragging | drag the window around and resize by its edges with the mouse (the self-test only sets sizes): does the controls window lag visibly? Its bottom corners follow the window's rounded corners? |
+| 7 | Fullscreen (borderless, the default) | F / double-click / Esc: taskbar hidden? Controls on top? Click another monitor or Alt+Tab away and back: does the player stay fullscreen, without lag? |
+| 8 | H mode | press H, wait 3 s: the controls window disappears and fullscreen stays on; does moving the mouse over the video bring the controls back? |
+| 10 | Seeking and keys | seek bar drag, ← →, −10 s / +30 s, Space after clicking a button: one seek per action, to the expected time? Click on the video: pauses at once? |
+| 11 | Tones vs another player | HDR film with Windows HDR on, same frame in both; then again with `"-Pspike.mpvOptions=target-peak=<your display's peak nits>"` |
 | 9 | Candidate 1 for comparison | `-Pspike.engine=texture` with the same files: same smoothness? HDR tone-mapped as expected |
 
 ## Headless smoke test (any OS with a system libmpv)

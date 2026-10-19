@@ -22,8 +22,8 @@ data class PlayRequest(
     val controlsWindow: Boolean = true,
     /** Isolation switch: sample stats every second (overlay and CSV). */
     val stats: Boolean = true,
-    /** `compose`, `compose-fix` or `borderless`; see [Fullscreen]. */
-    val fullscreen: String = "compose",
+    /** `borderless` (default), `compose` or `compose-fix`; see [Fullscreen]. */
+    val fullscreen: String = "borderless",
     /** Run the scripted self-test (resize, move, fullscreen, tracks, seek, close), then exit. */
     val selfTest: Boolean = false,
     /** More mpv options as `name=value`, comma-separated; they override the ones above. */

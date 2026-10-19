@@ -12,6 +12,8 @@ import androidx.compose.ui.window.WindowState
 import kotlinx.coroutines.delay
 import java.awt.Rectangle
 import java.awt.Robot
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import java.awt.Toolkit
 import java.io.File
 import javax.imageio.ImageIO
@@ -154,6 +156,75 @@ fun SelfTest(session: PlayerSession, windowState: WindowState, overlay: OverlayS
             awaitTrue("pause", 3_000) { player().state.value.paused }
             player().togglePause()
             awaitTrue("resume", 3_000) { !player().state.value.paused }
+        }
+        step("input") {
+            // Real mouse and keyboard events through java.awt.Robot (logical screen coordinates), aimed at the controls window.
+            val dialog = GeometryProbe.dialog ?: return@step
+            val robot = Robot().apply { autoDelay = 30 }
+            fun at(fx: Double, fromBottomDp: Int = -1): Pair<Int, Int> {
+                val b = dialog.bounds
+                val y = if (fromBottomDp >= 0) b.y + b.height - fromBottomDp else b.y + b.height / 3
+                return (b.x + (b.width * fx).toInt()) to y
+            }
+            fun click(xy: Pair<Int, Int>) {
+                robot.mouseMove(xy.first, xy.second)
+                robot.mousePress(InputEvent.BUTTON1_DOWN_MASK)
+                robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK)
+            }
+            fun key(code: Int) {
+                robot.keyPress(code)
+                robot.keyRelease(code)
+            }
+            val p = player()
+            if (p.state.value.paused) p.togglePause()
+            delay(500)
+
+            // A single click on the video pauses without waiting for the double-click timeout.
+            val before = p.state.value.paused
+            val clicked = System.nanoTime()
+            click(at(0.5))
+            awaitTrue("click to toggle pause", 2_000) { p.state.value.paused != before }
+            Diagnostics.event("[selftest] input: click toggled pause after ${(System.nanoTime() - clicked) / 1_000_000} ms")
+            delay(800)
+            click(at(0.5))
+            awaitTrue("second click to resume", 2_000) { p.state.value.paused == before }
+            delay(800)
+
+            // A double click goes fullscreen and leaves play/pause as it was.
+            click(at(0.5))
+            click(at(0.5))
+            delay(1_500)
+            Diagnostics.event("[selftest] input: double click -> fullscreen=${Fullscreen.isOn(windowState)}, paused=${p.state.value.paused} (was $before)")
+            key(KeyEvent.VK_ESCAPE)
+            delay(1_200)
+            Diagnostics.event("[selftest] input: Esc -> fullscreen=${Fullscreen.isOn(windowState)}")
+
+            // One Right arrow seeks exactly 5 s once, also with the seek bar focused (it handles arrows itself).
+            overlay.activity()
+            delay(300)
+            click(at(0.3, fromBottomDp = 80)) // the seek bar: focus it (and seek to about 30 %)
+            delay(1_500)
+            val from = p.state.value.positionSeconds
+            val pressed = System.nanoTime()
+            key(KeyEvent.VK_RIGHT)
+            delay(1_000)
+            val elapsed = (System.nanoTime() - pressed) / 1e9
+            val moved = p.state.value.positionSeconds - from - elapsed
+            Diagnostics.event("[selftest] input: Right arrow with the seek bar focused moved %.2f s (expected 5)".format(moved))
+
+            // Space with a button focused (Tab moves focus off the seek bar) only toggles play/pause.
+            key(KeyEvent.VK_TAB)
+            delay(200)
+            val beforeSpace = p.state.value.let { it.paused to it.positionSeconds }
+            key(KeyEvent.VK_SPACE)
+            delay(800)
+            val afterSpace = p.state.value
+            Diagnostics.event(
+                "[selftest] input: Space with a button focused: paused ${beforeSpace.first} -> ${afterSpace.paused}, " +
+                    "position %.1f -> %.1f".format(beforeSpace.second, afterSpace.positionSeconds),
+            )
+            if (afterSpace.paused) p.togglePause()
+            delay(500)
         }
         step("report") {
             val p = player()

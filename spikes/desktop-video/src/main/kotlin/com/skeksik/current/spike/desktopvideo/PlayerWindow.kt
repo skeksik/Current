@@ -132,7 +132,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
         onCloseRequest = close,
         state = windowState,
         title = "Spike: ${displayName(request.source)}",
-        onKeyEvent = { event -> session.player?.let { handleKey(event, it, windowState, overlay) } ?: false },
+        onPreviewKeyEvent = { event -> session.player?.let { handleKey(event, it, windowState, overlay) } ?: false },
     ) {
         DisposableEffect(window) {
             val listener = WindowEventLogger(window)
@@ -181,7 +181,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
                     owner = window,
                     anchor = canvas,
                     overlay = overlay,
-                    onKeyEvent = { event -> handleKey(event, currentPlayer, windowState, overlay) },
+                    onPreviewKeyEvent = { event -> handleKey(event, currentPlayer, windowState, overlay) },
                 ) {
                     PlayerControls(
                         player = currentPlayer,
@@ -207,7 +207,7 @@ fun PlayerWindow(request: PlayRequest, onClosed: () -> Unit) {
  * - `borderless`: [BorderlessFullscreen] on the same HWND, without AWT's full-screen mode.
  */
 object Fullscreen {
-    var mode: String = "compose"
+    var mode: String = "borderless"
     var borderlessOn by mutableStateOf(false)
         private set
 
@@ -247,15 +247,16 @@ private fun ControlsWindow(
     owner: ComposeWindow,
     anchor: Component,
     overlay: OverlayState,
-    onKeyEvent: (KeyEvent) -> Boolean,
+    onPreviewKeyEvent: (KeyEvent) -> Boolean,
     content: @Composable () -> Unit,
 ) {
     val currentContent by rememberUpdatedState(content)
-    val currentOnKeyEvent by rememberUpdatedState(onKeyEvent)
+    val currentOnPreviewKeyEvent by rememberUpdatedState(onPreviewKeyEvent)
     val dialog = remember(owner) {
         ComposeDialog(owner, Dialog.ModalityType.MODELESS).apply {
             isUndecorated = true
             isTransparent = true
+            isResizable = false
             title = "Controls"
             exceptionHandler = Diagnostics.windowExceptionHandlerFactory.exceptionHandler(this)
         }
@@ -269,7 +270,7 @@ private fun ControlsWindow(
 
     DisposableEffect(dialog, anchor) {
         Diagnostics.event("controls window: creating")
-        dialog.setContent(onKeyEvent = { currentOnKeyEvent(it) }) { currentContent() }
+        dialog.setContent(onPreviewKeyEvent = { currentOnPreviewKeyEvent(it) }) { currentContent() }
         val listener = object : ComponentAdapter() {
             override fun componentMoved(e: ComponentEvent) = follow()
             override fun componentResized(e: ComponentEvent) = follow()

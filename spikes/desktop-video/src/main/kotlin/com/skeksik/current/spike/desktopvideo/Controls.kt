@@ -4,7 +4,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,19 +71,30 @@ fun PlayerControls(
         Box(
             Modifier
                 .fillMaxSize()
+                // Windows 11 rounds a floating window's corners (8 px at 100 %); a square overlay would stick out past them.
+                .clip(if (isFullscreen) RectangleShape else RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                 // Nearly invisible fill: keeps every pixel of the transparent window hit-testable, so clicks and
                 // mouse moves over the video reach us instead of falling through to the video window.
                 .background(Color.Black.copy(alpha = 1f / 255f))
                 .pointerHoverIcon(if (overlay.controlsVisible) PointerIcon.Default else PointerIcon(blankCursor))
                 .onPointerEvent(PointerEventType.Move) { overlay.activity() }
                 .pointerInput(player) {
-                    detectTapGestures(
-                        onTap = {
-                            overlay.activity()
+                    var lastPress = 0L
+                    awaitEachGesture {
+                        awaitFirstDown()
+                        // Released here and not consumed by a child (bottom bar, menus): a click on the video itself.
+                        waitForUpOrCancellation() ?: return@awaitEachGesture
+                        val now = System.currentTimeMillis()
+                        overlay.activity()
+                        if (now - lastPress < viewConfiguration.doubleTapTimeoutMillis) {
+                            lastPress = 0L
                             player.togglePause()
-                        },
-                        onDoubleTap = { onToggleFullscreen() },
-                    )
+                            onToggleFullscreen()
+                        } else {
+                            lastPress = now
+                            player.togglePause()
+                        }
+                    }
                 },
         ) {
             AnimatedVisibility(overlay.controlsVisible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopStart)) {
@@ -117,8 +134,11 @@ private fun BottomBar(
 ) {
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
+    var pendingSeek by remember { mutableStateOf<Double?>(null) }
     val duration = state.durationSeconds
-    val fraction = if (dragging) dragFraction else if (duration > 0) (state.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f
+    pendingSeek?.let { target -> if (kotlin.math.abs(state.positionSeconds - target) < 1.5) pendingSeek = null }
+    val shownPosition = pendingSeek ?: state.positionSeconds
+    val fraction = if (dragging) dragFraction else if (duration > 0) (shownPosition / duration).toFloat().coerceIn(0f, 1f) else 0f
 
     Column(
         Modifier
@@ -137,6 +157,7 @@ private fun BottomBar(
                 dragFraction = it
             },
             onValueChangeFinished = {
+                pendingSeek = dragFraction * duration
                 player.seekTo(dragFraction * duration)
                 dragging = false
             },

@@ -34,6 +34,12 @@ each with a fix the spike tried:
   canvas's native rectangle except right after maximizing, where it was 1 physical pixel off at 150 % (rounding) until the next move.
 - **Media keys need our own libmpv build** with `win32-smtc` (or our own System Media Transport Controls binding); the build used here
   has none and the app never appears as a media session.
+- **Input is the host's job, not Compose's defaults.** Player shortcuts go in the preview phase (`onPreviewKeyEvent`) of both windows,
+  so a focused button (Space) or the seek bar (arrows) does not handle the same key again; seeks are `exact` (mpv snaps relative seeks
+  to keyframes otherwise, which looked like random jumps); a click on the video acts on release, with our own double-click detection
+  (`detectTapGestures` with `onDoubleTap` delays every single tap by the double-tap timeout).
+- **The controls window is not resizable** (an undecorated dialog keeps resize borders) and is clipped to Windows 11's rounded bottom
+  corners while floating.
 
 The engine is libmpv in-process (JNA in the spike) behind `PlayerEngine`; the window host (video window, canvas, controls window,
 borderless fullscreen) is desktop-specific; the controls stay ordinary Compose code in `composeUi`.
@@ -92,10 +98,24 @@ mpv resets `frame-drop-count` on seeks, so drops were counted as the sum of incr
 - Media keys and the Windows media flyout come with `win32-smtc` in our build; until then they do not work.
 - HDR-to-SDR tone mapping (Windows HDR off, SDR monitors) needs a visual check against reference players.
 
-## Hand checks (to report before accepting)
-Windows HDR off (tone-mapped output by eye); HDR picture by eye; audio switching by ear; media keys and the media flyout; Alt+Tab, taskbar
-and title bar state with two windows; dragging and edge-resizing by mouse (lag of the controls window); the three fullscreen modes by hand;
-H mode (mouse over the video brings the controls back). Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.
+## Hand checks
+Reported 2026-10-19 on the first prototype (`spike/desktop-video-old`: Compose's fullscreen, keys after the focused control, keyframe
+seeks), each with what the current prototype does about it:
+
+| Reported | Cause | Now |
+|----------|-------|-----|
+| Controls window misaligned and sticking out after leaving fullscreen | AWT's exclusive full-screen mode restores the frame at the wrong size (see Decision) | borderless fullscreen by default; geometry consistent in the self-test |
+| Fullscreen window minimized or hidden when clicking outside it; Alt+Tab from fullscreen lags | exclusive full-screen mode minimizes on focus loss (the log shows iconified/restored pairs) | borderless fullscreen is a normal window; to re-check by hand |
+| H mode turns fullscreen off when the controls hide | hiding the owned controls window moves focus, which ends exclusive mode | to re-check by hand with borderless fullscreen |
+| Controls window can be resized by hand; its corners stick out past the rounded window | undecorated dialog still resizable; square overlay over a rounded window | not resizable; bottom corners clipped while floating |
+| One seek action seeks twice, or by a "random" amount | keys handled by the focused seek bar and by our handler; mpv's keyframe snapping on relative seeks | preview-phase shortcuts and `exact` seeks; self-test: one Right arrow with the seek bar focused moved 4.7 s (5 s minus timing) |
+| Space activates the last pressed button | Space reached the focused button before our handler | self-test: Space with a button focused only toggled play/pause |
+| Clicking the video pauses with a delay | single taps waited for the double-tap timeout | self-test: pause 167 ms after the click (including the robot's own delays); double click still goes fullscreen without changing play/pause |
+| Slightly different tones from VLC (HDR film, Windows HDR on) | not established. mpv tone-maps to the peak it reads for the display (390 nits here); VLC may leave that to the display | compare with `-Pspike.mpvOptions=target-peak=<display peak>` and with a reference player before tuning |
+| Media keys do not work | no `win32-smtc` in this libmpv | expected; needs our own build |
+
+Still open by hand: Windows HDR off; audio switching by ear; Alt+Tab, taskbar and title bar state with two windows; dragging and
+edge-resizing by mouse; the items marked "to re-check". Steps: `spikes/desktop-video/README.md` on branch `spike/desktop-video`.
 
 ## Prototype
 `spikes/desktop-video` on branch `spike/desktop-video`, deleted before merging; this ADR and docs/platform-notes.md are what remains.
