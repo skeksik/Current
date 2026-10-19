@@ -110,6 +110,22 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   `<track>` need it (https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
 - Media Session API (web): metadata, action handlers, hardware media keys; MDN marks it "Limited availability", not Baseline.
   Source: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API
+- Checked 2026-10-19 in the web UI spike (ADR 0011; Playwright's Chromium 156 and Edge 155 on Windows):
+  - Candidate (1) works with CMP 1.12.1, but the canvas is painted white where nothing is drawn. The player clears the *root* canvas with
+    `drawBehind { drawRect(..., blendMode = BlendMode.Clear) }`; an offscreen `graphicsLayer` only clears its own layer. A `<video>` in a
+    fixed layer under the Compose viewport then shows through, and the Compose controls on top get the input.
+  - Probes:
+    - `canPlayType('video/x-matroska; codecs="avc1.640029, mp4a.40.2"')` is "probably" in both browsers; MSE `isTypeSupported` for MKV is
+      false.
+    - HEVC (Main and Main10) through MSE is true with hardware (headed browser; false in headless Chromium).
+    - Edge reports AC-3 and E-AC-3 as "probably" (Windows decoders); Chromium does not.
+    - `application/vnd.apple.mpegurl` is "maybe" in Chromium 156.
+  - hls.js loaded with `import('hls.js')` from a `js()` function works in Kotlin/JS (webpack), Kotlin/Wasm (webpack) and Vite. It
+    becomes a separate chunk of about 177 KB (gzip), loaded on the first HLS play.
+  - A cross-origin `<track>` needs `crossorigin="anonymous"` on the `<video>` (Jellyfin answers with CORS); without it, Chromium refused the
+    subtitle file.
+  - Media Session metadata and action handlers set from Kotlin are present (`navigator.mediaSession.metadata`). The OS media flyout is
+    still a hand check.
 
 ## Web UI options (checked 2026-10-19; input for the M1 web UI spike)
 - **Compose for web draws on a canvas** (Kotlin/Wasm; Beta, while Android, iOS and desktop are Stable:
@@ -142,6 +158,37 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
   kotlinx.coroutines 1.11.0, Koin 4.2.2, JetBrains lifecycle-viewmodel 2.11.0; all also publish wasm-js.
 - **Other Kotlin DOM toolkits**: Kobweb (Apache-2.0, on Compose HTML, pre-1.0: https://github.com/varabyte/kobweb), KVision (MIT, JS only:
   https://github.com/rjaros/kvision).
+- **Checked in the spike** (2026-10-19, ADR 0011: the same app built three ways on one Kotlin core):
+  - `js()` works in the shared `webMain` source set for both `js` and `wasmJs` (Kotlin 2.4.20, with `kotlin.js.ExperimentalWasmJsInterop`),
+    including Kotlin lambdas passed as callbacks and `import()`. `kotlinx-browser` 0.5.0 DOM types work in `webMain` too.
+  - Compose HTML:
+    - ViewModels held per page (a `ViewModelStore` cleared in `DisposableEffect`) and `collectAsState()` work.
+    - Compose HTML removes attributes set from outside on recomposition (it dropped `crossorigin` from `<video>`), so declare them in
+      the composable.
+  - Kotlin/JS library for TypeScript:
+    - `binaries.library()`, `useEsModules()`, `generateTypeScriptDefinitions()` and `outputModuleName` give `current-core.mjs` +
+      `.d.mts`. Generic exported classes and function types (`() -> Unit`) export cleanly.
+    - Ktor's JS client contains `import('ws')` (Node only), which Vite must alias to an empty module.
+    - React's `StrictMode` double mount disposes a Kotlin ViewModel created in `useMemo`.
+  - Compose for web with `HtmlElementView`:
+    - Elements go to an interop layer after the canvas host, in the light DOM, so password managers and link handling see them.
+    - They also take the wheel. Re-dispatching it to the canvas, which sits in the open shadow root of the host `div`, restores
+      scrolling.
+    - Their size comes from Compose.
+    - Accessibility: `DropdownMenuItem` is exposed as a button, and a closed menu stayed in the accessibility tree. `window.find`
+      matches the hidden accessibility text.
+  - Sizes, load times and build times per prototype: ADR 0011.
+
+## Kotlin/JS and Wasm build tooling (checked 2026-10-19)
+- Kotlin's JS/Wasm toolchain installs npm packages with yarn and pins Karma as `github:Kotlin/karma#6.4.5`, resolved to a codeload tarball at
+  commit `239a8fc984584f0d96b1dd750e7a5e2c79da93a6` (`kotlin-js-store/yarn.lock`).
+  - On a Windows machine with direct network access, the tarball downloaded without trouble.
+  - Cloud sessions get HTTP 403 for codeload tarballs from their GitHub proxy. The suggested workarounds are not tried yet: cloning
+    Kotlin/karma at that commit and pointing yarn at the local copy, or an offline npm option of the Kotlin Gradle plugin.
+- With a committed `kotlin-js-store/yarn.lock`, adding a JS module fails `kotlinStoreYarnLock` ("Lock file was changed") until
+  `kotlinUpgradeYarnLock` runs (`kotlinWasmUpgradeYarnLock` for `kotlin-js-store/wasm/yarn.lock`).
+- `wasmJsBrowserDevelopmentRun --continuous` once failed with `OutOfMemoryError` in the Kotlin daemon (`kotlin.daemon.jvmargs=-Xmx3072M`)
+  after a few incremental builds; `gradlew --stop` and a restart fixed it.
 
 ## Licences, stores and patents for player engines (checked 2026-10-18)
 - What a shipped library asks of us: permissive (MIT, BSD, ISC, Apache-2.0) only notices (Apache-2.0 also its NOTICE file); MPL-2.0 source of
@@ -198,6 +245,21 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - Reporting: `POST /Sessions/Playing`, `/Sessions/Playing/Progress` about every 10 s, `/Sessions/Playing/Stopped`, and
   `/Sessions/Playing/Ping?playSessionId=` while paused. The server stops an HLS transcode after 60 s without progress or ping.
   `Stopped` without `PositionTicks` marks the item fully watched.
+- PlaybackInfo with a device profile (checked live 2026-10-19, read-only with an API key; ADR 0011):
+  - An API key works as `Token` in the `MediaBrowser` header. `/UserViews`, `/Items` and `PlaybackInfo` then need the user passed
+    (`userId`, `UserId`).
+  - A non-default `AudioStreamIndex` keeps `SupportsDirectPlay: true`, although a browser plays only a file's default track, so a web
+    client turns direct play off itself to switch audio.
+  - The transcode reasons are in the `TranscodingUrl` query (`TranscodeReasons=`); the media source JSON had none.
+  - HLS profile:
+    - With an fMP4 HLS transcoding profile (`Container: mp4`) whose `VideoCodec` lists `h264,hevc`, HEVC sources that need only an audio
+      transcode keep their video (`TranscodeReasons=AudioCodecNotSupported`).
+    - With MPEG-TS and H.264 only, they were re-encoded.
+  - Subtitles:
+    - ASS, with a profile listing ASS as `Encode`, came back with `DeliveryMethod: Encode` and `SubtitleMethod=Encode` in the URL
+      (burn-in).
+    - SubRip, with only `vtt` as `External`, came back as an external `.vtt` `DeliveryUrl` (carrying `ApiKey`), under direct play too.
+    - The test server had no PGS file, so PGS burn-in was not seen live.
 - Subtitles: delivery `Encode`, `Embed`, `External`, `Hls`, `Drop`; external files at
   `/Videos/{id}/{mediaSourceId}/Subtitles/{index}[/{startTicks}]/Stream.{vtt|srt|ass|ssa|ttml|json}`.
 - Intro/outro: `/MediaSegments/{id}`, but core ships no segment provider (a plugin must supply them), so expect none.
@@ -256,10 +318,14 @@ without `win32-smtc`, `media-controls=yes` is accepted but the process does not 
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
-  the web hole surviving page CSS and CMP updates, HDR on web, patent licensing for HEVC/AAC/AC-3 decoders, the Ktor engine for wasmJs.
+  the web hole surviving CMP updates (it works in 1.12.1: ADR 0011), HDR on web, patent licensing for HEVC/AAC/AC-3 decoders.
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF), and mixed content (HTTPS page to HTTP server).
-- Sign-in flows end to end: no POST was sent to Jellyfin or Seerr while checking (AuthenticateByName, Quick Connect, PlaybackInfo, reporting).
-- Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine, HTML video), and how they cope with Stash's 302-to-login and mislabelled mime types.
-- Compose Multiplatform web accessibility (screen reader support); the accessibility docs page does not cover web.
+- Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
+  used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
+- Web hand checks of ADR 0011 in Chrome, Edge and Firefox: password managers saving and filling each prototype's form, "Copy link",
+  find-in-page, browser translate, drag selection, the OS media flyout, Narrator on the poster links, playback in Firefox.
+- Which DeviceProfile each engine needs (Media3, AVPlayer, desktop engine; HTML video: ADR 0011), and how they cope with Stash's 302-to-login and mislabelled mime types.
+- Compose Multiplatform web accessibility with a real screen reader. The accessibility docs page does not cover web. The web spike saw
+  the accessibility tree only through Playwright: buttons and headings present, a closed menu's items left behind (ADR 0011).
 - Media3 capabilities for the Android fallback (e.g. FFmpeg extension) and licences of any custom Apple fallback engine library.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
