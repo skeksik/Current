@@ -75,7 +75,7 @@ Sources: Jellyfin (the server negotiates routes from a device profile built from
 |---|---|---|
 | iOS / macOS / tvOS | SwiftUI | AVPlayer; custom fallback engine later |
 | Android | Compose | Media3 |
-| Windows / Linux | Compose Desktop | Decided by the M1 spike (docs/roadmap.md) |
-| Web | Compose Wasm | HTML video (+ hls.js where needed), decided by the M1 spike |
+| Windows / Linux | Compose Desktop | libmpv in a child window, our controls in a transparent window (ADR 0010) |
+| Web | Decided by the M1 web UI spike (Compose HTML, TypeScript or Compose Wasm) | HTML video (+ hls.js where needed) |
 
 Order of work (docs/roadmap.md): Windows desktop and web first, then Android and Apple, then TV.
