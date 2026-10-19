@@ -7,7 +7,15 @@ plugins {
 }
 
 kotlin {
-    jvm()
+    jvm {
+        testRuns["test"].executionTask.configure {
+            // Opt-in live check against a test server (-Pspike.live=true); the server comes from a file outside the repo.
+            val live = providers.gradleProperty("spike.live").orNull == "true"
+            systemProperty("spike.live", live.toString())
+            systemProperty("spike.serverEnv", System.getProperty("user.home") + "/.current/test-server.env")
+            if (live) outputs.upToDateWhen { false }
+        }
+    }
 
     js {
         browser()
@@ -40,6 +48,9 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.spike.coroutinesTest)
             implementation(libs.spike.ktorClientMock)
+        }
+        jvmTest.dependencies {
+            implementation(libs.spike.ktorClientJava)
         }
     }
 }

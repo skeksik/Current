@@ -46,6 +46,7 @@ spike-coroutinesTest = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test
 spike-kotlinxBrowser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "spike-kotlinxBrowser" }
 spike-ktorClientContentNegotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "spike-ktor" }
 spike-ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "spike-ktor" }
+spike-ktorClientJava = { module = "io.ktor:ktor-client-java", version.ref = "spike-ktor" }
 spike-ktorClientJs = { module = "io.ktor:ktor-client-js", version.ref = "spike-ktor" }
 spike-ktorClientMock = { module = "io.ktor:ktor-client-mock", version.ref = "spike-ktor" }
 spike-ktorSerializationJson = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "spike-ktor" }

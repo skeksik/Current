@@ -18,13 +18,15 @@ data class MediaSupport(
     val mkv: Boolean,
     val nativeHls: Boolean,
     val mse: Boolean,
+    /** HEVC through Media Source Extensions (hls.js), so the server can copy HEVC into HLS instead of re-encoding it. */
+    val mseHevc: Boolean = false,
     val probes: Map<String, String> = emptyMap(),
 )
 
 /**
  * The web device profile: MP4 and WebM direct play with what the probes allow, MKV only where its probe passes, everything else through
- * the server's HLS (H.264 + AAC in MPEG-TS). AC-3, E-AC-3, DTS and TrueHD are never direct-played, so the server transcodes that audio;
- * ASS/SSA and image subtitles are burned in; text subtitles arrive as external WebVTT.
+ * the server's HLS in fMP4 segments (H.264, or HEVC copied where MSE takes it; AAC). AC-3, E-AC-3, DTS and TrueHD are never
+ * direct-played, so the server transcodes that audio; ASS/SSA and image subtitles are burned in; text subtitles arrive as external WebVTT.
  */
 internal object WebDeviceProfile {
     const val MAX_BITRATE = 120_000_000L
@@ -47,9 +49,9 @@ internal object WebDeviceProfile {
         }
         val transcoding = listOf(
             TranscodingProfileDto(
-                container = "ts",
+                container = "mp4",
                 type = "Video",
-                videoCodec = "h264",
+                videoCodec = if (s.mseHevc) "h264,hevc" else "h264",
                 audioCodec = "aac",
                 protocol = "hls",
                 context = "Streaming",

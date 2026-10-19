@@ -47,9 +47,9 @@ fun probeMediaSupport(): MediaSupport {
         mkv = mkvPlay,
         nativeHls = play("application/vnd.apple.mpegurl"),
         mse = hasMediaSource() && mse("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\""),
+        mseHevc = mse("video/mp4; codecs=\"hvc1.1.6.L120.90\"") && mse("video/mp4; codecs=\"hvc1.2.4.L153.B0\""),
         probes = probes,
     )
-    mse("video/mp4; codecs=\"hvc1.1.6.L120.90\"")
     mse("audio/mp4; codecs=\"ac-3\"")
     mse("audio/mp4; codecs=\"ec-3\"")
     play("audio/mp4; codecs=\"ac-3\"")

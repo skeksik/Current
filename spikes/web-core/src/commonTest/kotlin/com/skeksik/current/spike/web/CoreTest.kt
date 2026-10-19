@@ -84,7 +84,8 @@ class WebDeviceProfileTest {
     fun transcodesToHlsAndBurnsInAssAndImageSubtitles() {
         val profile = WebDeviceProfile.build(allSupport)
         val hls = profile.transcodingProfiles.single()
-        assertEquals(listOf("hls", "ts", "h264", "aac"), listOf(hls.protocol, hls.container, hls.videoCodec, hls.audioCodec))
+        assertEquals(listOf("hls", "mp4", "h264", "aac"), listOf(hls.protocol, hls.container, hls.videoCodec, hls.audioCodec))
+        assertEquals("h264,hevc", WebDeviceProfile.build(allSupport.copy(mseHevc = true)).transcodingProfiles.single().videoCodec)
         val methods = profile.subtitleProfiles.associate { it.format to it.method }
         assertEquals("External", methods["vtt"])
         listOf("ass", "ssa", "pgssub", "dvdsub").forEach { assertEquals("Encode", methods[it], it) }
