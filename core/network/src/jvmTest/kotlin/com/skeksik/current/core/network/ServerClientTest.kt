@@ -186,6 +186,16 @@ class ServerClientTest {
     }
 
     @Test
+    fun networkAccessDeniedToTheAppIsUnreachableNotABug() = runBlocking {
+        // Android without its INTERNET permission throws a SecurityException, which is not an IOException.
+        val recorder = Recorder().apply { answer = { throw SecurityException("Permission denied (missing INTERNET permission?)") } }
+        val address = SwitchableAddress(internet)
+        val failure = client(recorder, address).use { it.failure { get("Items") } }
+        assertEquals(ServiceErrorKind.Unreachable, failure.kind)
+        assertEquals(listOf(internet), address.reported)
+    }
+
+    @Test
     fun aRefusedConnectionIsUnreachableAndReported() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val closed = ServerUrl.parse("http://127.0.0.1:$port")!!
