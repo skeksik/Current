@@ -8,20 +8,19 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.koin.core.scope.Scope
 
 /**
- * The default network's callback (needs `ACCESS_NETWORK_STATE`). Registering reports the current network at once; that first report
- * is not a change and is skipped. A different default network, or losing it, is.
+ * The default network's callback (needs `ACCESS_NETWORK_STATE`). A report of the network that was already the default when listening
+ * started is not a change (registering can report it at once, docs/platform-notes.md); another default network, or losing it, is.
+ * Without the permission there is no signal.
  */
 internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
     val connectivity = get<Context>().getSystemService(ConnectivityManager::class.java) ?: return NetworkChanges.None
     return NetworkChanges {
         callbackFlow {
             val callback = object : ConnectivityManager.NetworkCallback() {
-                private var last: Network? = null
-                private var seen = false
+                private var last: Network? = connectivity.activeNetwork
 
                 override fun onAvailable(network: Network) {
-                    if (seen && network != last) trySend(Unit)
-                    seen = true
+                    if (network != last) trySend(Unit)
                     last = network
                 }
 
@@ -32,7 +31,12 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
                     }
                 }
             }
-            connectivity.registerDefaultNetworkCallback(callback)
+            try {
+                connectivity.registerDefaultNetworkCallback(callback)
+            } catch (e: SecurityException) {
+                close()
+                return@callbackFlow
+            }
             awaitClose { connectivity.unregisterNetworkCallback(callback) }
         }
     }

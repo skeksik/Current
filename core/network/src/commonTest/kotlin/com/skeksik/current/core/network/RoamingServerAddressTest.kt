@@ -9,11 +9,14 @@ import com.skeksik.current.core.model.ServiceType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Duration
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
@@ -37,7 +40,10 @@ class RoamingServerAddressTest {
         listOf(ServerAddress(local, AddressScope.Local), ServerAddress(internet, AddressScope.Internet)),
     )
 
-    /** Answers per address: a server id, or "slow" (times out after 5 s, as Jellyfin's probe does); anything else is unreachable. */
+    /**
+     * Answers per address: a server id; "slow" (times out after 5 s, as Jellyfin's probe does); "hang" (never answers); anything else
+     * is unreachable.
+     */
     private class FakeProbe(val answers: MutableMap<String, String> = mutableMapOf()) : ServerProbe {
         override val service = ServiceType.jellyfin
         override val defaultPort = 8096
@@ -51,6 +57,7 @@ class RoamingServerAddressTest {
                     delay(5.seconds)
                     throw ServiceException(server, ServiceErrorKind.Timeout)
                 }
+                "hang" -> awaitCancellation()
                 else -> ServerIdentity(answer, "Home", "12.2.0")
             }
         }
@@ -60,7 +67,7 @@ class RoamingServerAddressTest {
     private val changes = MutableSharedFlow<Unit>()
     private val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(ref)) }
 
-    /** Runs the source in the background, so it stops with the test, and lets its first check finish. */
+    /** Runs the source in the background, so it stops with the test, and lets its first check run as far as it can. */
     private fun TestScope.roaming(server: SavedServer = saved): RoamingServerAddress {
         val source = RoamingServerAddress(server, probe, capabilities, RoamingTiming())
         backgroundScope.launch { source.run(changes) }
@@ -104,7 +111,6 @@ class RoamingServerAddressTest {
     fun aHigherAddressThatHasNotAnsweredYetIsWaitedFor() = runTest {
         probe.answers += mapOf(local to "slow", internet to homeId)
         val source = roaming()
-        // The probe's own timeout bounds the wait; until it fails, nothing is chosen over it.
         assertNull(source.current.value)
         advance(5.seconds)
         assertEquals(url(internet), source.current.value)
@@ -115,40 +121,98 @@ class RoamingServerAddressTest {
         probe.answers += mapOf(local to otherId)
         val source = roaming()
         assertNull(source.current.value)
+        assertNull(source.awaitCurrent())
         assertEquals(false, reachable)
     }
 
     @Test
-    fun whileNothingAnswersItAsksAgainWithGrowingWaits() = runTest {
+    fun aRequestAtStartWaitsForTheFirstCheck() = runTest {
+        probe.answers += mapOf(local to "slow", internet to homeId)
         val source = roaming()
+        val request = async { source.awaitCurrent() }
+        runCurrent()
+        assertFalse(request.isCompleted)
+        advance(5.seconds)
+        assertEquals(url(internet), request.await())
+    }
+
+    @Test
+    fun aRequestGivesUpWhenTheCheckTakesTooLong() = runTest {
+        probe.answers += mapOf(local to "hang", internet to homeId)
+        val source = roaming()
+        val request = async { source.awaitCurrent() }
+        advance(9.seconds)
+        assertFalse(request.isCompleted)
+        advance(1.seconds)
+        assertNull(request.await())
+    }
+
+    @Test
+    fun whileNothingAnswersItAsksAgainWithGrowingWaits() = runTest {
+        roaming()
         assertEquals(2, probe.asked.size)
         advance(14.seconds)
         assertEquals(2, probe.asked.size)
         advance(1.seconds)
         assertEquals(4, probe.asked.size)
-        advance(15.seconds)
+        advance(29.seconds)
         assertEquals(4, probe.asked.size, "the second wait is 30 s")
-        probe.answers[internet] = homeId
-        advance(15.seconds)
-        assertEquals(url(internet), source.current.value)
-        assertEquals(true, reachable)
+        advance(1.seconds)
+        assertEquals(6, probe.asked.size)
     }
 
     @Test
-    fun thePeriodicCheckMovesBackToAHigherAddressAndAsksOnlyThoseAbove() = runTest {
+    fun theWaitStopsGrowingAtFiveMinutesAndStartsOverAfterASuccess() = runTest {
+        val source = roaming()
+        // 15 s, 30 s, 1 min, 2 min, 4 min, then 5 min each.
+        advance(15.seconds + 30.seconds + 1.minutes + 2.minutes + 4.minutes)
+        assertEquals(12, probe.asked.size)
+        advance(5.minutes - 1.seconds)
+        assertEquals(12, probe.asked.size)
+        advance(1.seconds)
+        assertEquals(14, probe.asked.size)
+        probe.answers[internet] = homeId
+        advance(5.minutes)
+        assertEquals(url(internet), source.current.value)
+        probe.answers.clear()
+        source.reportUnreachable(url(internet))
+        runCurrent()
+        assertNull(source.current.value)
+        probe.asked.clear()
+        advance(15.seconds)
+        assertEquals(2, probe.asked.size, "back to 15 s after a success")
+    }
+
+    @Test
+    fun thePeriodicCheckMovesBackToAHigherAddress() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
-        assertEquals(url(internet), source.current.value)
         probe.asked.clear()
         probe.answers[local] = homeId
         advance(4.minutes)
         assertEquals(url(internet), source.current.value)
         advance(1.minutes)
-        assertEquals(listOf(local), probe.asked)
+        assertEquals(listOf(local, internet), probe.asked, "the address in use and those above it")
         assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun onTheFirstAddressThePeriodicCheckAsksOnlyIt() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        roaming()
         probe.asked.clear()
-        advance(1_000.minutes)
-        assertTrue(probe.asked.isEmpty(), "on the first address there is nothing to move back to")
+        advance(5.minutes)
+        assertEquals(listOf(local), probe.asked)
+    }
+
+    @Test
+    fun aDeadFirstAddressIsLeftAtThePeriodicCheck() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers.remove(local)
+        advance(5.minutes)
+        assertEquals(url(internet), source.current.value)
+        assertEquals(true, reachable)
     }
 
     @Test
@@ -173,6 +237,31 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun afterANetworkChangeRequestsWaitInsteadOfGoingToTheOldAddress() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        // On the new network something slow answers at the old address.
+        probe.answers[local] = "slow"
+        changes.emit(Unit)
+        runCurrent()
+        assertNull(source.current.value)
+        val request = async { source.awaitCurrent() }
+        runCurrent()
+        assertFalse(request.isCompleted)
+        advance(5.seconds)
+        assertEquals(url(internet), request.await())
+    }
+
+    @Test
+    fun aNetworkChangeWhileNothingAnswersAsksAtOnce() = runTest {
+        val source = roaming()
+        probe.answers[internet] = homeId
+        changes.emit(Unit)
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+    }
+
+    @Test
     fun aFailedRequestToTheAddressInUseMovesOn() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
@@ -193,13 +282,46 @@ class RoamingServerAddressTest {
     }
 
     @Test
-    fun theAddressInUseStaysWhileACheckRuns() = runTest {
+    fun theAddressInUseStaysWhileACheckForAFailedRequestRuns() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         probe.answers[local] = "slow"
-        changes.emit(Unit)
+        source.reportUnreachable(url(local))
         runCurrent()
         assertEquals(url(local), source.current.value)
+        assertEquals(url(local), source.awaitCurrent())
+    }
+
+    @Test
+    fun severalTriggersDuringOneCheckMakeExactlyOneMore() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers[local] = "slow"
+        probe.asked.clear()
+        source.reportUnreachable(url(local))
+        runCurrent()
+        repeat(3) { source.reportUnreachable(url(local)) }
+        advance(5.seconds)
+        assertEquals(url(internet), source.current.value)
+        advance(5.seconds)
+        assertEquals(4, probe.asked.size, "two checks of two addresses")
+        advance(1.minutes)
+        assertEquals(4, probe.asked.size)
+    }
+
+    @Test
+    fun aCheckWhoseAddressesWereEditedMeanwhileIsThrownAway() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers[local] = "slow"
+        source.reportUnreachable(url(local))
+        runCurrent()
+        // The running check would choose the internet address, which is removed before it finishes.
+        source.update(saved.withoutAddress(internet))
+        advance(5.seconds)
+        assertNotEquals(url(internet), source.current.value)
+        advance(5.seconds)
+        assertNull(source.current.value)
     }
 
     @Test
@@ -208,7 +330,9 @@ class RoamingServerAddressTest {
         val source = roaming()
         probe.answers[internet] = "slow"
         source.update(saved.withoutAddress(local))
-        assertNull(source.current.value)
+        assertNull(source.awaitCurrent(), "requests no longer go to the removed address, before any check")
+        runCurrent()
+        assertNotEquals(url(local), source.current.value)
     }
 
     @Test
@@ -238,6 +362,19 @@ class RoamingServerAddressTest {
         source.update(saved.copy(name = "Renamed"))
         runCurrent()
         assertTrue(probe.asked.isEmpty())
-        assertFalse(source.current.value == null)
+        assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun aStoppedSourceHasNoAddress() = runTest {
+        probe.answers += mapOf(local to homeId)
+        val source = RoamingServerAddress(saved, probe, capabilities, RoamingTiming())
+        val job = backgroundScope.launch { source.run(changes) }
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        job.cancel()
+        runCurrent()
+        assertNull(source.current.value)
+        assertNull(source.awaitCurrent())
     }
 }

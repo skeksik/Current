@@ -6,29 +6,52 @@ import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
+import io.ktor.client.engine.mock.respondOk
+import io.ktor.client.request.get
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 class RoamingAddressSourcesTest {
     private val homeId = "0123456789abcdef0123456789abcdef"
+    private val otherId = "fedcba9876543210fedcba9876543210"
     private val local = ServerAddress("http://192.168.1.10:8096", AddressScope.Local)
     private val internet = ServerAddress("https://media.example.com", AddressScope.Internet)
     private val capabilities = MutableCapabilitiesState()
     private val repository = StoredServerRepository(InMemoryKeyValueStore(), capabilities)
     private val changes = MutableSharedFlow<Unit>()
 
-    /** The saved server answers everywhere. */
+    /** The saved server answers everywhere, unless [answers] says otherwise: another id, or "slow" (fails after 5 s). */
     private val probe = object : ServerProbe {
         override val service = ServiceType.jellyfin
         override val defaultPort = 8096
+        val answers = mutableMapOf<String, String>()
+        val asked = mutableListOf<String>()
 
-        override suspend fun identify(server: ServerRef, address: ServerUrl) = ServerIdentity(homeId, "Home", null)
+        override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+            asked += address.toString()
+            return when (val answer = answers[address.toString()]) {
+                "slow" -> {
+                    delay(5.seconds)
+                    throw ServiceException(server, ServiceErrorKind.Timeout)
+                }
+                null -> ServerIdentity(homeId, "Home", null)
+                else -> ServerIdentity(answer, "Home", null)
+            }
+        }
     }
 
     private fun server(service: ServiceType = ServiceType.jellyfin) =
@@ -38,6 +61,14 @@ class RoamingAddressSourcesTest {
     private fun TestScope.sources() = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, backgroundScope)
 
     private fun url(address: ServerAddress) = ServerUrl.parse(address.url)!!
+
+    @Test
+    fun everySavedServerIsCheckedFromTheStart() = runTest {
+        server().also(repository::save)
+        sources()
+        runCurrent()
+        assertEquals(listOf(local.url, internet.url), probe.asked)
+    }
 
     @Test
     fun everyClientOfAServerSharesOneSource() = runTest {
@@ -51,7 +82,7 @@ class RoamingAddressSourcesTest {
     @Test
     fun aServerThatIsNotSavedGetsNoAddress() = runTest {
         val sources = sources()
-        assertNull(sources.forServer(server()).current.value)
+        assertNull(sources.forServer(server()).awaitCurrent())
     }
 
     @Test
@@ -73,22 +104,77 @@ class RoamingAddressSourcesTest {
         runCurrent()
         repository.remove(home.ref)
         runCurrent()
-        assertNull(sources.forServer(home).current.value)
-        assertEquals(url(local), source.current.value, "a stopped source is no longer checked")
+        assertNull(source.current.value)
+        assertNull(sources.forServer(home).awaitCurrent())
+        probe.asked.clear()
+        changes.emit(Unit)
+        runCurrent()
+        assertTrue(probe.asked.isEmpty(), "the stopped source asks nothing")
     }
 
     @Test
-    fun aServiceWithoutAProbeUsesItsAddressesInOrder() = runTest {
-        val stash = server(ServiceType("stash")).also(repository::save)
+    fun aServiceThatCannotIdentifyItselfUsesItsAddressesInOrder() = runTest {
+        val stash = server(ServiceType.stash).also(repository::save)
         val source = sources().forServer(stash)
+        runCurrent()
         assertEquals(url(local), source.current.value)
         source.reportUnreachable(url(local))
         assertEquals(url(internet), source.current.value)
         source.reportUnreachable(url(local))
         assertEquals(url(internet), source.current.value, "a stale report is ignored")
-        runCurrent()
         changes.emit(Unit)
         runCurrent()
         assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun anyOtherServiceWithoutAProbeGetsNoAddress() = runTest {
+        val seerr = server(ServiceType.seerr).also(repository::save)
+        assertNull(sources().forServer(seerr).awaitCurrent())
+    }
+
+    /** A real client on a mock engine that runs on the test's clock, recording where each request went. */
+    private fun TestScope.client(source: ServerAddressSource, sent: MutableList<String>): ServerClient {
+        val engine = MockEngine(
+            MockEngineConfig().apply {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    sent += request.url.host
+                    respondOk()
+                }
+            },
+        )
+        return ServerClients(createHttpClient(engine)).create(ServerRef(ServiceType.jellyfin, "a"), source)
+    }
+
+    @Test
+    fun aClientsFirstRequestWaitsForTheFirstCheck() = runTest {
+        probe.answers[local.url] = "slow"
+        val home = server().also(repository::save)
+        val sent = mutableListOf<String>()
+        val client = client(sources().forServer(home), sent)
+        val request = launch { client.request { get("Users/Me") } }
+        runCurrent()
+        assertTrue(sent.isEmpty())
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        request.join()
+        assertEquals(listOf("media.example.com"), sent)
+    }
+
+    @Test
+    fun afterANetworkChangeAClientNeverSendsToTheOldAddress() = runTest {
+        val home = server().also(repository::save)
+        val sent = mutableListOf<String>()
+        val source = sources().forServer(home)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        // On the new network another server answers at the old local address.
+        probe.answers[local.url] = otherId
+        changes.emit(Unit)
+        runCurrent()
+        val client = client(source, sent)
+        client.request { get("Users/Me") }
+        assertEquals(listOf("media.example.com"), sent)
     }
 }
