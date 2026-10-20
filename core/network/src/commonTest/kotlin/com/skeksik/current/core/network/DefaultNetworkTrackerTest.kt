@@ -52,9 +52,10 @@ class DefaultNetworkTrackerTest {
     }
 
     @Test
-    fun blockingAnotherNetworkIsIgnored() {
+    fun aBlockedStatusForAnotherNetworkMeansTheDefaultChanged() {
         val tracker = DefaultNetworkTracker("wifi")
-        assertNull(tracker.blockedStatus("vpn", true))
-        assertNull(tracker.blockedStatus("vpn", false))
+        assertEquals(NetworkChange.Changed, tracker.blockedStatus("hotspot", true), "reported before its onAvailable")
+        assertNull(tracker.available("hotspot"))
+        assertEquals(NetworkChange.Resumed, tracker.blockedStatus("hotspot", false))
     }
 }

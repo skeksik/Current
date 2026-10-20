@@ -25,10 +25,11 @@ internal class DefaultNetworkTracker<N : Any>(private var current: N?) {
         return NetworkChange.Changed
     }
 
+    /** On the default network's callback, a report for another network means the default changed, whatever came before. */
     fun blockedStatus(network: N, isBlocked: Boolean): NetworkChange? {
-        if (network != current) return null
+        val change = if (network != current) available(network) else null
         val unblocked = blocked && !isBlocked
         blocked = isBlocked
-        return if (unblocked) NetworkChange.Resumed else null
+        return change ?: if (unblocked) NetworkChange.Resumed else null
     }
 }
