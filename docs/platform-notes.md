@@ -1011,10 +1011,11 @@ research agent reading the same files.
   - Denied: TCP "will typically result in a timeout error", UDP and other denials in `EPERM`. The page does not say which address
     ranges count as the local network. Not verified.
   - So against a target-37 build, plain `http://192.168.1.10:8096` and the UDP discovery both need the permission, and the app should
-    handle a denial by showing that local servers cannot be reached.
+    handle a denial by showing that local servers cannot be reached. Confirmed on an Android 17 device on 2026-10-20 (`EPERM` for UDP,
+    a connect timeout for TCP), see "Local server discovery, run on devices".
 - `INTERNET` and `ACCESS_NETWORK_STATE` (for network callbacks, below). A `WifiManager.MulticastLock` ("Allows an application to receive
   Wifi Multicast packets ... can cause a noticeable battery drain") needs `CHANGE_WIFI_MULTICAST_STATE` (normal permission, `AndroidManifest.xml`
-  of the framework). It is described for multicast, not broadcast or unicast replies; a broadcast discovery did not need it on Android 16
+  of the framework). It is described for multicast, not broadcast or unicast replies; a broadcast discovery did not need it on Android 16 or 17
   (2026-10-20, see "Local server discovery, run on devices").
 - Cleartext, https://developer.android.com/privacy-and-security/security-config :
   - Default for apps targeting API 28+ is `cleartextTrafficPermitted="false"` in `base-config`.
@@ -1119,9 +1120,21 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   - With `INTERNET` alone, no `ACCESS_LOCAL_NETWORK` or `NEARBY_WIFI_DEVICES` grant and no `MulticastLock`, `255.255.255.255`, the
     directed broadcast and unicast were all answered (10 to 50 ms), in the foreground with the screen on. A `MulticastLock` changed nothing.
   - Android 16's opt-in, `adb shell am compat enable RESTRICT_LOCAL_NETWORK <package>` (change id 365139289), was accepted, but nothing
-    was blocked afterwards, with or without `NEARBY_WIFI_DEVICES`. So this build does not enforce the opt-in, and Android 17's
-    enforcement for target 37 is still untried.
+    was blocked afterwards, with or without `NEARBY_WIFI_DEVICES`. So this build does not enforce the opt-in.
   - Cleartext `http://192.168.1.10:8096` worked only with a network security config that permits cleartext (the default for target 28+ blocks it).
+- **Android 17** (the same Pixel 8 Pro after the update: Android 17, SDK 37, build CP3A, security patch 2026-10-05; the same target-37 debug build):
+  - Without `ACCESS_LOCAL_NETWORK` (never asked, or denied): every UDP send, to `255.255.255.255`, to the directed broadcast and to
+    `192.168.1.10`, failed at once with `IOException: sendto failed: EPERM (Operation not permitted)`. HTTP to `192.168.1.10:8096` did not
+    fail fast: `SocketTimeoutException: failed to connect` after our 3.5 s connect timeout. So a denied app can tell from UDP at once, but an
+    HTTP probe only times out; check the permission before probing rather than reading the error.
+  - The request shows the `NEARBY_DEVICES` group dialog: "Allow <app> to find, connect to and determine the relative position of nearby
+    devices?", Allow / Don't allow. Nothing in it mentions servers or the local network, so the app has to explain first. In the app's
+    settings the permission is listed as "Nearby devices".
+  - Granted (only `ACCESS_LOCAL_NETWORK`; `NEARBY_WIFI_DEVICES` stayed denied): `255.255.255.255`, the directed broadcast and unicast were
+    answered (16 to 65 ms) and HTTP returned 200, with or without a `MulticastLock`.
+  - Denials follow the usual runtime-permission rule: after the first "Don't allow" a new request showed the dialog again; after the
+    second the permission was `USER_FIXED` and requests returned without a dialog, so the app must send the user to its settings page.
+  - Not run: WebView, background or screen-off use, other address ranges (which ranges count as local), and Android TV.
 - **iOS** (iPhone 15 Pro Max, iOS 27.0.1; built with Xcode 27.1 on macOS 26.6.2, development-signed with a free personal team; `Info.plist`
   with `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`; **no multicast entitlement**):
   - The prompt came with the first local operation: "Allow "<app>" to find devices on local networks?", the purpose string, a map with the
@@ -1161,8 +1174,9 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   - Desktop (Windows, Linux): broadcast to each interface's directed broadcast address (from `InterfaceAddress.getBroadcast()`) from one
     wildcard socket, plus `255.255.255.255` on each interface-bound socket if cheap, and listen for about 2 s. Run it when the user opens
     "Add server", not at start. `java.net` is enough; no dependency.
-  - Android: the same broadcast. Ask for `ACCESS_LOCAL_NETWORK` only when the user opens "Add server" or a saved server is local (target 37), and
-    say what a denial means. Confirm on Android 17 before shipping (the harness is ready).
+  - Android: the same broadcast. With target 37 every local request, discovery or not, needs `ACCESS_LOCAL_NETWORK`. Ask for it with
+    a short explanation when the user opens "Add server" or a saved server is local, because the system dialog only speaks of "nearby
+    devices". Check the permission before probing (a denied HTTP probe only times out), and after two denials link to the app's settings.
   - iOS and iPadOS: no broadcast discovery without the multicast entitlement, so manual entry first, with unicast probes (UDP 7359 or HTTP)
     of what the user types. Request the entitlement from Apple if discovery is wanted there. Trigger the local network prompt from a user
     action, explain it first (the alert shows a map and a profiling warning), and retry after the answer, because the first request fails while the alert is up.
@@ -1204,8 +1218,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
 - Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
-- Local server discovery after the 2026-10-20 runs (see "Local server discovery, run on devices"): Android 17 with target 37 (permission
-  prompt, denial errors, whether broadcast replies need anything beyond `ACCESS_LOCAL_NETWORK`); macOS, tvOS and iPadOS; a distribution-signed
+- Local server discovery after the 2026-10-20 runs (see "Local server discovery, run on devices"): Android 17 in the background, in a
+  WebView and on Android TV, and which address ranges count as local; macOS, tvOS and iPadOS; a distribution-signed
   iOS build and the directed-broadcast gap seen there; Linux on hardware; Safari; LAN host names instead of IP literals in browsers; a
   server on host networking (its `Address` field).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
@@ -1277,8 +1291,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     - Whether `NWPathMonitor` fires for a Wi-Fi to Wi-Fi switch.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
-    - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16, see
-      "Local server discovery, run on devices"; Android 17 untried.)
+    - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16 or 17, see
+      "Local server discovery, run on devices".)
   - Desktop: OS-level network change notifications (Windows, macOS, Linux). (`255.255.255.255` leaves one interface only on a
     multi-homed Windows PC, and a sender that reads unicast replies got no firewall prompt: see "Local server discovery, run on devices".)
   - Web:

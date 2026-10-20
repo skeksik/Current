@@ -56,7 +56,8 @@ Then:
       address that proves to be the same server
 - [x] Spike: find servers on the local network (2026-10-20, platform notes "Local server discovery, run on devices"): Jellyfin only
       (Seerr and Stash have no discovery); directed broadcast per interface on desktop and Android, unicast probes of typed addresses on
-      iOS (broadcast needs Apple's multicast entitlement), nothing on the web. Android 17, macOS and tvOS still to run
+      iOS (broadcast needs Apple's multicast entitlement), nothing on the web; Android 17 needs `ACCESS_LOCAL_NETWORK` for any local
+      request. macOS and tvOS still to run
 - [x] Secure storage and device identity (2026-10-20, ADR 0017): Windows Credential Manager, the Secret Service on Linux (memory, or a
       file the user chooses, without one), `localStorage` on the web; one random device id per install in a machine-local store; the
       app version servers see. Android and Apple keep secrets in memory until M4
