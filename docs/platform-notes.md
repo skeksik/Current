@@ -1099,7 +1099,7 @@ research agent reading the same files.
   handler to receive network path updates" (iOS 12, macOS 10.14, tvOS 12); `NWPathMonitor.start(queue:)` "Starts monitoring path changes,
   and sets a queue on which to deliver path events"; `cancel()` "Stops receiving network path updates". The reference does not say that
   the handler is called with the current path when monitoring starts. On macOS 26.6.2 it is, and a Wi-Fi to Wi-Fi switch fires updates
-  (see "Apple path monitor and roaming on a Mac"); iOS and tvOS not verified.
+  (see "Apple path monitor and roaming on a Mac"); so on iOS 27.0.1 (see "Roaming on iOS"); tvOS not verified.
   https://developer.apple.com/documentation/network/nw_path_monitor_set_update_handler(_:_:),
   https://developer.apple.com/documentation/network/nwpathmonitor
 - Implication (inference): treat every platform signal as "something may have changed" and re-probe the server addresses; none of them
@@ -1142,6 +1142,74 @@ research agent reading the same files.
   miss the first check and wait for the 15 s retry.
 - Consequence for ADR 0019 (not changed here): counting every update as a change holds up, but bursts and no-change updates cost a check
   each, and on a network where a higher address times out, each such update holds requests for up to the probe timeout.
+
+## Roaming on iOS (checked 2026-10-20 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: the placeholder SwiftUI app with a throwaway harness (not committed) that started Koin with the real `databaseModule`,
+  `networkModule` and `jellyfinModule`, so the real `RoamingAddressSources`, `JellyfinServerProbe` and Apple `NetworkChanges`, at the
+  branch state that waits 1 s for a burst to settle. One Jellyfin 12.2 server, local address first (`http://192.168.1.10:8096`),
+  internet address second (`https://media.example.com`). Logged with timestamps: every request log entry (it names no address; which
+  probe is which follows from timing: the LAN answered in 9-46 ms, the internet address in 50-730 ms, and a cancelled probe logs "no
+  response"), the address in use, `reachable`, a request through `awaitCurrent` every 250 ms with how long it was held, every raw update
+  of a second `nw_path_monitor` (status, interfaces, `isExpensive`, `isConstrained`, IPv4, IPv6, DNS, gateway count) and the elements of
+  a second `NetworkChanges`. For the run `Info.plist` got `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`; the app has
+  neither yet, and without the latter ATS refuses an IP address (see "Local network, discovery and plain HTTP: Apple").
+- How: cases 1-7 below ran with the cable unplugged, the log written to a file, and a button tapped before each step. Wi-Fi was turned
+  off and on from Control Center, so the app stayed in the foreground unless stated. With the cable in, the console stream and the app
+  ended about 24 s after Wi-Fi went off; that run showed the same cellular behaviour as the unplugged one.
+- Not roaming, found on the way: **the first launch after install was killed by the watchdog** (SIGKILL; main thread in
+  `-[NSHost blockingResolveUntil:]` under `NSProcessInfo.hostName`, called by `core:database`'s Apple `platformDeviceName()` when Koin
+  builds `DeviceIdentity` at start). With Koin started off the main thread, the same call took 35 s while Local Network access was still
+  undecided (no prompt was shown during it); once access was allowed, and later denied, Koin started in 30-170 ms. Inference: the host
+  name lookup waits on the local network while the permission is undecided. Not fixed here.
+- **Updates without a change are common on iOS.** Every logged field stayed the same. On home Wi-Fi they came in pairs about 5 s apart,
+  every 25-30 s in one stretch and once or twice 8-15 s after launch in others; on cellular, every 3 s right after Wi-Fi went off, then in
+  pairs about 3 s apart every 20-40 s for at least 3 minutes. Each is a `NetworkChanges` element. On Wi-Fi one costs a hold of 0.8-1.0 s
+  (the 1 s settle, then the local address in 9-15 ms); on cellular see case 1.
+- At start: the monitor reports the current path at once (satisfied, 0-2 ms after `nw_path_monitor_start`). In 5 of 6 launches that was
+  the only update and the launch made one check (local address proved 50-100 ms after launch, requests held 8-25 ms). In one launch a
+  second, identical update came about 200 ms after start; it cleared the address just proved and a second check ran (requests held
+  0.8 s). One more launch had such an update at 216 ms, before roaming had started. Skipping the first update is right but not always
+  enough.
+- Per case, times from the first update of the transition:
+  1. Wi-Fi to cellular: 4 updates in 0.75 s (the first still Wi-Fi, then cellular only, `isExpensive` true); the path never went
+     unsatisfied. The internet address answered in 60-390 ms. The local address on cellular neither answered nor failed: it hung until
+     the probe's 5 s timeout, and a higher address is waited for. With updates every 3 s, each check was cancelled after about 2 s.
+     **The internet address was first used 15.8 s after the switch**, after a gap of 7 s between updates, and the next update cleared it
+     1 s later. In 35 s on cellular one request was held 11 s and failed as unreachable, others were held 4.5 s and 9 s. In an earlier,
+     unmarked 3-minute stretch on cellular, requests failed after 11 s four times, and most pairs of updates held requests 6-9 s. An
+     unmarked 9 s drop to cellular later held a request 10.1 s, and the internet address was never used. `reachable` stayed true
+     throughout: a cancelled check sets nothing.
+  2. Back to home Wi-Fi: 6 updates in 1.2 s (Wi-Fi listed after cellular in the first three); the local address was proved 2.2 s after
+     the first update. A request waiting since cellular was held 10.6 s in all. One more update came 5 s later (held 1 s).
+  3. Airplane mode on and off: this phone keeps Wi-Fi on in airplane mode, so only the cellular interface went (2 updates) and came back
+     (3 updates in 0.35 s). The local address was proved 1.1-1.5 s after the first update; requests were held 1.2-1.4 s.
+  4. Wi-Fi to another Wi-Fi network (not a hotspot: `isExpensive` false): 6 updates in 3.5 s, the first listing cellular first; never
+     unsatisfied. The last two updates cancelled two checks. The internet address answered in 0.6 s, but the local address timed out
+     (5 s) as on cellular, so the internet address was in use 9.5 s after the first update; a request was held 9.3 s. A no-change update
+     6 s later cleared it and held requests 5.9 s for the same timeout. This matches the hotspot case on the Mac. Back home: 2 updates,
+     the local address in 1.2 s, held 1 s, then two more no-change updates within 10 s.
+  5. A VPN on and off (switched in another app, then back): going on, 3 updates in 5.5 s; the last listed `utun6` (type other), and the
+     local address still answered through it (proved 1.5 s after the first update, held 1.4 s). Going off, 1 update; the local address
+     in 1.0 s, held 0.95 s.
+  6. Local network access denied in Settings while the app ran: iOS did not terminate the app. On return, 2 no-change updates; the
+     local probe then failed in 19 ms and the internet address was in use 1.9 s after the first update. After a relaunch the local probe
+     failed in 31 ms and the internet address was in use 0.55 s after launch (held 0.48 s). A denied local address fails at once; an
+     unreachable one (cellular, another network) times out.
+  7. Background and foreground: while in the background the app is suspended and logged nothing, no updates and no checks. Wi-Fi off
+     while away: on return (36 s later) one update came at once and another 4 s later; the internet address was in use 10.2 s after the
+     return (a request held 9.9 s, the local timeout again). Wi-Fi on while away: on return the first request went to the address proved
+     before leaving (the internet address), 3 ms before the update arrived; 2 updates, then the local address in 1.2 s, held 0.9 s.
+     Inference: after a return to the foreground, a request can go to the old address before the update; a stale local address on
+     cellular would make it hang until its own timeout. Not seen.
+  8. Right after launch: see "At start" above.
+- First launch and the Local Network prompt: the first local probe failed ("no response") in 9 ms while the prompt was up, and the
+  internet address was used 53 ms after the check began. After Allow, nothing asked again until the next updates, 30 s after that
+  check (3 no-change updates, likely the Allow); then the local address was proved (held 1.6 s). Without them the periodic check
+  would have come after 5 min.
+- Consequence for ADR 0019 (not changed here): on iOS cellular, or another Wi-Fi network, roaming as written seldom reaches the
+  internet address. No-change updates every 3-7 s, a local address that times out instead of failing, waiting for every higher address,
+  and every update clearing the address add up: a check only completes after about 6 s without an update (1 s settle plus the 5 s probe
+  timeout). On Wi-Fi the no-change updates cost about 1 s of held requests each, several times a minute at times.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
