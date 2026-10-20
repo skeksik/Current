@@ -7,6 +7,10 @@ import kotlinx.serialization.Serializable
 // Pages that another feature may open. Features never import each other (CLAUDE.md), so these routes live in the shared contract and the
 // feature that owns each page registers it.
 
+/** Settings: servers and about. */
+@Serializable
+data object SettingsRoute
+
 /** Settings > Servers > Add server. */
 @Serializable
 data object AddServerRoute

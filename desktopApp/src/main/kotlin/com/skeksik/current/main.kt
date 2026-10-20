@@ -1,5 +1,6 @@
 package com.skeksik.current
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -14,7 +15,7 @@ fun main() = application {
             title = "Current",
             state = rememberWindowState(width = 1200.dp, height = 780.dp),
         ) {
-            window.minimumSize = Dimension(760, 520)
+            LaunchedEffect(Unit) { window.minimumSize = Dimension(760, 520) }
             AppContent()
         }
     }

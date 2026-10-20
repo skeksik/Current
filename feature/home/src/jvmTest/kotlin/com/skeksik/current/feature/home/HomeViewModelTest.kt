@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 
 private val home = ServerRef(ServiceType.jellyfin, "home")
 private val cabin = ServerRef(ServiceType.jellyfin, "cabin")
+private val scenes = ServerRef(ServiceType.stash, "scenes")
 
 private fun saved(ref: ServerRef, name: String) =
     SavedServer(ref, "id-${ref.key}", name, listOf(ServerAddress("http://media.lan:8096", AddressScope.Local)))
@@ -74,6 +75,14 @@ class HomeViewModelTest {
         servers.save(saved(home, "Home"))
         servers.save(saved(cabin, "Cabin"))
         viewModel.settled(HomeUiState.SignedOut(home, "Home"))
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun signInIsOfferedForJellyfinEvenWhenAnotherServiceWasSavedFirst() = runBlocking<Unit> {
+        servers.save(saved(scenes, "Scenes"))
+        servers.save(saved(home, "Home"))
+        assertEquals(HomeUiState.SignedOut(home, "Home"), viewModel().state.value)
         coroutineContext.cancelChildren()
     }
 

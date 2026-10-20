@@ -3,6 +3,7 @@ package com.skeksik.current.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +84,7 @@ private fun SignInForm(form: SignInUiState.Form, viewModel: SignInViewModel) {
         singleLine = true,
         enabled = !form.working,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        keyboardActions = KeyboardActions(onNext = { password.requestFocus() }),
         modifier = Modifier.fillMaxWidth().focusRequester(username).formField { password.requestFocus() },
     )
     OutlinedTextField(
@@ -93,6 +95,7 @@ private fun SignInForm(form: SignInUiState.Form, viewModel: SignInViewModel) {
         enabled = !form.working,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { viewModel.signIn() }),
         modifier = Modifier.fillMaxWidth().focusRequester(password).formField(viewModel::signIn),
     )
     form.problem?.let { Notice(stringResource(it.message())) }

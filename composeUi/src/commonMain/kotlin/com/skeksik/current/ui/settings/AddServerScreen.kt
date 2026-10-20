@@ -3,6 +3,7 @@ package com.skeksik.current.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +74,7 @@ internal fun AddServerScreen(navigator: Navigator) {
             label = { Text(stringResource(Res.string.add_server_address)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { if (state is ServerSetupUiState.Editing) viewModel.check() }),
             modifier = Modifier.fillMaxWidth().focusRequester(field).formField {
                 if (state is ServerSetupUiState.Editing) viewModel.check()
             },

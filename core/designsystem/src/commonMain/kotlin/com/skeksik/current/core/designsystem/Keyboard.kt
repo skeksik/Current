@@ -31,17 +31,21 @@ fun Modifier.focusRing(shape: Shape): Modifier {
     return onFocusChanged { focused = it.hasFocus }.border(Size.focusRing, color, shape)
 }
 
-/** Up and Down move focus within a vertical list, as Tab and Shift+Tab do. */
+/**
+ * Up and Down move focus to the element above or below within a vertical list. At the list's ends focus stays where it is: the keys are
+ * consumed, so focus neither leaves the list nor wraps around.
+ */
 @Composable
 fun Modifier.arrowKeyFocus(): Modifier {
     val focus = LocalFocusManager.current
     return onPreviewKeyEvent { event ->
-        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        when (event.key) {
-            Key.DirectionDown -> focus.moveFocus(FocusDirection.Next)
-            Key.DirectionUp -> focus.moveFocus(FocusDirection.Previous)
-            else -> false
+        val direction = when (event.key) {
+            Key.DirectionDown -> FocusDirection.Down
+            Key.DirectionUp -> FocusDirection.Up
+            else -> return@onPreviewKeyEvent false
         }
+        if (event.type == KeyEventType.KeyDown) focus.moveFocus(direction)
+        true
     }
 }
 

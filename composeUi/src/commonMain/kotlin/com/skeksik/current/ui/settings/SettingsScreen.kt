@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -86,12 +87,14 @@ internal fun SettingsScreen(navigator: Navigator) {
         }
         Column(Modifier.arrowKeyFocus(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
             state.servers.forEach { row ->
-                ServerPanel(
-                    row,
-                    signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
-                    signOut = { viewModel.signOut(row.ref) },
-                    remove = { removing = row },
-                )
+                key(row.ref) {
+                    ServerPanel(
+                        row,
+                        signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
+                        signOut = { viewModel.signOut(row.ref) },
+                        remove = { removing = row },
+                    )
+                }
             }
         }
         Notice(stringResource(state.secretStorage.description()), NoticeKind.Info)
@@ -163,9 +166,10 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
             TextButton(dismiss, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(cancel)) {
                 Text(stringResource(Res.string.settings_cancel))
             }
+            // Inside the dialog's own composition, so the button is attached when focus is requested.
+            LaunchedEffect(Unit) { cancel.requestFocus() }
         },
     )
-    LaunchedEffect(Unit) { cancel.requestFocus() }
 }
 
 private fun SecretStorage.description() = when (this) {

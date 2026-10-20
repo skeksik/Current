@@ -32,8 +32,12 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 
 /** The app's layout on wide screens: a fixed [sidebar] on the left, the current page beside it. */
 @Composable
-fun SidebarScaffold(sidebar: @Composable ColumnScope.() -> Unit, content: @Composable () -> Unit) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+fun SidebarScaffold(
+    sidebar: @Composable ColumnScope.() -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Row(Modifier.fillMaxSize()) {
             Column(
                 Modifier

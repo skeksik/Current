@@ -71,7 +71,7 @@ skip others silently.
 `order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
 `settingsUiModule`, with `bind ShellDestination::class`); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
 checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
-feature may open (`AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
+feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
 with the keyboard alone: visible focus rings, Tab and arrow keys move focus, Enter submits forms. The web shell has its own router (ADR 0011).
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or

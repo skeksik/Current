@@ -7,7 +7,6 @@ import com.skeksik.current.ui.home.homeUiModule
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.nav_home
 import com.skeksik.current.ui.settings.SettingsDestination
-import com.skeksik.current.ui.settings.SettingsRoute
 import com.skeksik.current.ui.settings.settingsUiModule
 import kotlinx.serialization.Serializable
 import kotlin.reflect.KClass

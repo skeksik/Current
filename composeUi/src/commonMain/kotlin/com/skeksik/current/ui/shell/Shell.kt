@@ -54,6 +54,11 @@ fun Shell(graph: ShellGraph) {
     val atSidebarRoot = destination == null || graph.sidebar.any { destination.hasRoute(it.route::class) }
 
     SidebarScaffold(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            val back = event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed && !atSidebarRoot
+            if (back) navigator.back()
+            back
+        },
         sidebar = {
             SidebarTitle(stringResource(Res.string.app_name))
             SidebarItems {
@@ -70,13 +75,7 @@ fun Shell(graph: ShellGraph) {
             }
         },
     ) {
-        Column(
-            Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-                val back = event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed
-                if (back && !atSidebarRoot) navigator.back()
-                back
-            },
-        ) {
+        Column(Modifier.fillMaxSize()) {
             if (!atSidebarRoot) {
                 TextButton(
                     navigator::back,
@@ -97,7 +96,8 @@ fun Shell(graph: ShellGraph) {
 }
 
 private class ControllerNavigator(private val controller: NavHostController) : Navigator {
-    override fun open(route: Any) = controller.navigate(route)
+    // Single top: a held Enter or a double click opens a page once.
+    override fun open(route: Any) = controller.navigate(route) { launchSingleTop = true }
 
     override fun replace(route: Any) {
         val current = controller.currentDestination?.id
