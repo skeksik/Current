@@ -131,6 +131,8 @@ internal class RoamingServerAddress(
     /** Requests wait from the first change of a burst; the check starts once the burst has settled. */
     private fun networkChanged() {
         state.update { it.copy(address = null, blocking = true, generation = it.generation + 1, network = it.network + 1) }
+        // A wake left from before (a request's) must not start the check before the network has settled.
+        wake.tryReceive()
         unsettled.trySend(Unit)
     }
 

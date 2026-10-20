@@ -292,6 +292,22 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aRequestsWakeLeftFromBeforeANetworkChangeWaitsForTheSettle() = runTest {
+        probe.answers += mapOf(local to "slow", internet to "slow")
+        val source = roaming()
+        // The first check misses at 5 s; the timer's next one runs from 20 s to 25 s.
+        advance(21.seconds)
+        // A request 16 s after the last check ended leaves a wake while that check runs.
+        assertNull(source.awaitCurrent())
+        changes.emit(NetworkChange.Changed)
+        probe.asked.clear()
+        runCurrent()
+        assertTrue(probe.asked.isEmpty(), "the network has not settled yet")
+        advance(1.seconds)
+        assertEquals(setOf(local, internet), probe.asked.toSet())
+    }
+
+    @Test
     fun aBurstOfNetworkUpdatesMakesOneCheckOnceItSettles() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
