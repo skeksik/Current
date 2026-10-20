@@ -186,13 +186,12 @@ class ServerClientTest {
     }
 
     @Test
-    fun networkAccessDeniedToTheAppIsUnreachableNotABug() = runBlocking {
-        // Android without its INTERNET permission throws a SecurityException, which is not an IOException.
+    fun onTheJvmASecurityExceptionIsABugNotAFailedRequest() = runBlocking {
+        // Only Android's refusal for a missing INTERNET permission is a request failure; the JDK's client never throws it.
         val recorder = Recorder().apply { answer = { throw SecurityException("Permission denied (missing INTERNET permission?)") } }
         val address = SwitchableAddress(internet)
-        val failure = client(recorder, address).use { it.failure { get("Items") } }
-        assertEquals(ServiceErrorKind.Unreachable, failure.kind)
-        assertEquals(listOf(internet), address.reported)
+        assertFailsWith<SecurityException> { client(recorder, address).use { it.request { get("Items") } } }
+        assertEquals(emptyList(), address.reported)
     }
 
     @Test

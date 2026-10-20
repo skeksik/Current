@@ -1,3 +1,4 @@
 package com.skeksik.current.core.network
 
-internal actual fun isPermissionDenied(error: Throwable): Boolean = error is SecurityException
+/** The JDK's HTTP client never refuses network access this way. */
+internal actual fun isPermissionDenied(error: Throwable): Boolean = false

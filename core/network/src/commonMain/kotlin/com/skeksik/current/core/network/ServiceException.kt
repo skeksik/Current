@@ -73,8 +73,8 @@ internal fun serviceExceptionFor(server: ServerRef, error: Throwable): ServiceEx
         is IOException -> ServiceException(server, ServiceErrorKind.Unreachable, detail = detail)
         is SerializationException, is ContentConvertException, is NoTransformationFoundException ->
             ServiceException(server, ServiceErrorKind.InvalidResponse, detail = detail)
-        // The platform refused the connection (Android without its INTERNET permission): the server cannot be reached, which must not
-        // end a roaming loop as an unexpected exception would.
+        // The platform refused network access to the app: the server cannot be reached, which must not end a roaming loop as an
+        // unexpected exception would. Other errors of the same class (a file without a grant) stay bugs.
         else -> if (isPermissionDenied(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
     }
 }
@@ -88,5 +88,5 @@ private fun kindFor(status: Int): ServiceErrorKind = when {
     else -> ServiceErrorKind.InvalidResponse
 }
 
-/** Whether [error] is the platform refusing network access to the app (a `SecurityException` on the JVM and Android). */
+/** Whether [error] is the platform refusing network access to the app: Android without its `INTERNET` permission. */
 internal expect fun isPermissionDenied(error: Throwable): Boolean
