@@ -1088,7 +1088,19 @@ research agent reading the same files.
   Internet, and on Windows the status depends on reaching a Microsoft server. `navigator.connection` and its `change` event
   (Network Information API) are Chromium only (Chrome and Edge 61+, not Firefox or Safari, per MDN browser-compat-data on 2026-10-19), and describe
   the connection type, not the network identity. https://developer.mozilla.org/en-US/docs/Web/API/Navigator/onLine
-- Desktop JVM: nothing in the JDK, see above.
+- Desktop JVM: nothing in the JDK, see above. What the JDK can do is poll `NetworkInterface` (JDK 21 reference,
+  https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/net/NetworkInterface.html, checked 2026-10-20):
+  `getNetworkInterfaces()` returns "all the interfaces on this machine" (at least one, possibly loopback; `SocketException` "if an I/O
+  error occurs, or if the platform does not have at least one configured network interface"), with `isUp()` ("up and running"),
+  `isLoopback()` and `getInterfaceAddresses()`. The reference says nothing about how often the list changes; there is no gateway or
+  network identity, so two networks that give the machine the same address look the same.
+- Apple, C API of the same monitor (checked 2026-10-20 in Apple's documentation JSON): `nw_path_monitor_set_update_handler` "Sets a
+  handler to receive network path updates" (iOS 12, macOS 10.14, tvOS 12); `NWPathMonitor.start(queue:)` "Starts monitoring path changes,
+  and sets a queue on which to deliver path events"; `cancel()` "Stops receiving network path updates". The reference does not say that
+  the handler is called with the current path when monitoring starts. Not verified: that first call, and whether a Wi-Fi to Wi-Fi switch
+  fires an update.
+  https://developer.apple.com/documentation/network/nw_path_monitor_set_update_handler(_:_:),
+  https://developer.apple.com/documentation/network/nwpathmonitor
 - Implication (inference): treat every platform signal as "something may have changed" and re-probe the server addresses; none of them
   says which network the device is on.
 
