@@ -44,6 +44,8 @@ class KeyringTest {
     fun linuxSecretService() {
         if (System.getenv("CURRENT_TEST_SECRET_SERVICE") != "1") return
         roundTrip(assertNotNull(LibSecret.openOrNull(), "no Secret Service answered"))
+        // CI looks for this line, so a skipped test cannot pass for a run one.
+        println("Secret Service round trip passed")
     }
 
     /**
