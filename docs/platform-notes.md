@@ -712,7 +712,17 @@ as of 2026-10-18.
 - CORS: allow-all, hard-coded (`access-control-allow-origin: *`, methods POST, headers `Apikey, Content-Type`, no credentials); no setting.
 - GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
-## Jellyfin 12.2: sign-in shapes (checked 2026-10-20 in the 12.2 OpenAPI spec, https://api.jellyfin.org/openapi/stable/jellyfin-openapi-12.2.json; no live server)
+## Jellyfin 12.2: sign-in shapes (checked 2026-10-20 in the 12.2 OpenAPI spec, https://api.jellyfin.org/openapi/stable/jellyfin-openapi-12.2.json, and live)
+- Live, 2026-10-20, against a 12.2.0 server behind HTTPS (`LiveJellyfinSmokeTest`, Quick Connect approved by hand in the web UI):
+  - The address typed without a scheme resolved to `https`, and `/System/Info/Public` answered without credentials.
+  - `GET /QuickConnect/Enabled`, `POST /QuickConnect/Initiate` (with the `MediaBrowser` header, no token), then `GET /QuickConnect/Connect`
+    polled every 3 s until approved, then `POST /Users/AuthenticateWithQuickConnect`: signed in, and the answer's `ServerId` matched
+    the probed `Id`.
+  - `GET /Users/Me` with the token answered 200, again from a restored session. `POST /Sessions/Logout` answered 204, after which the same
+    token got 401 on `/Users/Me`: logout ends the session on the server.
+  - The request log showed paths with `secret=***` and the server key, never the host or a token.
+  - Password sign-in, run by the owner with their own credentials: `POST /Users/AuthenticateByName` answered 200 with a token, then the
+    same session checks and sign-out as above passed.
 - `POST /Users/AuthenticateByName`, body `AuthenticateUserByName {Username, Pw}` (both nullable strings), answers 200
   `AuthenticationResult {User: UserDto, SessionInfo: SessionInfoDto, AccessToken, ServerId}` (all nullable) or 503. No security
   scheme in the spec; the `MediaBrowser` header without `Token` carries the client and device (see "Jellyfin 12.x").
@@ -1105,8 +1115,8 @@ research agent reading the same files.
   HDR on web as seen on screen (the HDR10 stream reaches the decoder in Chrome and Edge, ADR 0011), patent licensing for HEVC/AAC/AC-3 decoders.
 - Whether a browser app on another origin can sign in to Seerr through a reverse proxy without Seerr changes (cookie scope, CSRF). Mixed content
   is covered under "Local network and mixed content: browsers"; it was read, not tried in a browser.
-- Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
-  used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
+- Playback reporting was never sent to a live server. Password and Quick Connect sign-in, the restored-session check and sign-out were
+  (2026-10-20, see "Jellyfin 12.2: sign-in shapes"); `PlaybackInfo` was sent live during the web spike (see "Jellyfin 12.x").
 - Seerr sign-in through the app's Jellyfin session (2026-10-20; source and specs only):
   - The whole flow against live Seerr 3.5.0 and Jellyfin 12.2, including that approving the code ourselves lets `authenticate` succeed
     without polling `check`, and the same-server check with `GET /QuickConnect/Connect?secret=`.
