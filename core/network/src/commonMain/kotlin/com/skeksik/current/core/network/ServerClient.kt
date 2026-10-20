@@ -18,6 +18,7 @@ class ServerClient internal constructor(
     val server: ServerRef,
     private val address: ServerAddressSource,
     private val http: HttpClient,
+    private val onUnauthorized: (() -> Unit)?,
 ) : AutoCloseable {
     /** Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. */
     suspend fun <T> request(block: suspend HttpClient.() -> T): T {
@@ -29,6 +30,7 @@ class ServerClient internal constructor(
         } catch (e: Exception) {
             val failure = serviceExceptionFor(server, e) ?: throw e
             if (failure.kind == ServiceErrorKind.Unreachable && used != null) address.reportUnreachable(used)
+            if (failure.kind == ServiceErrorKind.Unauthorized) onUnauthorized?.invoke()
             throw failure
         }
     }
@@ -43,7 +45,13 @@ class ServerClients(
     private val logger: NetworkLogger = NetworkLogger.None,
     private val requestTimeout: Duration = 30.seconds,
 ) {
-    fun create(server: ServerRef, address: ServerAddressSource, auth: RequestAuth = RequestAuth.None): ServerClient {
+    /** [onUnauthorized] runs whenever the server answers 401, so the data layer can sign that server out (a revoked token). */
+    fun create(
+        server: ServerRef,
+        address: ServerAddressSource,
+        auth: RequestAuth = RequestAuth.None,
+        onUnauthorized: (() -> Unit)? = null,
+    ): ServerClient {
         val http = base.config {
             expectSuccess = true
             followRedirects = false
@@ -58,6 +66,6 @@ class ServerClients(
                 this.logger = this@ServerClients.logger
             }
         }
-        return ServerClient(server, address, http)
+        return ServerClient(server, address, http, onUnauthorized)
     }
 }

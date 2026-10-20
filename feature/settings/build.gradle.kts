@@ -33,6 +33,7 @@ kotlin {
             implementation(project(":core:model"))
             api(project(":core:playback"))
             api(project(":core:network"))
+            api(project(":data:jellyfin"))
             api(libs.androidx.lifecycle.viewmodel)
             api(libs.kotlinx.coroutinesCore)
         }
