@@ -32,7 +32,7 @@
     <string name="settings_remove_title">Remove %1$s?</string>
     <string name="settings_remove_message">You are signed out and the server is forgotten on this device. You can add it again later.</string>
     <string name="settings_cancel">Cancel</string>
-    <string name="settings_secrets_keyring">Sign-ins are kept in your system\'s credential store.</string>
+    <string name="settings_secrets_keyring">Sign-ins are kept in your system's credential store.</string>
     <string name="settings_secrets_browser">Sign-ins are kept in this browser.</string>
     <string name="settings_secrets_file">Sign-ins are kept in a file only your user account can read.</string>
     <string name="settings_secrets_memory">No credential store was found, so you are signed out when the app quits.</string>
