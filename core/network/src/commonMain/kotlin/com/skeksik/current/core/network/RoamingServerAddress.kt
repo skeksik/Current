@@ -7,14 +7,13 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** When a [RoamingServerAddress] asks its addresses again, besides network changes and failed requests (ADR 0019). */
 data class RoamingTiming(
@@ -48,8 +47,6 @@ internal class RoamingServerAddress(
     private val probe: ServerProbe,
     private val capabilities: MutableCapabilitiesState,
     private val timing: RoamingTiming = RoamingTiming(),
-    /** Waits between checks; tests pass their own clock. */
-    private val sleep: suspend (Duration) -> Unit = { delay(it) },
 ) : ManagedServerAddress {
     private val saved = MutableStateFlow(server)
     private val state = MutableStateFlow<ServerUrl?>(null)
@@ -109,13 +106,7 @@ internal class RoamingServerAddress(
             wake.receive()
             return true
         }
-        return coroutineScope {
-            val timer = async { sleep(timeout) }
-            select {
-                wake.onReceive { true }
-                timer.onAwait { false }
-            }.also { timer.cancel() }
-        }
+        return withTimeoutOrNull(timeout) { wake.receive() } != null
     }
 
     /**

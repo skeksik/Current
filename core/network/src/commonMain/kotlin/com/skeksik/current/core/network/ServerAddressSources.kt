@@ -2,11 +2,9 @@ package com.skeksik.current.core.network
 
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
-import kotlin.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +39,6 @@ class RoamingAddressSources internal constructor(
     networkChanges: NetworkChanges,
     private val scope: CoroutineScope,
     private val timing: RoamingTiming = RoamingTiming(),
-    private val sleep: suspend (Duration) -> Unit = { delay(it) },
 ) : ServerAddressSources {
     private class Running(val source: ManagedServerAddress, val job: Job)
 
@@ -65,7 +62,7 @@ class RoamingAddressSources internal constructor(
 
     private fun start(server: SavedServer): Running {
         val probe = probes[server.ref.service]
-        val source = if (probe == null) OrderedServerAddress(server) else RoamingServerAddress(server, probe, capabilities, timing, sleep)
+        val source = if (probe == null) OrderedServerAddress(server) else RoamingServerAddress(server, probe, capabilities, timing)
         return Running(source, scope.launch(start = CoroutineStart.LAZY) { source.run(changes) })
     }
 

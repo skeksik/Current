@@ -6,7 +6,6 @@ import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServerStatus
 import com.skeksik.current.core.model.ServiceType
-import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -14,12 +13,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.awaitCancellation
+import kotlin.time.Duration
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 
 class RoamingServerAddressTest {
     private val ref = ServerRef(ServiceType.jellyfin, "a")
@@ -36,7 +37,7 @@ class RoamingServerAddressTest {
         listOf(ServerAddress(local, AddressScope.Local), ServerAddress(internet, AddressScope.Internet)),
     )
 
-    /** Answers per address: a server id, or "hang"; anything else is unreachable. */
+    /** Answers per address: a server id, or "slow" (times out after 5 s, as Jellyfin's probe does); anything else is unreachable. */
     private class FakeProbe(val answers: MutableMap<String, String> = mutableMapOf()) : ServerProbe {
         override val service = ServiceType.jellyfin
         override val defaultPort = 8096
@@ -46,28 +47,31 @@ class RoamingServerAddressTest {
             asked += address.toString()
             return when (val answer = answers[address.toString()]) {
                 null -> throw ServiceException(server, ServiceErrorKind.Unreachable)
-                "hang" -> awaitCancellation()
+                "slow" -> {
+                    delay(5.seconds)
+                    throw ServiceException(server, ServiceErrorKind.Timeout)
+                }
                 else -> ServerIdentity(answer, "Home", "12.2.0")
             }
         }
     }
 
     private val probe = FakeProbe()
-    private val clock = TestClock()
     private val changes = MutableSharedFlow<Unit>()
     private val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(ref)) }
-    private var job: Job? = null
 
-    @AfterTest
-    fun stop() {
-        job?.cancel()
+    /** Runs the source in the background, so it stops with the test, and lets its first check finish. */
+    private fun TestScope.roaming(server: SavedServer = saved): RoamingServerAddress {
+        val source = RoamingServerAddress(server, probe, capabilities, RoamingTiming())
+        backgroundScope.launch { source.run(changes) }
+        runCurrent()
+        return source
     }
 
-    private suspend fun CoroutineScope.roaming(server: SavedServer = saved): RoamingServerAddress {
-        val source = RoamingServerAddress(server, probe, capabilities, RoamingTiming(), clock::sleep)
-        job = launch { source.run(changes) }
-        settle()
-        return source
+    /** Moves virtual time on by [by] and runs what is due then. */
+    private fun TestScope.advance(by: Duration) {
+        advanceTimeBy(by)
+        runCurrent()
     }
 
     private fun url(text: String) = ServerUrl.parse(text)!!
@@ -75,180 +79,165 @@ class RoamingServerAddressTest {
     private val reachable get() = capabilities.capabilities.value.status(ref)?.reachable
 
     @Test
-    fun theFirstAddressThatAnswersInPriorityOrderIsUsed() = runBlocking {
+    fun theFirstAddressThatAnswersInPriorityOrderIsUsed() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         assertEquals(url(local), source.current.value)
         assertEquals(true, reachable)
-        job?.cancel()
     }
 
     @Test
-    fun aLowerAddressIsUsedWhenTheFirstDoesNotAnswer() = runBlocking {
+    fun aLowerAddressIsUsedWhenTheFirstDoesNotAnswer() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
         assertEquals(url(internet), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun anAddressAtWhichAnotherServerAnswersIsNeverUsed() = runBlocking {
+    fun anAddressAtWhichAnotherServerAnswersIsNeverUsed() = runTest {
         probe.answers += mapOf(local to otherId, internet to homeId)
         val source = roaming()
         assertEquals(url(internet), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun aHigherAddressThatHasNotAnsweredYetIsWaitedFor() = runBlocking {
-        probe.answers += mapOf(local to "hang", internet to homeId)
+    fun aHigherAddressThatHasNotAnsweredYetIsWaitedFor() = runTest {
+        probe.answers += mapOf(local to "slow", internet to homeId)
         val source = roaming()
         // The probe's own timeout bounds the wait; until it fails, nothing is chosen over it.
         assertNull(source.current.value)
-        probe.answers.remove(local)
-        changes.emit(Unit)
-        settle()
-        job?.cancel()
+        advance(5.seconds)
+        assertEquals(url(internet), source.current.value)
     }
 
     @Test
-    fun noAddressWhenNothingAnswersAsTheSavedServer() = runBlocking {
+    fun noAddressWhenNothingAnswersAsTheSavedServer() = runTest {
         probe.answers += mapOf(local to otherId)
         val source = roaming()
         assertNull(source.current.value)
         assertEquals(false, reachable)
-        job?.cancel()
     }
 
     @Test
-    fun whileNothingAnswersItAsksAgainWithGrowingWaits() = runBlocking {
+    fun whileNothingAnswersItAsksAgainWithGrowingWaits() = runTest {
         val source = roaming()
         assertEquals(2, probe.asked.size)
-        clock.advance(14.seconds)
+        advance(14.seconds)
         assertEquals(2, probe.asked.size)
-        clock.advance(1.seconds)
+        advance(1.seconds)
         assertEquals(4, probe.asked.size)
-        clock.advance(15.seconds)
+        advance(15.seconds)
         assertEquals(4, probe.asked.size, "the second wait is 30 s")
         probe.answers[internet] = homeId
-        clock.advance(15.seconds)
+        advance(15.seconds)
         assertEquals(url(internet), source.current.value)
         assertEquals(true, reachable)
-        job?.cancel()
     }
 
     @Test
-    fun thePeriodicCheckMovesBackToAHigherAddressAndAsksOnlyThoseAbove() = runBlocking {
+    fun thePeriodicCheckMovesBackToAHigherAddressAndAsksOnlyThoseAbove() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
         assertEquals(url(internet), source.current.value)
         probe.asked.clear()
         probe.answers[local] = homeId
-        clock.advance(4.minutes)
+        advance(4.minutes)
         assertEquals(url(internet), source.current.value)
-        clock.advance(1.minutes)
+        advance(1.minutes)
         assertEquals(listOf(local), probe.asked)
         assertEquals(url(local), source.current.value)
-        assertEquals(0, clock.sleeping, "on the first address there is nothing to move back to")
-        job?.cancel()
+        probe.asked.clear()
+        advance(1_000.minutes)
+        assertTrue(probe.asked.isEmpty(), "on the first address there is nothing to move back to")
     }
 
     @Test
-    fun aFailedPeriodicCheckKeepsTheAddressInUse() = runBlocking {
+    fun aFailedPeriodicCheckKeepsTheAddressInUse() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
-        clock.advance(5.minutes)
+        advance(5.minutes)
         assertEquals(url(internet), source.current.value)
         assertEquals(true, reachable)
-        job?.cancel()
     }
 
     @Test
-    fun aNetworkChangeAsksEveryAddressAgain() = runBlocking {
+    fun aNetworkChangeAsksEveryAddressAgain() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         probe.answers.remove(local)
         probe.asked.clear()
         changes.emit(Unit)
-        settle()
+        runCurrent()
         assertEquals(setOf(local, internet), probe.asked.toSet())
         assertEquals(url(internet), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun aFailedRequestToTheAddressInUseMovesOn() = runBlocking {
+    fun aFailedRequestToTheAddressInUseMovesOn() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         probe.answers.remove(local)
         source.reportUnreachable(url(local))
-        settle()
+        runCurrent()
         assertEquals(url(internet), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun aFailureReportedForAnAddressNoLongerInUseIsIgnored() = runBlocking {
+    fun aFailureReportedForAnAddressNoLongerInUseIsIgnored() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
         probe.asked.clear()
         source.reportUnreachable(url(local))
-        settle()
+        runCurrent()
         assertTrue(probe.asked.isEmpty())
-        job?.cancel()
     }
 
     @Test
-    fun theAddressInUseStaysWhileACheckRuns() = runBlocking {
+    fun theAddressInUseStaysWhileACheckRuns() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
-        probe.answers[local] = "hang"
+        probe.answers[local] = "slow"
         changes.emit(Unit)
-        settle()
+        runCurrent()
         assertEquals(url(local), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun aRemovedAddressIsDroppedAtOnce() = runBlocking {
+    fun aRemovedAddressIsDroppedAtOnce() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
-        probe.answers[internet] = "hang"
+        probe.answers[internet] = "slow"
         source.update(saved.withoutAddress(local))
         assertNull(source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun reorderingAsksAgainInTheNewOrder() = runBlocking {
+    fun reorderingAsksAgainInTheNewOrder() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         source.update(saved.withAddressMoved(1, 0))
-        settle()
+        runCurrent()
         assertEquals(url(internet), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun anAddedAddressIsTriedInItsPlace() = runBlocking {
+    fun anAddedAddressIsTriedInItsPlace() = runTest {
         probe.answers += mapOf(internet to homeId, lan to homeId)
         val source = roaming()
         assertEquals(url(internet), source.current.value)
         source.update(saved.withAddress(ServerAddress(lan, AddressScope.Local)).withAddressMoved(2, 0))
-        settle()
+        runCurrent()
         assertEquals(url(lan), source.current.value)
-        job?.cancel()
     }
 
     @Test
-    fun aRenameAsksNothing() = runBlocking {
+    fun aRenameAsksNothing() = runTest {
         probe.answers += mapOf(local to homeId)
         val source = roaming()
         probe.asked.clear()
         source.update(saved.copy(name = "Renamed"))
-        settle()
+        runCurrent()
         assertTrue(probe.asked.isEmpty())
         assertFalse(source.current.value == null)
-        job?.cancel()
     }
 }

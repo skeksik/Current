@@ -9,15 +9,11 @@ import com.skeksik.current.core.network.ServerAddressSource
 import com.skeksik.current.core.network.ServerAddressSources
 import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import kotlin.test.AfterTest
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -55,38 +51,36 @@ class ServerAddressesViewModelTest {
 
     private val servers = FakeServers(listOf(home))
     private val source = FakeSource()
-    private val scope = CoroutineScope(Job())
+    private fun TestScope.viewModel() = ServerAddressesViewModel(ref, servers, ServerAddressSources { source }, backgroundScope)
 
-    @AfterTest
-    fun stop() = scope.cancel()
-
-    private fun viewModel() = ServerAddressesViewModel(ref, servers, ServerAddressSources { source }, scope)
-
-    private suspend fun ServerAddressesViewModel.awaitState(predicate: (ServerAddressesUiState) -> Boolean) =
-        withTimeout(5_000) { state.first(predicate) }
+    /** The state once every change so far has reached it. */
+    private fun TestScope.shown(viewModel: ServerAddressesViewModel): ServerAddressesUiState {
+        runCurrent()
+        return viewModel.state.value
+    }
 
     private fun ServerAddressesUiState.urls() = addresses.map { it.url }
 
     @Test
-    fun theAddressesAreListedInPriorityOrderWithTheOneInUse() = runBlocking {
+    fun theAddressesAreListedInPriorityOrderWithTheOneInUse() = runTest {
         val viewModel = viewModel()
         assertEquals(listOf(ip.url, lan.url, internet.url), viewModel.state.value.urls())
         assertEquals("Home", viewModel.state.value.name)
         source.current.value = ServerUrl.parse(internet.url)
-        val shown = viewModel.awaitState { state -> state.addresses.any { it.inUse } }
+        val shown = shown(viewModel)
         assertEquals(listOf(false, false, true), shown.addresses.map { it.inUse })
         assertEquals(listOf(AddressScope.Local, AddressScope.Local, AddressScope.Internet), shown.addresses.map { it.scope })
     }
 
     @Test
-    fun plainHttpOnTheInternetIsFlagged() = runBlocking {
+    fun plainHttpOnTheInternetIsFlagged() = runTest {
         servers.save(home.copy(addresses = listOf(ip, plainInternet)))
         val rows = viewModel().state.value.addresses
         assertEquals(listOf(false, true), rows.map { it.plainHttpOnInternet })
     }
 
     @Test
-    fun movingChangesThePriorityOrder() = runBlocking {
+    fun movingChangesThePriorityOrder() = runTest {
         val viewModel = viewModel()
         viewModel.moveUp(internet.url)
         assertEquals(listOf(ip, internet, lan), servers.server(ref)!!.addresses)
@@ -94,12 +88,11 @@ class ServerAddressesViewModelTest {
         assertEquals(listOf(internet, ip, lan), servers.server(ref)!!.addresses)
         viewModel.move(2, 0)
         assertEquals(listOf(lan, internet, ip), servers.server(ref)!!.addresses)
-        viewModel.awaitState { it.urls() == listOf(lan.url, internet.url, ip.url) }
-        Unit
+        assertEquals(listOf(lan.url, internet.url, ip.url), shown(viewModel).urls())
     }
 
     @Test
-    fun movingPastEitherEndChangesNothing() = runBlocking {
+    fun movingPastEitherEndChangesNothing() = runTest {
         val viewModel = viewModel()
         viewModel.moveUp(ip.url)
         viewModel.moveDown(internet.url)
@@ -109,27 +102,27 @@ class ServerAddressesViewModelTest {
     }
 
     @Test
-    fun removingKeepsAtLeastOneAddress() = runBlocking {
+    fun removingKeepsAtLeastOneAddress() = runTest {
         val viewModel = viewModel()
         viewModel.remove(lan.url)
         viewModel.remove(internet.url)
         assertEquals(listOf(ip), servers.server(ref)!!.addresses)
-        val last = viewModel.awaitState { it.addresses.size == 1 }.addresses.single()
+        val last = shown(viewModel).addresses.single()
         assertFalse(last.canRemove)
         viewModel.remove(ip.url)
         assertEquals(listOf(ip), servers.server(ref)!!.addresses)
     }
 
     @Test
-    fun everyAddressCanBeRemovedWhileThereAreSeveral() = runBlocking {
+    fun everyAddressCanBeRemovedWhileThereAreSeveral() = runTest {
         assertTrue(viewModel().state.value.addresses.all { it.canRemove })
     }
 
     @Test
-    fun aRemovedServerIsNoLongerShown() = runBlocking {
+    fun aRemovedServerIsNoLongerShown() = runTest {
         val viewModel = viewModel()
         servers.remove(ref)
-        viewModel.awaitState { !it.saved }
+        assertFalse(shown(viewModel).saved)
         viewModel.remove(ip.url)
         assertTrue(servers.servers.value.isEmpty())
     }

@@ -10,11 +10,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 
 class RoamingAddressSourcesTest {
     private val homeId = "0123456789abcdef0123456789abcdef"
@@ -23,7 +22,6 @@ class RoamingAddressSourcesTest {
     private val capabilities = MutableCapabilitiesState()
     private val repository = StoredServerRepository(InMemoryKeyValueStore(), capabilities)
     private val changes = MutableSharedFlow<Unit>()
-    private val clock = TestClock()
 
     /** The saved server answers everywhere. */
     private val probe = object : ServerProbe {
@@ -36,60 +34,51 @@ class RoamingAddressSourcesTest {
     private fun server(service: ServiceType = ServiceType.jellyfin) =
         SavedServer(newServerRef(service), homeId, "Home", listOf(local, internet))
 
-    /** On the test's thread, but not its child, so the test ends when it cancels this. */
-    private lateinit var background: CoroutineScope
-
-    private fun CoroutineScope.sources(): RoamingAddressSources {
-        background = CoroutineScope(coroutineContext + Job())
-        return RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, background, RoamingTiming(), clock::sleep)
-    }
+    /** Runs in the background, so every source stops with the test. */
+    private fun TestScope.sources() = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, backgroundScope)
 
     private fun url(address: ServerAddress) = ServerUrl.parse(address.url)!!
 
     @Test
-    fun everyClientOfAServerSharesOneSource() = runBlocking {
+    fun everyClientOfAServerSharesOneSource() = runTest {
         val home = server().also(repository::save)
         val sources = sources()
         assertSame(sources.forServer(home), sources.forServer(home))
-        settle()
+        runCurrent()
         assertEquals(url(local), sources.forServer(home).current.value)
-        background.cancel()
     }
 
     @Test
-    fun aServerThatIsNotSavedGetsNoAddress() = runBlocking {
+    fun aServerThatIsNotSavedGetsNoAddress() = runTest {
         val sources = sources()
         assertNull(sources.forServer(server()).current.value)
-        background.cancel()
     }
 
     @Test
-    fun editsToTheSavedServerReachItsSource() = runBlocking {
+    fun editsToTheSavedServerReachItsSource() = runTest {
         val home = server().also(repository::save)
         val sources = sources()
         val source = sources.forServer(home)
-        settle()
+        runCurrent()
         repository.save(home.withAddressMoved(1, 0))
-        settle()
+        runCurrent()
         assertEquals(url(internet), source.current.value)
-        background.cancel()
     }
 
     @Test
-    fun aRemovedServerStopsAndANewSourceIsNotMadeForIt() = runBlocking {
+    fun aRemovedServerStopsAndANewSourceIsNotMadeForIt() = runTest {
         val home = server().also(repository::save)
         val sources = sources()
         val source = sources.forServer(home)
-        settle()
+        runCurrent()
         repository.remove(home.ref)
-        settle()
+        runCurrent()
         assertNull(sources.forServer(home).current.value)
         assertEquals(url(local), source.current.value, "a stopped source is no longer checked")
-        background.cancel()
     }
 
     @Test
-    fun aServiceWithoutAProbeUsesItsAddressesInOrder() = runBlocking {
+    fun aServiceWithoutAProbeUsesItsAddressesInOrder() = runTest {
         val stash = server(ServiceType("stash")).also(repository::save)
         val source = sources().forServer(stash)
         assertEquals(url(local), source.current.value)
@@ -97,10 +86,9 @@ class RoamingAddressSourcesTest {
         assertEquals(url(internet), source.current.value)
         source.reportUnreachable(url(local))
         assertEquals(url(internet), source.current.value, "a stale report is ignored")
-        settle()
+        runCurrent()
         changes.emit(Unit)
-        settle()
+        runCurrent()
         assertEquals(url(local), source.current.value)
-        background.cancel()
     }
 }
