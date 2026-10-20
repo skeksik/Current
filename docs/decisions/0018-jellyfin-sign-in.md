@@ -31,7 +31,7 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
 
 ## Consequences
 - The web app has the same flow, through the `web` facade once the React shell has screens; CORS is open on Jellyfin (platform notes).
-- The shapes come from the 12.2 OpenAPI spec. The opt-in live smoke tests (`LiveJellyfinSmokeTest`) confirmed Quick Connect sign-in,
-  the restored-session check and sign-out against a live 12.2 server on 2026-10-20; password sign-in has not been run live.
+- The shapes come from the 12.2 OpenAPI spec. The opt-in live smoke tests (`LiveJellyfinSmokeTest`) confirmed password and Quick Connect
+  sign-in, the restored-session check and sign-out against a live 12.2 server on 2026-10-20.
 - The user's avatar is not loaded yet (`PrimaryImageTag`), and Quick Connect approval of another device's code (`/QuickConnect/Authorize`)
   is left for Seerr sign-in (M3).

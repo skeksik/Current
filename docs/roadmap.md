@@ -62,7 +62,7 @@ Then:
       app version servers see. Android and Apple keep secrets in memory until M4
 - [x] Jellyfin sign-in (2026-10-20, ADR 0018): username and password or Quick Connect with that device id, the server id checked
       against the saved one, sign out, sessions restored at start and dropped on a 401. Logic and ViewModels; the screens come with the
-      shells below. Quick Connect, restore and sign-out checked against a live server; password sign-in not yet
+      shells below. password and Quick Connect sign-in, restore and sign-out checked against a live server
 - [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources
 - [ ] Web shell (ADR 0011):
@@ -73,7 +73,7 @@ Then:
         a placeholder home and a playback support page are done; the layout waits for the Compose shell);
   - [x] routing through the core's History API router; npm in CI with a licence check
 - [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only when `CURRENT_LIVE_*` environment variables are set, never
-      in CI; read-only apart from a sign-in they end again. Quick Connect sign-in, restore and sign-out passed against a live 12.2 server
+      in CI; read-only apart from a sign-in they end again. Password and Quick Connect sign-in, restore and sign-out passed against a live 12.2 server
 
 Done when: sign in and out of Jellyfin on Windows and in the browser, and the app restarts signed in.
 
