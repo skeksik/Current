@@ -34,7 +34,6 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.coil.networkKtor)
             implementation(project(":core:model"))
-            implementation(project(":core:network"))
             implementation(project(":core:database"))
             implementation(project(":core:designsystem"))
             implementation(project(":core:playback"))

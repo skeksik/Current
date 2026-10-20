@@ -87,6 +87,21 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun withOnlyAnotherServiceSavedThatServerIsShown() = runBlocking<Unit> {
+        servers.save(saved(scenes, "Scenes"))
+        assertEquals(HomeUiState.SignedOut(scenes, "Scenes"), viewModel().state.value)
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun aServiceWithoutUsersIsSignedInWithoutAName() = runBlocking<Unit> {
+        servers.save(saved(scenes, "Scenes"))
+        capabilities.update(scenes) { it.copy(signedIn = true) }
+        assertEquals(HomeUiState.SignedIn(null, "Scenes"), viewModel().state.value)
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
     fun itFollowsSignInAndSignOutOnAnyServer() = runBlocking<Unit> {
         servers.save(saved(home, "Home"))
         servers.save(saved(cabin, "Cabin"))

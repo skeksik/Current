@@ -61,7 +61,7 @@ import org.jetbrains.compose.resources.stringResource
 /** Sign in to a saved Jellyfin server with a password or Quick Connect; goes back to where it was opened from once signed in. */
 @Composable
 internal fun SignInScreen(route: SignInRoute, navigator: Navigator) {
-    val viewModel = pageViewModel { SignInViewModel(get(), route.server) }
+    val viewModel = pageViewModel(key = "${route.service}/${route.key}") { SignInViewModel(get(), route.server) }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Page(title = stringResource(Res.string.sign_in_title, route.name), subtitle = stringResource(Res.string.sign_in_subtitle)) {

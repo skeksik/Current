@@ -61,15 +61,16 @@ fun Shell(graph: ShellGraph) {
         },
         sidebar = {
             SidebarTitle(stringResource(Res.string.app_name))
-            SidebarItems {
-                graph.destinations.forEach { feature ->
-                    val sidebar = feature.sidebar ?: return@forEach
-                    SidebarItem(stringResource(sidebar.label), sidebar.icon, selected = feature == owner) {
-                        controller.navigate(sidebar.route) {
-                            popUpTo(graph.start) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+            val features = graph.destinations.filter { it.sidebar != null }
+            SidebarItems(features.size) { index, modifier ->
+                val feature = features[index]
+                val sidebar = checkNotNull(feature.sidebar)
+                SidebarItem(stringResource(sidebar.label), sidebar.icon, selected = feature == owner, modifier = modifier) {
+                    // Every entry opens its feature's first page on top of the start page, even the entry already shown: an inner
+                    // page (Add server) is left, not kept for later.
+                    controller.navigate(sidebar.route) {
+                        popUpTo(graph.start)
+                        launchSingleTop = true
                     }
                 }
             }

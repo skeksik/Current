@@ -17,6 +17,8 @@ object CurrentTokens {
         val danger = Color(0xFFE5484D)
         val dangerDark = Color(0xFFB3261E)
         val warning = Color(0xFFF5A524)
+        /** Amber dark enough for text on light surfaces (about 5:1 on white). */
+        val warningDark = Color(0xFF8A5A00)
 
         val ink = Color(0xFF0E1113)
         val surfaceDark = Color(0xFF15191C)

@@ -12,6 +12,7 @@ fun main() = application {
     CurrentKoin {
         Window(
             onCloseRequest = ::exitApplication,
+            // The product name, the same in every language (AppInfo.NAME); not a string resource.
             title = "Current",
             state = rememberWindowState(width = 1200.dp, height = 780.dp),
         ) {

@@ -29,6 +29,7 @@ import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.formField
 import com.skeksik.current.core.model.AddressScope
+import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.settings.ServerSetupProblem
 import com.skeksik.current.feature.settings.ServerSetupUiState
 import com.skeksik.current.feature.settings.ServerSetupViewModel
@@ -107,7 +108,11 @@ internal fun AddServerScreen(navigator: Navigator) {
                 // The user reads what was found and confirms it themselves: Enter in the field never adds a server.
                 LaunchedEffect(shown) { confirm.requestFocus() }
             }
-            is ServerSetupUiState.Saved -> LaunchedEffect(shown) { navigator.replace(SignInRoute(shown.server.ref, shown.server.name)) }
+            is ServerSetupUiState.Saved -> LaunchedEffect(shown) {
+                val server = shown.server
+                // Only Jellyfin has a sign-in page yet; any other service goes back to where Add server was opened.
+                if (server.ref.service == ServiceType.jellyfin) navigator.replace(SignInRoute(server.ref, server.name)) else navigator.back()
+            }
         }
     }
     LaunchedEffect(Unit) { field.requestFocus() }

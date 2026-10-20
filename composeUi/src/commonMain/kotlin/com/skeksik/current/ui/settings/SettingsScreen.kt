@@ -34,7 +34,7 @@ import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
 import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.SectionTitle
-import com.skeksik.current.core.designsystem.arrowKeyFocus
+import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.model.AppInfo
 import com.skeksik.current.core.model.ServiceType
@@ -73,11 +73,21 @@ internal fun SettingsScreen(navigator: Navigator) {
     val viewModel = pageViewModel { ServersViewModel(get(), get(), get(), get()) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var removing by remember { mutableStateOf<ServerRow?>(null) }
+    val addServer = remember { FocusRequester() }
+    // After a removal the removed row's buttons are gone; focus goes to Add server rather than nowhere.
+    var focusAddServer by remember { mutableStateOf(false) }
+    LaunchedEffect(focusAddServer) {
+        if (focusAddServer) {
+            addServer.requestFocus()
+            focusAddServer = false
+        }
+    }
+    val rows = rememberListFocus(state.servers.size)
 
     Page(title = stringResource(Res.string.settings_title)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { SectionTitle(stringResource(Res.string.settings_servers)) }
-            Button({ navigator.open(AddServerRoute) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+            Button({ navigator.open(AddServerRoute) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addServer)) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
                 Text(stringResource(Res.string.settings_add_server), Modifier.padding(start = Spacing.s))
             }
@@ -85,15 +95,19 @@ internal fun SettingsScreen(navigator: Navigator) {
         if (state.servers.isEmpty()) {
             Notice(stringResource(Res.string.settings_no_servers), NoticeKind.Info)
         }
-        Column(Modifier.arrowKeyFocus(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            state.servers.forEach { row ->
-                key(row.ref) {
-                    ServerPanel(
-                        row,
-                        signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
-                        signOut = { viewModel.signOut(row.ref) },
-                        remove = { removing = row },
-                    )
+        // Up and Down move between servers; Tab moves between a server's buttons.
+        with(rows) {
+            Column(Modifier.arrowKeys(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                state.servers.forEachIndexed { index, row ->
+                    key(row.ref) {
+                        ServerPanel(
+                            row,
+                            signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
+                            signOut = { viewModel.signOut(row.ref) },
+                            remove = { removing = row },
+                            modifier = Modifier.item(index),
+                        )
+                    }
                 }
             }
         }
@@ -117,6 +131,7 @@ internal fun SettingsScreen(navigator: Navigator) {
             confirm = {
                 viewModel.remove(row.ref)
                 removing = null
+                focusAddServer = true
             },
             dismiss = { removing = null },
         )
@@ -124,8 +139,8 @@ internal fun SettingsScreen(navigator: Navigator) {
 }
 
 @Composable
-private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit, remove: () -> Unit) {
-    Panel {
+private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit, remove: () -> Unit, modifier: Modifier = Modifier) {
+    Panel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Text(row.name, style = MaterialTheme.typography.titleMedium)

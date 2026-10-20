@@ -15,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 @Serializable
 private data object OtherRoute
@@ -38,9 +39,16 @@ class ShellGraphTest {
     }
 
     @Test
-    fun theShellsRoutesAreUnique() {
-        val routes = ShellGraph(listOf(HomeDestination, SettingsDestination)).pages.map { it.route }
-        assertEquals(routes.toSet().size, routes.size)
+    fun aFeatureWithoutSidebarEntryAddsPagesButNoEntry() {
+        val pagesOnly = Fake(listOf(page(OtherRoute::class)), sidebar = null)
+        val graph = ShellGraph(listOf(HomeDestination, pagesOnly))
+        assertEquals(listOf<Any>(HomeRoute), graph.sidebar.map { it.route })
+        assertTrue(graph.pages.any { it.route == OtherRoute::class })
+    }
+
+    @Test
+    fun aGraphWithoutSidebarEntryIsRejected() {
+        assertFailsWith<IllegalArgumentException> { ShellGraph(listOf(Fake(listOf(page(OtherRoute::class)), sidebar = null))) }
     }
 
     @Test

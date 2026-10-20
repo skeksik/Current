@@ -65,18 +65,26 @@ fun SidebarTitle(text: String) {
     )
 }
 
-/** The sidebar's entries, one selectable group: Tab reaches them, Up and Down move between them, Enter opens one. */
+/**
+ * The sidebar's [count] entries, one selectable group: Tab reaches them, Up and Down move between them and stop at the ends, Enter opens
+ * one. [item] draws entry `index` with the modifier it must pass to its [SidebarItem].
+ */
 @Composable
-fun SidebarItems(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.selectableGroup().arrowKeyFocus(), verticalArrangement = Arrangement.spacedBy(Spacing.xs), content = content)
+fun SidebarItems(count: Int, item: @Composable (index: Int, modifier: Modifier) -> Unit) {
+    val focus = rememberListFocus(count)
+    with(focus) {
+        Column(Modifier.selectableGroup().arrowKeys(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            repeat(count) { index -> item(index, Modifier.item(index)) }
+        }
+    }
 }
 
 @Composable
-fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Radius.m)
     val colors = MaterialTheme.colorScheme
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(Size.sidebarItemHeight)
             .focusRing(shape)

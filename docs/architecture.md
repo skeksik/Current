@@ -29,11 +29,11 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
 ```
  appleApp (SwiftUI: iOS/macOS/tvOS) androidApp   desktopApp     webApp (React + TypeScript, Vite)
             |                                \         /                |
-         apple (framework "Shared")       shared (App, nav, DI)       web (Kotlin/JS library "current-core",
+         apple (framework "Shared")    shared (App, modules, Koin)    web (Kotlin/JS library "current-core",
             |                                    |                    @JsExport facade, History API router)
             |                                    |                      |
-            |                                composeUi (Compose screens, |
-            |                                player UI, video surfaces)  |
+            |                                composeUi (screens, Shell + |
+            |                                nav, player UI, surfaces)   |
             |                                    |                      |
             +------------ feature:* (ViewModels, UI state, PlayerController) ------------+
                                   data:{jellyfin,seerr,stash}
@@ -55,7 +55,7 @@ Dependencies point down. Features never import each other. Pure-Kotlin modules h
 | `feature:home` | `HomeViewModel`: where every shell starts; no server, signed out, or signed in |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
 | `composeUi` | Compose screens for every feature, the destination contract and `Shell` (sidebar + pages), custom player controls, per-platform video surface |
-| `shared` | Compose umbrella: `App()`, navigation, DI wiring of the modules it includes |
+| `shared` | Compose umbrella: `App()`, the list of modules it includes, Koin start (`CurrentKoin`, `AppContent`) |
 | `apple` | Static framework `Shared` exporting core/data/feature to Swift |
 | `web` | Kotlin/JS ES module library `current-core` (with `.d.ts`): an `@JsExport` facade over the ViewModels and the History API router, consumed by the React app in `webApp` (ADR 0011) |
 
@@ -72,7 +72,9 @@ skip others silently.
 `settingsUiModule`, with `bind ShellDestination::class`); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
 checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
-with the keyboard alone: visible focus rings, Tab and arrow keys move focus, Enter submits forms. The web shell has its own router (ADR 0011).
+with the keyboard alone: visible focus rings, Tab and arrow keys move focus, Enter submits forms. The highlighted sidebar entry is the
+feature owning the page shown, not the back stack it sits on: Settings pages opened from Home (Add server, Sign in) stay on Home's back
+stack, so Back returns to Home, while Settings is highlighted. A sidebar entry always opens its feature's first page. The web shell has its own router (ADR 0011).
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
 forbids passing them on, such as full Dolby Vision processing).

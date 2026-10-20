@@ -66,7 +66,7 @@ Then:
 - [x] Compose shell (desktop) (2026-10-20): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources; `HomeViewModel` for the first screen.
       Keyboard alone works throughout. Add, sign in (password, Quick Connect), restart signed in and sign out checked with the keyboard on
-      Linux against a local stand-in for the sign-in endpoints; a real server on Windows is the owner's hand check
+      Linux against a local stand-in for the sign-in endpoints; a real server on Windows is the owner's hand check. Android shows this desktop layout until its own layouts (M4)
 - [ ] Web shell (ADR 0011):
   - [x] pure-Kotlin modules gain a `js()` target (they lose `wasmJs`, and the Compose modules leave the web);
   - [x] a Kotlin/JS umbrella module (`web`) with the `@JsExport` facade;

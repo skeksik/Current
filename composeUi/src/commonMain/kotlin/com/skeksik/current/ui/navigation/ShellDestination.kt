@@ -12,7 +12,7 @@ import kotlin.reflect.KClass
  * list of modules is the only place that names them all.
  */
 interface ShellDestination {
-    /** Every page this feature shows. The first is where its sidebar entry leads. Routes are `@Serializable` types. */
+    /** Every page this feature shows. Routes are `@Serializable` types; [sidebar]'s route must be one of them. */
     val pages: List<ShellPage>
 
     /** Null for a feature reached only from other pages. */

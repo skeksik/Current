@@ -47,7 +47,7 @@ private val lightColors = lightColorScheme(
     outline = Palette.outlineLight,
     outlineVariant = Palette.outlineLight,
     error = Palette.dangerDark,
-    tertiary = Palette.warning,
+    tertiary = Palette.warningDark,
 )
 
 private val typography = Typography().run {

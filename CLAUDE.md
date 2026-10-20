@@ -20,11 +20,11 @@ androidApp/   Android application shell (MainActivity -> App())
 desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
 webApp/       browser app: Vite + React + TypeScript over the `web` library (ADR 0011); npm, lockfile committed
 appleApp/     Xcode project Current.xcodeproj: one SwiftUI app target for iOS, macOS and tvOS, minimum OS 26 (ADR 0012)
-shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple or web targets.
+shared/       Compose umbrella for Android/desktop: App(), the module list, Koin start. NO Apple or web targets.
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
 web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for the React app: @JsExport facade, History API router. NO Compose.
 
-composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop)
+composeUi/                 Compose screens, destination contract, Shell + NavHost, player screen + controls, video surfaces (Android, desktop)
 core/model                 domain models                      (pure Kotlin)
 core/network               HttpClient, server configuration, capabilities state (pure Kotlin)
 core/database              cache                              (pure Kotlin)
@@ -42,7 +42,7 @@ Every module's `build.gradle.kts` copies the shape of an existing one of the sam
 ## Stack (exact versions in gradle/libs.versions.toml)
 Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
 Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
-Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`shared`), Coil 3 (`composeUi`).
+Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`composeUi`), Coil 3 (`composeUi`).
 Planned, not added yet: SQLDelight, Media3, SKIE for Swift interop.
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
