@@ -1145,9 +1145,9 @@ research agent reading the same files.
 
 ## Roaming on iOS (checked 2026-10-20 and 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
 - What ran: the placeholder SwiftUI app with a throwaway harness (not committed) that started Koin with the real `databaseModule`,
-  `networkModule` and `jellyfinModule`, so the real `RoamingAddressSources`, `JellyfinServerProbe` and Apple `NetworkChanges`. **Both
-  runs used the rules before "Use a proved address at once"** (the branch state that waits 1 s for a burst to settle, then waits for
-  every higher address): the later rules were not run on iOS. One Jellyfin 12.2 server, local address first
+  `networkModule` and `jellyfinModule`, so the real `RoamingAddressSources`, `JellyfinServerProbe` and Apple `NetworkChanges`. **The
+  first two runs used the rules before "Use a proved address at once"** (wait 1 s for a burst to settle, then wait for every higher
+  address); the third used the rules after it ("Third run" below). One Jellyfin 12.2 server, local address first
   (`http://192.168.1.10:8096`), internet address second (`https://media.example.com`). Logged with timestamps: every request log entry
   (it names no address; which probe is which follows from timing: the LAN answered in 9-46 ms, the internet address in 40-780 ms, and a
   cancelled probe logs "no response"), the address in use, `reachable`, a request through `awaitCurrent` every 250 ms with how long it
@@ -1155,7 +1155,7 @@ research agent reading the same files.
   count) and the elements of a second `NetworkChanges`. For the runs `Info.plist` got `NSLocalNetworkUsageDescription` and
   `NSAllowsLocalNetworking`; the app has neither yet, and without the latter ATS refuses an IP address (see "Local network, discovery
   and plain HTTP: Apple").
-- How: two runs, each from a fresh install, with the cable unplugged, the log written to a file, and a button tapped before each step.
+- How: three runs, each from a fresh install, with the cable unplugged, the log written to a file, and a button tapped before each step.
   Wi-Fi was turned off and on from Control Center, so the app stayed in the foreground unless stated. With the cable in, the console
   stream and the app ended about 24 s after Wi-Fi went off; that attempt showed the same cellular behaviour as the unplugged runs.
 - Not roaming, found on the way: **the host name lookup at start brings up the Local Network prompt and blocks until it is answered**,
@@ -1172,7 +1172,7 @@ research agent reading the same files.
   update is right, **but in 5 of 11 launches a second, identical update came 110-200 ms after start** (4 of 5 in the second run). It
   cleared the address just proved and a second check ran: requests held 0.9-1.2 s instead of 8-25 ms, and with local network access
   denied, 1.7 s instead of 0.5 s. In the other launches there was one check (local address proved 50-100 ms after launch, once 1.1 s).
-- Per case, times from the first update of the transition; where the runs differ, first run / second run:
+- Per case, with the earlier rules; times from the first update of the transition; where the runs differ, first run / second run:
   1. Wi-Fi to cellular: 3-4 updates in under 0.75 s (the first still Wi-Fi, then cellular only, `isExpensive` true); the path never
      went unsatisfied. The internet address answered in 40-690 ms. The local address on cellular neither answered nor failed: it hung
      until the probe's 5 s timeout, and a higher address is waited for. With updates every 3 s, most checks were cancelled after about
@@ -1211,12 +1211,30 @@ research agent reading the same files.
   internet address was used 53 ms after the check began. Nothing asked again until 3 no-change updates about 30 s later, likely the
   Allow; then the local address was proved. Without them the periodic check would have come after 5 min. Second run, Allow tapped
   within the lookup: the first local probe answered in 21 ms.
-- Consequence for ADR 0019 (not changed here): with the rules that were run, on iOS cellular or another Wi-Fi network roaming seldom
-  reaches the internet address. No-change updates every 3-7 s, a local address that times out instead of failing, waiting for every
-  higher address, and every update clearing the address add up: a check only completes after about 6 s without an update (1 s settle
-  plus the 5 s probe timeout). "Use a proved address at once" targets the waiting; the clearing on every no-change update, the second
-  update at start, and the hold that outlasts a suspension are not addressed by it. On Wi-Fi the no-change updates cost about 1 s of
-  held requests each, several times a minute at times.
+- **Third run, with "Use a proved address at once"** (2026-10-21, fresh install, same cases; times from the first update of the
+  transition, or from the return to the foreground):
+  - **Cellular now works**: leaving Wi-Fi, the internet address was in use 1.2-1.8 s after the first update (three times: Wi-Fi off in
+    the foreground twice, and on return after Wi-Fi went off in the background), while the local probe hung in the background until its
+    5 s timeout. No request failed in about 3 minutes on cellular. The no-change updates still came (every 2-5 s, with gaps of 10-20 s)
+    and each still cleared the address: requests were held 0.9-1.1 s each (the 1 s settle, then the internet address in 40-90 ms), up
+    to 3 s when two updates came within 2 s.
+  - Another Wi-Fi network: the internet address in use 3.2 s after the first update (8 updates in 1.4 s), against 9.5-13 s before;
+    later updates on that network held requests 1.3-3 s, and none failed. `isExpensive` was true for three of its updates.
+  - Back to home Wi-Fi: the local address 4.5 s after the first update, Wi-Fi being listed after cellular for the first 3.3 s; the
+    internet address served from 2.0 s until then. From another Wi-Fi network: 2.4 s. Airplane mode on and off: 1.3 s and 1.5 s. A VPN
+    on and off: 1.15 s each.
+  - Unchanged, as expected from the rules: the second identical update at start came in 3 of 3 relaunches (165-179 ms after start, a
+    second check, requests held 0.9 s; with local network access denied 1.6-1.7 s instead of 0.5 s). **A request waiting when the app
+    was suspended was held 48.8 s** and failed as unreachable at the return, in the same millisecond as the return's update.
+  - Local network access denied: the internet address in use 1.6 s after the return and 1.7 s after a relaunch. On Wi-Fi each no-change
+    update then held requests 1.3-1.5 s, since the internet address takes about 0.5 s there. On cellular the local probe still hung
+    until its timeout: the permission does not make it fail there.
+- Consequence for ADR 0019 (not changed here): with the earlier rules, on iOS cellular or another Wi-Fi network roaming seldom reached
+  the internet address: no-change updates every 3-7 s, a local address that times out instead of failing, waiting for every higher
+  address, and every update clearing the address meant a check only completed after about 6 s without an update. "Use a proved address
+  at once" fixes that (third run). Still open: every no-change update clears the address and holds requests about 1 s (several times
+  a minute on cellular), the second update at start causes a second check, and a request held when the app is suspended outlasts the
+  11 s cap and fails at the return.
 
 ## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
 - What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
