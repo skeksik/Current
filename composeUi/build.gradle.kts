@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -25,9 +26,16 @@ kotlin {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
+            implementation(libs.compose.components.resources)
+            implementation(libs.androidx.lifecycle.viewmodelCompose)
+            implementation(libs.androidx.lifecycle.runtimeCompose)
+            api(libs.navigation.compose)
+            api(libs.koin.compose)
             implementation(libs.coil.compose)
             implementation(libs.coil.networkKtor)
             implementation(project(":core:model"))
+            implementation(project(":core:network"))
+            implementation(project(":core:database"))
             implementation(project(":core:designsystem"))
             implementation(project(":core:playback"))
             implementation(project(":feature:home"))
@@ -40,4 +48,8 @@ kotlin {
             implementation(libs.kotlin.test)
         }
     }
+}
+
+compose.resources {
+    packageOfResClass = "com.skeksik.current.ui.resources"
 }

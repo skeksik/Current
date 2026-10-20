@@ -1,0 +1,84 @@
+<resources>
+    <string name="app_name">Current</string>
+
+    <!-- Sidebar -->
+    <string name="nav_home">Home</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home -->
+    <string name="home_title">Home</string>
+    <string name="home_no_server_title">Add a server to start</string>
+    <string name="home_no_server_message">Current plays your own media from a Jellyfin server. Add its address to sign in.</string>
+    <string name="home_add_server">Add a server</string>
+    <string name="home_signed_out_title">You are signed out</string>
+    <string name="home_signed_out_message">Sign in to %1$s to see your libraries.</string>
+    <string name="home_sign_in">Sign in</string>
+    <string name="home_signed_in_title">Signed in to %1$s</string>
+    <string name="home_signed_in_as">Signed in as %1$s on %2$s. Your libraries will appear here.</string>
+    <string name="home_signed_in_message">Your libraries will appear here.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_servers">Servers</string>
+    <string name="settings_add_server">Add server</string>
+    <string name="settings_no_servers">No servers yet. Add a Jellyfin server by its address.</string>
+    <string name="settings_signed_in_as">Signed in as %1$s</string>
+    <string name="settings_signed_out">Signed out</string>
+    <string name="settings_offline">Offline</string>
+    <string name="settings_sign_in">Sign in</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_remove">Remove</string>
+    <string name="settings_remove_title">Remove %1$s?</string>
+    <string name="settings_remove_message">You are signed out and the server is forgotten on this device. You can add it again later.</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_secrets_keyring">Sign-ins are kept in your system\'s credential store.</string>
+    <string name="settings_secrets_browser">Sign-ins are kept in this browser.</string>
+    <string name="settings_secrets_file">Sign-ins are kept in a file only your user account can read.</string>
+    <string name="settings_secrets_memory">No credential store was found, so you are signed out when the app quits.</string>
+    <string name="settings_secrets_keep_in_file">Keep sign-ins in a file</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version %1$s</string>
+
+    <!-- Add server -->
+    <string name="add_server_title">Add a server</string>
+    <string name="add_server_subtitle">Enter the address of your Jellyfin server, such as media.example.com or 192.168.1.10:8096.</string>
+    <string name="add_server_address">Server address</string>
+    <string name="add_server_check">Check</string>
+    <string name="add_server_checking">Looking for the server…</string>
+    <string name="add_server_found">Found %1$s</string>
+    <string name="add_server_version">Jellyfin %1$s</string>
+    <string name="add_server_local">On your local network</string>
+    <string name="add_server_internet">On the internet</string>
+    <string name="add_server_plain_http">This address is not encrypted (http on the internet). Your password and media would cross the internet readable by others. Use https if the server offers it.</string>
+    <string name="add_server_confirm">Add this server</string>
+    <string name="add_server_change">Change address</string>
+    <string name="add_server_invalid">That is not a server address.</string>
+    <string name="add_server_unreachable">No server answered. Check the address, the port and that the server is running.</string>
+    <string name="add_server_timed_out">The server took too long to answer.</string>
+    <string name="add_server_redirected">The address redirects elsewhere. If the server runs under a path, include it (for example /jellyfin), or use https.</string>
+    <string name="add_server_not_this_service">Something answered, but it is not a Jellyfin server.</string>
+    <string name="add_server_refused">The server refused the request.</string>
+    <string name="add_server_already_added">This server is already added.</string>
+    <string name="add_server_different_server">Another server answers at this address.</string>
+
+    <!-- Sign in -->
+    <string name="sign_in_title">Sign in to %1$s</string>
+    <string name="sign_in_subtitle">Use your Jellyfin account.</string>
+    <string name="sign_in_username">Username</string>
+    <string name="sign_in_password">Password</string>
+    <string name="sign_in_submit">Sign in</string>
+    <string name="sign_in_working">Signing in…</string>
+    <string name="sign_in_quick_connect">Use Quick Connect</string>
+    <string name="sign_in_quick_connect_title">Quick Connect code</string>
+    <string name="sign_in_quick_connect_message">In another Jellyfin app where you are signed in, open Quick Connect and enter this code. This page continues by itself once you approve it.</string>
+    <string name="sign_in_quick_connect_waiting">Waiting for approval…</string>
+    <string name="sign_in_quick_connect_cancel">Use a password instead</string>
+    <string name="sign_in_wrong_credentials">Wrong username or password.</string>
+    <string name="sign_in_unreachable">The server cannot be reached.</string>
+    <string name="sign_in_timed_out">The server took too long to answer.</string>
+    <string name="sign_in_refused">The server refused the sign-in.</string>
+    <string name="sign_in_different_server">Another server answers at this address now, so nothing was sent to it.</string>
+    <string name="sign_in_quick_connect_disabled">Quick Connect is turned off on this server.</string>
+    <string name="sign_in_quick_connect_expired">The code expired. Try again.</string>
+    <string name="sign_in_server_not_saved">This server is no longer saved.</string>
+</resources>
