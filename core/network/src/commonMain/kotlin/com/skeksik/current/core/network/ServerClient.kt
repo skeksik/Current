@@ -28,12 +28,12 @@ class ServerClient internal constructor(
         // The one wait for the source; the requests in [block] go to this address ([ChosenAddress]), and a failure reports it.
         val used = address.awaitCurrent() ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         try {
-            return withContext(ChosenAddress(used)) { http.block() }
+            return withContext(ChosenAddress(address, used)) { http.block() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val failure = serviceExceptionFor(server, e) ?: throw e
-            // A timeout counts too: a dead address often hangs instead of refusing, and desktop has no network signal.
+            // A timeout counts too: a dead address often hangs instead of refusing, and no network signal catches every change.
             val noAnswer = failure.kind == ServiceErrorKind.Unreachable || failure.kind == ServiceErrorKind.Timeout
             if (noAnswer) address.reportUnreachable(used)
             if (failure.kind == ServiceErrorKind.Unauthorized) onUnauthorized?.invoke()
@@ -45,8 +45,11 @@ class ServerClient internal constructor(
     override fun close() = http.close()
 }
 
-/** The address [ServerClient.request] chose for the requests in its block, so [ServerRequests] uses it instead of waiting again. */
-internal class ChosenAddress(val url: ServerUrl) : AbstractCoroutineContextElement(Key) {
+/**
+ * The address [ServerClient.request] chose for the requests in its block, so [ServerRequests] uses it instead of waiting again. It
+ * names its [source], so a request to another server made inside the block never picks it up.
+ */
+internal class ChosenAddress(val source: ServerAddressSource, val url: ServerUrl) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ChosenAddress>
 }
 

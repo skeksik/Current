@@ -13,7 +13,7 @@ fun interface NetworkChanges {
     fun changes(): Flow<Unit>
 
     companion object {
-        /** No signal: the periodic check and failed requests are all there is (desktop, Apple until it has one). */
+        /** No signal: the periodic check and failed requests are all there is (Android without its permission, tests). */
         val None = NetworkChanges { emptyFlow() }
     }
 }

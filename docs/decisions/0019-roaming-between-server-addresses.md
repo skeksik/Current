@@ -51,12 +51,15 @@ is on, so a signal can only mean "something may have changed".
 ## Consequences
 - Android declares `ACCESS_NETWORK_STATE`; without it there is no signal.
 - Every probe of every address goes into the request log under the server's key, so roaming adds log lines but no hosts.
-- The first request after start or a network change can wait up to the probe timeout.
+- The first request after start or a network change can wait up to twice the probe timeout (10 s for Jellyfin).
 - A network change no signal reports leaves requests on the old address until one fails or times out, or until the next periodic
   check (up to 5 minutes): if another device answers there on the new network, it receives them, credentials included. Known cases: on
   desktop, a move to another network that keeps the same interface addresses (same subnet and lease); on Apple, whatever the path
   monitor does not report (a move between two Wi-Fi networks is not verified); on the web, any change the browser does not signal
   (Firefox and Safari have only `online`).
-- Desktop polling reads the interfaces every 5 s while the app runs; an IPv6 temporary address that rotates counts as a change and
-  makes requests wait for one check.
+- Desktop polling reads the interfaces every 5 s while the app runs. Link-local addresses are ignored, and an interface left with no
+  other address does not count, so Docker's `veth*` pairs and idle Hyper-V or WSL adapters do not trigger a check. Each of these still
+  does, and makes requests wait for one check: a virtual adapter with a routable address appearing, disappearing or changing (Hyper-V's
+  `vEthernet (Default Switch)` or WSL's adapter getting a new private address when the host or WSL restarts, Docker's `docker0` and
+  `br-*` bridges, a VPN's tunnel), and an IPv6 temporary address that rotates.
 - A server answering at several addresses is asked at all of them on each full check; with a handful of addresses per server that is cheap.

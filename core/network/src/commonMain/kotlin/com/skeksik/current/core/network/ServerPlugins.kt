@@ -20,7 +20,8 @@ internal val ServerRequests = createClientPlugin("ServerRequests", ::ServerReque
     val auth = pluginConfig.auth
     onRequest { request, _ ->
         // Outside ServerClient.request (a raw call), the plugin waits for the source itself.
-        val base = currentCoroutineContext()[ChosenAddress]?.url ?: address.awaitCurrent()
+        val chosen = currentCoroutineContext()[ChosenAddress]?.takeIf { it.source === address }
+        val base = chosen?.url ?: address.awaitCurrent()
             ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         request.url.rebaseOnto(base)
         auth.authorize(request)

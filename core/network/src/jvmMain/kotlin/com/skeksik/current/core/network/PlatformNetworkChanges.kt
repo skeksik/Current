@@ -1,5 +1,6 @@
 package com.skeksik.current.core.network
 
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.SocketException
 import kotlin.coroutines.CoroutineContext
@@ -38,12 +39,30 @@ internal class PolledInterfaces(
     }.flowOn(context)
 }
 
-/** Each interface that is up and not loopback, with its addresses, as `name address/prefix ...`; null when they cannot be read. */
+/** One interface as read: its name, whether it is up or loopback, and its addresses with their prefix lengths. */
+internal class InterfaceReading(val name: String, val up: Boolean, val loopback: Boolean, val addresses: List<Pair<InetAddress, Short>>)
+
 private fun interfacesUp(): Set<String>? = try {
-    NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
-        .filter { it.isUp && !it.isLoopback }
-        .map { nic -> nic.name + " " + nic.interfaceAddresses.map { "${it.address.hostAddress}/${it.networkPrefixLength}" }.sorted() }
-        .toSet()
+    snapshotOf(
+        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().map { nic ->
+            InterfaceReading(nic.name, nic.isUp, nic.isLoopback, nic.interfaceAddresses.map { it.address to it.networkPrefixLength })
+        },
+    )
 } catch (e: SocketException) {
     null
 }
+
+/**
+ * Each interface that is up and not loopback, with its addresses other than link-local, as `name [address/prefix, ...]`. An interface
+ * left with no address is dropped: virtual adapters that only have link-local addresses (Docker's `veth*`, idle Hyper-V and WSL
+ * `vEthernet` adapters) come and go without the network changing.
+ */
+internal fun snapshotOf(interfaces: List<InterfaceReading>): Set<String> = interfaces
+    .filter { it.up && !it.loopback }
+    .mapNotNull { nic ->
+        val addresses = nic.addresses.filterNot { (address, _) -> address.isLinkLocalAddress }
+            .map { (address, prefix) -> "${address.hostAddress}/$prefix" }
+            .sorted()
+        addresses.takeIf { it.isNotEmpty() }?.let { "${nic.name} $it" }
+    }
+    .toSet()
