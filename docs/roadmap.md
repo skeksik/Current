@@ -60,8 +60,9 @@ Then:
 - [x] Secure storage and device identity (2026-10-20, ADR 0017): Windows Credential Manager, the Secret Service on Linux (memory, or a
       file the user chooses, without one), `localStorage` on the web; one random device id per install in a machine-local store; the
       app version servers see. Android and Apple keep secrets in memory until M4
-- [ ] Jellyfin sign-in with username and password or Quick Connect, using that device id (signing in again with the same id revokes the
-      old token), sign out; token in the secure storage above
+- [x] Jellyfin sign-in (2026-10-20, ADR 0018): username and password or Quick Connect with that device id, the server id checked
+      against the saved one, sign out, sessions restored at start and dropped on a 401. Logic and ViewModels; the screens come with the
+      shells below. Not yet sent to a live server
 - [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources
 - [ ] Web shell (ADR 0011):

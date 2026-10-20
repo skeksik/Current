@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), the web probes and device profile, the `web`
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), the web probes and device profile, the `web`
 > facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
@@ -50,6 +50,7 @@ Dependencies point down. Features never import each other. Pure-Kotlin modules h
 | `core:database` | `KeyValueStore` for settings per platform (ADR 0016: JSON file on desktop, `localStorage`, `SharedPreferences`, `NSUserDefaults`); `SecretStore` for tokens, a machine-local store and `DeviceIdentity` (ADR 0017); later the cache. Web persistence for the cache is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
 | `core:designsystem` | Compose theme and components (Android/desktop) |
+| `data:jellyfin` | The server probe (ADR 0016) and `JellyfinAccounts`: sign-in, Quick Connect, sign-out, restored sessions, authorized clients (ADR 0018) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
 | `composeUi` | Compose screens for every feature, custom player controls, per-platform video surface |

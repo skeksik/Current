@@ -712,6 +712,21 @@ as of 2026-10-18.
 - CORS: allow-all, hard-coded (`access-control-allow-origin: *`, methods POST, headers `Apikey, Content-Type`, no credentials); no setting.
 - GraphQL: send `Accept: application/json`; validation errors are HTTP 422.
 
+## Jellyfin 12.2: sign-in shapes (checked 2026-10-20 in the 12.2 OpenAPI spec, https://api.jellyfin.org/openapi/stable/jellyfin-openapi-12.2.json; no live server)
+- `POST /Users/AuthenticateByName`, body `AuthenticateUserByName {Username, Pw}` (both nullable strings), answers 200
+  `AuthenticationResult {User: UserDto, SessionInfo: SessionInfoDto, AccessToken, ServerId}` (all nullable) or 503. No security
+  scheme in the spec; the `MediaBrowser` header without `Token` carries the client and device (see "Jellyfin 12.x").
+- `UserDto`: `Id` (string, not nullable), `Name`, `ServerId`, `PrimaryImageTag`, `HasPassword`, `Policy: UserPolicy` (nullable).
+  `UserPolicy.IsAdministrator` is a boolean; the spec marks `AuthenticationProviderId` and `PasswordResetProviderId` required.
+- Quick Connect:
+  - `GET /QuickConnect/Enabled` answers a JSON boolean.
+  - `POST /QuickConnect/Initiate` answers `QuickConnectResult` (or 401 `ProblemDetails`).
+  - `GET /QuickConnect/Connect?secret=` (required) answers `QuickConnectResult`, or 404 for an unknown secret.
+  - `QuickConnectResult`: `Authenticated` (boolean), `Secret`, `Code`, `DeviceId`, `DeviceName`, `AppName`, `AppVersion`, `DateAdded`.
+  - `POST /Users/AuthenticateWithQuickConnect`, body `QuickConnectDto {Secret}` (required), answers `AuthenticationResult` or 400.
+  - `POST /QuickConnect/Authorize?code=&userId=` (`userId` optional) needs a signed-in session and answers a boolean, or 401/403.
+- `GET /Users/Me` answers `UserDto`, or 400, 401, 403. `POST /Sessions/Logout` answers 204, or 401, 403. Both need a signed-in session.
+
 ## Jellyfin 12.2: local discovery and server identity (checked 2026-10-19 in the v12.2 source and docs; no live server queried)
 Tag `v12.2` (https://github.com/jellyfin/jellyfin/releases/tag/v12.2). Files below are under `https://github.com/jellyfin/jellyfin/blob/v12.2/`.
 - **Discovery is a UDP listener**, `src/Jellyfin.Networking/AutoDiscoveryHost.cs` (it left `Emby.Server.Implementations/Udp` earlier).
