@@ -1,9 +1,18 @@
 package com.skeksik.current.core.database
 
 import org.koin.core.scope.Scope
+import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSUserDefaults
 
 internal actual fun Scope.platformKeyValueStore(): KeyValueStore = UserDefaultsKeyValueStore()
+
+/** Under its own prefix. Keeping the device id out of backups and restores (Keychain, this device only) comes with M4. */
+internal actual fun Scope.platformLocalStore(): KeyValueStore = UserDefaultsKeyValueStore("current.local.")
+
+/** Memory until M4 brings the Keychain. */
+internal actual fun Scope.platformSecretStore(): SecretStore = InMemorySecretStore()
+
+internal actual fun platformDeviceName(): String = NSProcessInfo.processInfo.hostName
 
 /** The app's standard `NSUserDefaults`, with keys prefixed `current.`. */
 class UserDefaultsKeyValueStore(private val prefix: String = "current.") : KeyValueStore {

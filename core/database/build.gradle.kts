@@ -32,9 +32,12 @@ kotlin {
         commonMain.dependencies {
             implementation(project(":core:model"))
             api(libs.koin.core)
+            api(libs.kotlinx.coroutinesCore)
         }
         jvmMain.dependencies {
             implementation(libs.kotlinx.serializationJson)
+            implementation(libs.jna)
+            implementation(libs.jna.platform)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

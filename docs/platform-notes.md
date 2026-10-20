@@ -312,6 +312,10 @@ and resolved versions from `:desktopApp:dependencies`.
     client, it makes its own default `HttpClient()`. That client should find the one engine `core:network` puts on each platform; this
     is untried, because no image is loaded yet.
   - It pulls Okio 3.18.1 (Apache-2.0).
+- **JNA 5.19.1** (`core:database`, JVM only; added 2026-10-20 for ADR 0017), `jna` and `jna-platform`, both LGPL-2.1-or-later or
+  Apache-2.0 (POM). The desktop video spike used the same version (ADR 0010).
+  - `jna-platform` wraps DPAPI (`Crypt32Util.cryptProtectData`) but not Credential Manager: its `Advapi32` has no `CredRead`/`CredWrite`
+    (checked with `javap` in the 5.19.1 jar), so `WindowsCredentials` maps them itself.
 - The web (`web` umbrella, Kotlin/JS) gets Ktor, kotlinx.serialization and Koin through `core:network`. It uses neither Navigation (it
   has the core's History API router) nor Coil (it uses plain `<img>`).
   - Kotlin's yarn lockfile (`kotlin-js-store/yarn.lock`, upgraded with `kotlinUpgradeYarnLock`) gains `ws` 8.20.1 (MIT) for
@@ -335,6 +339,34 @@ and resolved versions from `:desktopApp:dependencies`.
   (https://specifications.freedesktop.org/basedir-spec/latest/).
 - A start of the desktop app with the new Koin modules created no folder: the store reads only, and writes on the first change.
 - Not verified: whether an MSIX (Microsoft Store) package redirects `%APPDATA%` writes to a per-package folder (M8, Store edition).
+
+## Secrets on the desktop (checked 2026-10-20; ADR 0017)
+- Windows Credential Manager through JNA (`CredWriteW`, `CredReadW`, `CredDeleteW`, `CredFree`; generic credentials, persisted on the
+  local machine): a round trip with a non-ASCII value, overwrite, delete and a missing key (`ERROR_NOT_FOUND`, 1168) passed on Windows 11
+  with JDK 21, and `cmdkey /list` showed no entry left. A value over 2560 bytes is refused before the call.
+- Linux, checked in WSL (Ubuntu 24.04, OpenJDK 21.0.12, `libsecret-1-0`, `gnome-keyring`), with the test classes built on Windows:
+  - GNOME Keyring unlocked in a `dbus-run-session` (`echo -n <password> | gnome-keyring-daemon --unlock --components=secrets`):
+    `secret_password_store_sync`, `lookup` and `clear` with our schema round-trip a value.
+  - **A lookup is no availability check.** With no session bus at all, `secret_password_lookup_sync` returned NULL without a `GError`.
+    So the app treats the Secret Service as available when a session bus exists (`DBUS_SESSION_BUS_ADDRESS`, or `$XDG_RUNTIME_DIR/bus`)
+    and `libsecret` loads.
+  - **Calls can block on the user.** On a bus without an unlocked keyring, D-Bus activation started `gnome-keyring-daemon`, which asked
+    `gcr-prompter` to create a keyring; under WSLg that prompt can open a window. `secret_password_store_sync` then waits until the
+    prompt is answered. The app runs each call on a worker thread with a 2-minute limit and falls back to memory; with no display for
+    the prompt, the store failed within the test's 10-second limit.
+  - Without a keyring, the opt-in secrets file and its folder got `rw-------` and `rwx------`.
+- WSL (Ubuntu) runs a per-user session bus at `/run/user/<uid>/bus` and sets `DBUS_SESSION_BUS_ADDRESS` to it.
+- Not verified: KWallet's Secret Service interface (KDE Plasma), a real desktop session's unlock prompt, Flatpak or Snap sandboxes.
+
+## Credential storage in other apps (checked 2026-10-20; ADR 0017's alternatives)
+Read from public documentation of a widely used app framework's secure-storage API, a widely used Git credential helper, and a widely
+used command-line tool; named in the conversation, not here (CLAUDE.md).
+- Windows: the framework encrypts with DPAPI and leaves the encrypted data to the app; the credential helper defaults to Credential
+  Manager (and offers DPAPI-protected files), noting that Credential Manager does not persist over a network or SSH session.
+- Linux: all three use the Secret Service (libsecret, GNOME Keyring, KWallet) first. Without one: the framework encrypts with a
+  hard-coded password ("basic_text"); the command-line tool silently writes a plain-text file (with a flag to force it); the credential
+  helper has no default store on Linux and offers Secret Service, GPG/pass, an in-memory cache, or plain-text files it warns against.
+- macOS: the Keychain everywhere.
 
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
