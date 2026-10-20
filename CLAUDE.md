@@ -107,4 +107,6 @@ Plan (docs/roadmap.md): Windows desktop and web first; the first usable version 
 
 ## Working with Claude
 - Non-trivial work: propose a plan first, then implement in small steps.
-- Slash commands: `/new-feature`, `/new-module`, `/check`, `/update-deps`, `/add-playback-engine`. Subagents: `kmp-reviewer`, `api-researcher`.
+- Slash commands: `/new-feature`, `/new-module`, `/check`, `/update-deps`, `/add-playback-engine`, `/manage`. Subagents: `kmp-reviewer`, `api-researcher`.
+- `/manage` runs a cloud session as the manager: it starts one worker session per task, reviews their PRs, merges a PR only after the
+  owner approves it, and archives workers whose PRs are merged or dropped (`.claude/commands/manage.md`).
