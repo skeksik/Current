@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -31,10 +32,12 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:model"))
-            implementation(project(":core:network"))
+            api(project(":core:network"))
+            implementation(libs.kotlinx.serializationJson)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.clientMock)
         }
     }
 }

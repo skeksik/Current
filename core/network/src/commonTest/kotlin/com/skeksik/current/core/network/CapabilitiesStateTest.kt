@@ -1,5 +1,7 @@
 package com.skeksik.current.core.network
 
+import com.skeksik.current.core.database.InMemoryKeyValueStore
+import com.skeksik.current.core.database.KeyValueStore
 import com.skeksik.current.core.model.Capabilities
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServerStatus
@@ -12,6 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.koin.dsl.koinApplication
+import org.koin.dsl.module
 
 class CapabilitiesStateTest {
     private val jellyfin = ServerRef(ServiceType.jellyfin, "server-1")
@@ -51,7 +54,8 @@ class CapabilitiesStateTest {
 
     @Test
     fun koinGivesFeaturesAndWritersTheSameState() {
-        val koin = koinApplication { modules(networkModule) }
+        // networkModule needs a KeyValueStore, which the app gets from core:database's databaseModule.
+        val koin = koinApplication { modules(module { single<KeyValueStore> { InMemoryKeyValueStore() } }, networkModule) }
         try {
             assertSame(koin.koin.get<MutableCapabilitiesState>(), koin.koin.get<CapabilitiesState>())
         } finally {

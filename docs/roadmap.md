@@ -47,8 +47,9 @@ Then:
       ADR 0013: the identity holds the server, not only the service; services are open like kinds)
 - [x] `core:network` (2026-10-20, ADR 0015): one client per server that follows the server's current address, error model, lenient
       JSON, our own request log with tokens, keys and hosts redacted. Seerr's cookie session comes with Seerr sign-in (M3)
-- [ ] Server setup: add a server by URL, check it (public info endpoint, and that every address answers as the same server), warn
-      about plain HTTP except on local addresses
+- [x] Server setup (2026-10-20, ADR 0016): add a Jellyfin server by URL, check it (public info endpoint, and that every address answers
+      as the same server), warn about plain HTTP except on local addresses; saved in a per-platform key-value store. Logic and
+      `ServerSetupViewModel` only: the screens come with the shells below
 - [ ] Several addresses per server, local (`http://192.168.1.10:8096`, `http://media.lan:8096`) and internet
       (`https://media.example.com`), in the user's priority order. The app picks the best one that answers and roams between them as the
       network changes (start, network change, failed request, and a periodic check to move back to local). Credentials go only to an

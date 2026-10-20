@@ -12,6 +12,8 @@ import io.ktor.http.parseUrl
 class ServerUrl private constructor(internal val url: Url) {
     val isHttps: Boolean get() = url.protocol == URLProtocol.HTTPS
 
+    val host: String get() = url.host
+
     override fun equals(other: Any?): Boolean = other is ServerUrl && other.url == url
 
     override fun hashCode(): Int = url.hashCode()
