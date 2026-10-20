@@ -1014,7 +1014,8 @@ research agent reading the same files.
     handle a denial by showing that local servers cannot be reached.
 - `INTERNET` and `ACCESS_NETWORK_STATE` (for network callbacks, below). A `WifiManager.MulticastLock` ("Allows an application to receive
   Wifi Multicast packets ... can cause a noticeable battery drain") needs `CHANGE_WIFI_MULTICAST_STATE` (normal permission, `AndroidManifest.xml`
-  of the framework). It is described for multicast, not broadcast or unicast replies; whether a broadcast discovery needs it is not verified.
+  of the framework). It is described for multicast, not broadcast or unicast replies; a broadcast discovery did not need it on Android 16
+  (2026-10-20, see "Local server discovery, run on devices").
 - Cleartext, https://developer.android.com/privacy-and-security/security-config :
   - Default for apps targeting API 28+ is `cleartextTrafficPermitted="false"` in `base-config`.
   - `domain-config` matches DNS names (`includeSubdomains`); the page documents no wildcard, no CIDR and no `.local` special case. It only
@@ -1038,8 +1039,8 @@ research agent reading the same files.
   specific privileges". To receive broadcasts "a DatagramSocket should be bound to the wildcard address".
   https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/net/DatagramSocket.html
 - `NetworkInterface.networkInterfaces()` with `InterfaceAddress.getBroadcast()` (null for IPv6 and when there is no broadcast address) gives the
-  directed broadcast address of each interface. Not verified: whether `255.255.255.255` leaves every interface on a multi-homed Windows PC
-  (the per-interface address avoids the question), and what a Windows firewall prompt does to a first-run listener.
+  directed broadcast address of each interface. On a multi-homed Windows PC `255.255.255.255` left one interface only, and no firewall
+  prompt appeared (2026-10-20, see "Local server discovery, run on devices").
 - `NetworkInterface` has no listener or event API (its methods are getters and predicates), so a change has to be found by polling and
   comparing `NetworkInterface`/`InterfaceAddress` results. OS notifications (Windows, macOS, Linux) are not verified; any native route
   would need JNA, JNI or a new dependency.
@@ -1072,6 +1073,102 @@ research agent reading the same files.
 - Hosting: an app served over plain HTTP from the LAN (same network as the servers) has no mixed content to cope with, and Chrome's first
   milestone does not prompt local-to-local requests. A public HTTPS deployment is the case that needs the permission, a LAN IP or `.local` name, or HTTPS on the server.
   CORS is separate and unchanged (Jellyfin and Stash allow any origin, Seerr none; see their sections).
+
+## Local server discovery, run on devices (checked 2026-10-20 against a live Jellyfin 12.2; M1 spike)
+Throwaway probes sent `who is JellyfinServer?` to UDP 7359 and then `GET /System/Info/Public`; none of the code is in the repo. The server
+ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every client. Addresses below are the example values
+(`192.168.1.10` for the server, `192.168.1.255` for the subnet's broadcast address).
+- **Seerr 3.5.0 and Stash v0.31.1 cannot be discovered by the app** (read in the source at the tags; nothing run):
+  - Seerr: `package.json` has no mDNS, Bonjour, SSDP or UPnP package, and `server/index.ts` starts only Express over TCP (`PORT`, default
+    5055). Seerr finds Plex servers itself through `plex.tv/api/resources` (`server/api/plextv.ts`), not on the LAN. Not checked:
+    `dgram` in files other than `index.ts`; a repo-wide search was not possible.
+  - Stash: only its DLNA server (`internal/dlna`, `github.com/anacrolix/dms` v1.2.2) speaks SSDP, and it is **off by default**
+    (`dlna.default_enabled` has no default; `RefreshDLNA()` in `internal/manager/manager.go`). When on, it advertises a generic
+    `urn:schemas-upnp-org:device:MediaServer:1` on `239.255.255.250:1900` (IPv4 only) with `LOCATION` on the DLNA port (default 1338),
+    friendlyName and manufacturer from `dlna.server_name` (default `stash`), and **no `presentationURL`**: the UI and GraphQL port
+    (default 9999) cannot be learned from it. Guessing Stash from a DLNA advertisement is not worth building.
+  - Jellyfin 12.2 again: `Directory.Packages.props` lists no mDNS or SSDP package; UDP 7359 on `IPAddress.Any` (IPv4) is the only
+    advertisement, on by default, and jellyfin-web 12.2 has the `AutoDiscovery` checkbox (`src/apps/dashboard/routes/networking/index.tsx`).
+    So Seerr and Stash are added by URL, or found next to a Jellyfin server the user already has (out of scope here).
+- **Server side** (Jellyfin 12.2.0 in Docker, bridge network):
+  - The NAS's app template published `7359:7359`, which Docker publishes as TCP only. Every probe (broadcast or unicast) went unanswered,
+    with no error anywhere, while HTTP on 8096 worked. After the mapping became `7359:7359/udp` all probes were answered. Broadcasts
+    to the subnet's broadcast address reached the bridge container too (not expected; how Docker forwarded them was not looked into).
+  - The reply's `Address` was `http://127.0.0.1:8096` (and `/System/Info/Public` reported `LocalAddress` `http://[::1]:8096`): the server
+    in the container could not work out an address the client can reach. `Id` and `Name` were right. **Use the packet's source address,
+    with the port and path from `Address`, as the candidate**, never `Address` as it stands, and confirm it with the probe (ADR 0016).
+  - On a multi-homed client the same server answered once per network that reaches it (here also through an overlay VPN, from that
+    network's gateway address), with the same `Id`. Group replies by `Id` and offer the addresses as one server.
+  - Replies took 2 to 60 ms. A 2 s listening window is plenty on a LAN; the Kotlin SDK's 500 ms would also have caught all of them.
+- **Windows desktop** (Windows 11 25H2, build 26200; Oracle JDK 21.0.11 and Azul JDK 21; `java.net.DatagramSocket`, no dependency):
+  - The PC had a wired LAN adapter (network profile *Public*), two Hyper-V switches (WSL and Default Switch), an overlay VPN and a
+    link-local tunnel adapter, each with a broadcast address in `InterfaceAddress.getBroadcast()`.
+  - `new DatagramSocket()` sending to `255.255.255.255` (the Kotlin SDK's way) **got no reply, three times out of three**: Windows sent
+    the limited broadcast out of one interface only, the one `Find-NetRoute -RemoteIPAddress 255.255.255.255` names (here the Hyper-V
+    Default Switch). The same send from a socket bound to the LAN adapter's address was answered.
+  - Sending from one wildcard socket to **each interface's directed broadcast address** (`192.168.1.255`, ...) was answered at once, and so
+    were per-interface bound sockets and a unicast probe to `192.168.1.10:7359`.
+  - Windows Firewall: replies arrived for a `java.exe` that had no firewall rule at all, on the *Public* profile, and **no prompt
+    appeared** (`NotifyOnListen` is on for every profile). The app only sends from an ephemeral port and reads the unicast replies; it never
+    listens on a fixed port, so it needs no rule. Not tried: a policy that blocks outbound UDP, and a reply arriving after several seconds.
+  - Silence looks the same whatever its cause: a closed UDP port gave a timeout, not `PortUnreachableException` (no ICMP reached Java),
+    so "no reply" cannot tell a missing server from a blocked port or discovery switched off.
+  - Linux was not run on hardware. WSL2 in its default NAT mode (Ubuntu 24.04, Python sockets) sent no broadcast that reached the LAN;
+    a unicast probe through the NAT was answered.
+- **Android** (Pixel 8 Pro, Android 16, build BP3A, security patch 2025-11-05; the app's `targetSdk` 37, a debug build; `java.net`):
+  - With `INTERNET` alone, no `ACCESS_LOCAL_NETWORK` or `NEARBY_WIFI_DEVICES` grant and no `MulticastLock`, `255.255.255.255`, the
+    directed broadcast and unicast were all answered (10 to 50 ms), in the foreground with the screen on. A `MulticastLock` changed nothing.
+  - Android 16's opt-in, `adb shell am compat enable RESTRICT_LOCAL_NETWORK <package>` (change id 365139289), was accepted, but nothing
+    was blocked afterwards, with or without `NEARBY_WIFI_DEVICES`. So this build does not enforce the opt-in, and Android 17's
+    enforcement for target 37 is still untried.
+  - Cleartext `http://192.168.1.10:8096` worked only with a network security config that permits cleartext (the default for target 28+ blocks it).
+- **iOS** (iPhone 15 Pro Max, iOS 27.0.1; built with Xcode 27.1 on macOS 26.6.2, development-signed with a free personal team; `Info.plist`
+  with `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`; **no multicast entitlement**):
+  - The prompt came with the first local operation: "Allow "<app>" to find devices on local networks?", the purpose string, a map with the
+    current Wi-Fi network and some nearby devices, the line "Information from networks can be used to determine your location and create a
+    profile of you.", and Don't Allow / Allow. That first `URLSession` request failed in 21 ms with `NSURLErrorDomain -1009` and
+    `_NSURLErrorNWPathKey=unsatisfied (Local network prohibited)` while the alert was still up, as TN3179 says; after Allow it got 200.
+  - Allowed, without the entitlement: **unicast UDP to `192.168.1.10:7359` works** with BSD `sendto` and with `NWConnection`
+    (replies in 10 to 20 ms), and so does plain HTTP to the IP under `NSAllowsLocalNetworking`.
+  - Broadcast without the entitlement: `NWConnection` to `192.168.1.255` gets `EACCES` (13) on send; BSD `sendto` to `255.255.255.255`
+    gets `EHOSTUNREACH` (65). But **BSD `sendto` to the subnet's directed broadcast (`192.168.1.255`) went out and was answered**, four
+    times out of four, once **with Local Network switched off** in Settings, when unicast BSD got `EHOSTUNREACH`, `NWConnection` sat in
+    `.waiting` with `unsatisfiedReason == .localNetworkDenied`, and HTTP failed with `-1009` in 4 ms. That contradicts TN3179's table
+    (sending a broadcast needs the entitlement and local network access); it looks like a gap in the check, may be closed in any update,
+    and may differ for distribution-signed builds. **Do not build on it.**
+  - Not run: macOS (its prompt, and whether it needs anything for broadcast), tvOS, iPadOS, a release or TestFlight build.
+- **Browsers** (a page running `fetch` and `new Image()` against `http://192.168.1.10:8096`; Windows 11):
+  - No UDP anywhere: `typeof UDPSocket` and `TCPSocket` were `undefined` in Chrome 155, Edge 155, Firefox 158 and an embedded Chromium 152.
+  - Chrome 155 and Edge 155, from `https://example.com`: the first `fetch` to the private IP literal showed a permission prompt, "<site> wants to:
+    Access other devices on your local network", Allow / Block, and the request waited for the answer. **Allowed**: 200 for `fetch`, with and
+    without `targetAddressSpace: "local"`, and the `<img>` loaded (not upgraded to https because the host is an IP); mixed content was
+    logged as a warning ("This content should also be served over HTTPS"), not blocked. **Blocked**: every request failed at once
+    (`TypeError: Failed to fetch`, about 1 to 5 ms) with the console line "blocked by CORS policy: Permission was denied for this request to
+    access the `local` address space"; the `<img>` failed the same way. A page cannot tell a denial from an unreachable server by the error.
+  - Firefox 158 on Windows, from `https://example.com`: **no prompt**; `fetch` was "Blocked loading mixed active content"
+    (`TypeError: NetworkError when attempting to fetch resource.`, at once), and the `<img>` was upgraded to `https://192.168.1.10:8096`
+    and failed, though the host is an IP. So Firefox gives an https page no way to an http server on the LAN.
+  - Edge 155 and the embedded Chromium from `http://localhost:8765` (a secure context, loopback address space): `fetch` and `<img>` worked
+    with no prompt. Not run from `localhost` in Chrome and Firefox. The embedded Chromium reports the local network permission as denied
+    and blocked everything from the https page as mixed content, so it does not stand in for Chrome.
+  - Not run: Safari; a LAN host name (`media.lan`, `.local`) instead of an IP literal; a page served from the LAN over plain http.
+- **Recommendation** (inference from the runs above; the design belongs in an ADR):
+  - Discovery offers Jellyfin servers only. Seerr and Stash are added by URL.
+  - Every reply is a candidate: take the source address, the port and path from `Address`, group by `Id`, probe with
+    `GET /System/Info/Public`, and show name, address and version. Nothing is saved, and no credential is sent, until the user picks one (ADR 0016).
+  - "Found nothing" says the server may have discovery off or UDP 7359 not published (for example a container that publishes it as TCP),
+    and offers manual entry. Manual entry is never behind discovery.
+  - Desktop (Windows, Linux): broadcast to each interface's directed broadcast address (from `InterfaceAddress.getBroadcast()`) from one
+    wildcard socket, plus `255.255.255.255` on each interface-bound socket if cheap, and listen for about 2 s. Run it when the user opens
+    "Add server", not at start. `java.net` is enough; no dependency.
+  - Android: the same broadcast. Ask for `ACCESS_LOCAL_NETWORK` only when the user opens "Add server" or a saved server is local (target 37), and
+    say what a denial means. Confirm on Android 17 before shipping (the harness is ready).
+  - iOS and iPadOS: no broadcast discovery without the multicast entitlement, so manual entry first, with unicast probes (UDP 7359 or HTTP)
+    of what the user types. Request the entitlement from Apple if discovery is wanted there. Trigger the local network prompt from a user
+    action, explain it first (the alert shows a map and a profiling warning), and retry after the answer, because the first request fails while the alert is up.
+    macOS and tvOS need their own run.
+  - Web: no discovery. Manual entry only. From an https deployment, an `http://<LAN IP>` server works in Chrome and Edge only after the user
+    allows the prompt, and never in Firefox; say so on the add-server form and suggest https on the server or a LAN-served http copy of the app.
 
 ## Detecting network changes (checked 2026-10-19; documentation only)
 - Apple: `NWPathMonitor` (iOS 12, macOS 10.14, tvOS 12): `pathUpdateHandler` receives `NWPath` values with `status`, `availableInterfaces`,
@@ -1107,8 +1204,10 @@ research agent reading the same files.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
 - Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
-- Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
-  private network access) for local addresses (roadmap, M1 spike).
+- Local server discovery after the 2026-10-20 runs (see "Local server discovery, run on devices"): Android 17 with target 37 (permission
+  prompt, denial errors, whether broadcast replies need anything beyond `ACCESS_LOCAL_NETWORK`); macOS, tvOS and iPadOS; a distribution-signed
+  iOS build and the directed-broadcast gap seen there; Linux on hardware; Safari; LAN host names instead of IP literals in browsers; a
+  server on host networking (its `Address` field).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
   with Windows HDR off, libmpv's `win32-smtc` from an unpackaged JVM app (needs a build with it), the `wid` route on macOS and Linux desktops,
   interop blending over an OpenGL-rendered video, Compose popups as separate windows (`compose.layers.type=WINDOW`) above a native video window,
@@ -1160,11 +1259,10 @@ research agent reading the same files.
     - Whether `SUPPLEMENTAL-CODECS` without a `dvcC` box (profile 8, `DOVI` not listed) confuses any client.
 - Server addresses, discovery and roaming (2026-10-19; documentation and source only, no device, no LAN, no live server):
   - Jellyfin:
-    - The discovery handshake was never sent to a server; the 12.2 files were read through a summarizing fetcher and spot-checked
-      (the port, the match string, the reply, `AutoDiscovery`, `PublicSystemInfo`, the id source).
+    - The discovery handshake was sent to a live 12.2 server on 2026-10-20 (see "Local server discovery, run on devices"); the
+      jellyfin-web `AutoDiscovery` checkbox exists at the 12.2 tag, and no mDNS package was found (still not a repo-wide search).
     - The `UserDto` shape of `/Users/Public`; the HTTPS redirect status code; whether `GetBindAddress` returns the interface address when
-      `LocalNetworkAddresses` is set; the jellyfin-web `AutoDiscovery` checkbox at the 12.2 tag; whether the server advertises mDNS
-      (not found, not exhaustively searched); whether broadcasts reach a server in a bridge-networked container (expected not, untried).
+      `LocalNetworkAddresses` is set; how Docker delivered subnet broadcasts to a bridge-networked container (they arrived, untried why).
   - Seerr and Stash:
     - Whether an admin can change Seerr's `clientId`; what `commitTag` holds on a release image; the default `applicationTitle`; the
       validator's 401 body.
@@ -1179,12 +1277,14 @@ research agent reading the same files.
     - Whether `NWPathMonitor` fires for a Wi-Fi to Wi-Fi switch.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
-    - Whether a broadcast discovery needs a `MulticastLock`; Media3's and Coil's handling of the cleartext policy.
-  - Desktop: whether `255.255.255.255` leaves every interface on a multi-homed Windows PC; firewall prompts for a first-run UDP listener;
-    OS-level network change notifications (Windows, macOS, Linux).
+    - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16, see
+      "Local server discovery, run on devices"; Android 17 untried.)
+  - Desktop: OS-level network change notifications (Windows, macOS, Linux). (`255.255.255.255` leaves one interface only on a
+    multi-homed Windows PC, and a sender that reads unicast replies got no firewall prompt: see "Local server discovery, run on devices".)
   - Web:
-    - Safari's and Firefox's mixed-content exemption for LAN addresses (Mozilla's support article could not be opened; WebKit's Local
-      Network Access work was not opened); whether media elements can reach a `.lan` host from an HTTPS page in Chrome.
-    - Chrome 145 and 156 changes (third-party reports only); how a denied permission surfaces in `fetch`.
+    - Safari's mixed-content exemption for LAN addresses (WebKit's Local Network Access work was not opened); whether media elements
+      can reach a `.lan` host from an HTTPS page in Chrome. (Firefox 158 has none for an IP literal, and a denial in Chrome and Edge 155 is
+      a `TypeError` at once: see "Local server discovery, run on devices".)
+    - Chrome 145 and 156 changes (third-party reports only).
   - ktor-network: the wasm-js source jar was not opened; nothing was run on any target.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
