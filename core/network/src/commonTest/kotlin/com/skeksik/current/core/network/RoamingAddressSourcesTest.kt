@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.testTimeSource
 
 class RoamingAddressSourcesTest {
     private val homeId = "0123456789abcdef0123456789abcdef"
@@ -32,9 +33,9 @@ class RoamingAddressSourcesTest {
     private val internet = ServerAddress("https://media.example.com", AddressScope.Internet)
     private val capabilities = MutableCapabilitiesState()
     private val repository = StoredServerRepository(InMemoryKeyValueStore(), capabilities)
-    private val changes = MutableSharedFlow<Unit>()
+    private val changes = MutableSharedFlow<NetworkChange>()
 
-    /** The saved server answers everywhere, unless [answers] says otherwise: another id, or "slow" (fails after 5 s). */
+    /** The saved server answers everywhere, unless [answers] says otherwise: another id, "late" (answers after 3 s) or "slow" (fails after 5 s). */
     private val probe = object : ServerProbe {
         override val service = ServiceType.jellyfin
         override val defaultPort = 8096
@@ -44,6 +45,10 @@ class RoamingAddressSourcesTest {
         override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
             asked += address.toString()
             return when (val answer = answers[address.toString()]) {
+                "late" -> {
+                    delay(3.seconds)
+                    ServerIdentity(homeId, "Home", null)
+                }
                 "slow" -> {
                     delay(5.seconds)
                     throw ServiceException(server, ServiceErrorKind.Timeout)
@@ -58,7 +63,7 @@ class RoamingAddressSourcesTest {
         SavedServer(newServerRef(service), homeId, "Home", listOf(local, internet))
 
     /** Runs in the background, so every source stops with the test. */
-    private fun TestScope.sources() = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, backgroundScope)
+    private fun TestScope.sources() = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource)
 
     private fun url(address: ServerAddress) = ServerUrl.parse(address.url)!!
 
@@ -107,7 +112,7 @@ class RoamingAddressSourcesTest {
         assertNull(source.current.value)
         assertNull(sources.forServer(home).awaitCurrent())
         probe.asked.clear()
-        changes.emit(Unit)
+        changes.emit(NetworkChange.Changed)
         runCurrent()
         assertTrue(probe.asked.isEmpty(), "the stopped source asks nothing")
     }
@@ -123,7 +128,7 @@ class RoamingAddressSourcesTest {
         source.reportUnreachable(url(local))
         runCurrent()
         assertEquals(url(internet), source.current.value, "a stale report is ignored")
-        changes.emit(Unit)
+        changes.emit(NetworkChange.Changed)
         runCurrent()
         assertEquals(url(local), source.current.value)
     }
@@ -149,15 +154,15 @@ class RoamingAddressSourcesTest {
     }
 
     @Test
-    fun aClientsFirstRequestWaitsForTheFirstCheck() = runTest {
-        probe.answers[local.url] = "slow"
+    fun aClientsFirstRequestWaitsForTheFirstProvedAddress() = runTest {
+        probe.answers += mapOf(local.url to "slow", internet.url to "late")
         val home = server().also(repository::save)
         val sent = mutableListOf<String>()
         val client = client(sources().forServer(home), sent)
         val request = launch { client.request { get("Users/Me") } }
         runCurrent()
         assertTrue(sent.isEmpty())
-        advanceTimeBy(5.seconds)
+        advanceTimeBy(3.seconds)
         runCurrent()
         request.join()
         assertEquals(listOf("media.example.com"), sent)
@@ -172,7 +177,7 @@ class RoamingAddressSourcesTest {
         assertEquals(url(local), source.current.value)
         // On the new network something slow answers at the old local address.
         probe.answers[local.url] = "slow"
-        changes.emit(Unit)
+        changes.emit(NetworkChange.Changed)
         runCurrent()
         val client = client(source, sent)
         val request = launch { client.request { get("Users/Me") } }

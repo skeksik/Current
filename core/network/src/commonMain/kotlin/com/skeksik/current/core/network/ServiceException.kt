@@ -11,7 +11,7 @@ import kotlinx.serialization.SerializationException
 
 /** Why a request to a server failed, as far as the app cares. Service-specific reasons (Seerr's messages) are the data layer's. */
 enum class ServiceErrorKind {
-    /** No connection: offline, wrong address, server down, TLS failure, or no address known to work. */
+    /** No connection: offline, wrong address, server down, TLS failure, network access denied to the app, or no address known to work. */
     Unreachable,
 
     /** Connected, but no complete answer in time. */
@@ -73,7 +73,9 @@ internal fun serviceExceptionFor(server: ServerRef, error: Throwable): ServiceEx
         is IOException -> ServiceException(server, ServiceErrorKind.Unreachable, detail = detail)
         is SerializationException, is ContentConvertException, is NoTransformationFoundException ->
             ServiceException(server, ServiceErrorKind.InvalidResponse, detail = detail)
-        else -> null
+        // The platform refused network access to the app: the server cannot be reached, which must not end a roaming loop as an
+        // unexpected exception would. Other errors of the same class (a file without a grant) stay bugs.
+        else -> if (isPermissionDenied(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
     }
 }
 
@@ -85,3 +87,9 @@ private fun kindFor(status: Int): ServiceErrorKind = when {
     status >= 500 -> ServiceErrorKind.ServerError
     else -> ServiceErrorKind.InvalidResponse
 }
+
+/** Whether [error] is the platform refusing network access to the app: Android without its `INTERNET` permission. */
+internal expect fun isPermissionDenied(error: Throwable): Boolean
+
+/** Android's message for a socket refused for want of `INTERNET`: "Permission denied (missing INTERNET permission?)". */
+internal fun isMissingInternetPermission(message: String?): Boolean = message.orEmpty().contains("INTERNET permission")

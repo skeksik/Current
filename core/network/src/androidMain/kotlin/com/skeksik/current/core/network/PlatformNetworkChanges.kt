@@ -8,16 +8,15 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.koin.core.scope.Scope
 
 /**
- * The default network's callback (needs `ACCESS_NETWORK_STATE`). A report of the network that was already the default when listening
- * started is not a change (registering can report it at once, docs/platform-notes.md); another default network, or losing it, is.
- * Without the permission there is no signal.
+ * The default network's callback (needs `ACCESS_NETWORK_STATE`). What counts as a change is [DefaultNetworkTracker]'s: registering
+ * reports the current network at once (docs/platform-notes.md), which is not a change. Without the permission there is no signal.
  */
 internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
     val connectivity = get<Context>().getSystemService(ConnectivityManager::class.java) ?: return NetworkChanges.None
     return NetworkChanges {
         callbackFlow {
             val callback = try {
-                DefaultNetworkCallback(connectivity.activeNetwork) { trySend(Unit) }
+                DefaultNetworkCallback(DefaultNetworkTracker(connectivity.activeNetwork)) { trySend(it) }
                     .also { connectivity.registerDefaultNetworkCallback(it) }
             } catch (e: SecurityException) {
                 close()
@@ -28,16 +27,20 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
     }
 }
 
-private class DefaultNetworkCallback(private var last: Network?, private val changed: () -> Unit) : ConnectivityManager.NetworkCallback() {
+private class DefaultNetworkCallback(
+    private val tracker: DefaultNetworkTracker<Network>,
+    private val changed: (NetworkChange) -> Unit,
+) : ConnectivityManager.NetworkCallback() {
     override fun onAvailable(network: Network) {
-        if (network != last) changed()
-        last = network
+        tracker.available(network)?.let(changed)
     }
 
     override fun onLost(network: Network) {
-        if (network == last) {
-            last = null
-            changed()
-        }
+        tracker.lost(network)?.let(changed)
+    }
+
+    /** API 29+; earlier versions never call it. Android blocks a background app's network and unblocks it in the foreground. */
+    override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+        tracker.blockedStatus(network, blocked)?.let(changed)
     }
 }

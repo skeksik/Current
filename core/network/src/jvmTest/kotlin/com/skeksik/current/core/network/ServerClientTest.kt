@@ -186,6 +186,15 @@ class ServerClientTest {
     }
 
     @Test
+    fun onTheJvmASecurityExceptionIsABugNotAFailedRequest() = runBlocking {
+        // Only Android's refusal for a missing INTERNET permission is a request failure; the JDK's client never throws it.
+        val recorder = Recorder().apply { answer = { throw SecurityException("Permission denied (missing INTERNET permission?)") } }
+        val address = SwitchableAddress(internet)
+        assertFailsWith<SecurityException> { client(recorder, address).use { it.request { get("Items") } } }
+        assertEquals(emptyList(), address.reported)
+    }
+
+    @Test
     fun aRefusedConnectionIsUnreachableAndReported() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val closed = ServerUrl.parse("http://127.0.0.1:$port")!!
