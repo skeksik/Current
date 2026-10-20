@@ -676,7 +676,7 @@ as of 2026-10-18.
   Quick Connect through Seerr (`POST /auth/jellyfin/quickconnect/initiate` returns code + secret, `GET .../check?secret=`,
   `POST .../authenticate {secret}`). Login responses are partial: call `GET /auth/me` after. `POST /auth/logout`.
   A client already signed in to Jellyfin can approve Seerr's Quick Connect code itself (Jellyfin `POST /QuickConnect/Authorize?code=`), so it
-  never stores a password and can renew the session silently. Not tried end to end yet; needs Quick Connect enabled on Jellyfin.
+  never stores a password and can renew the session silently: see "Seerr 3.5.0: sign-in with the app's Jellyfin session".
 - No per-user API tokens. The global API key (`X-Api-Key`) acts as admin and, with `X-API-User: <id>`, as any user
   (`server/middleware/auth.ts`): never put it in a client.
 - `permissions` is a JSON number bitmask: use `Long`.
@@ -816,6 +816,130 @@ Input for "send credentials only to an address that reports the server id saved 
 - Implication (inference): Jellyfin (`Id`) and Seerr (`plexClientIdentifier`) can be verified before any credential leaves the app. Stash
   cannot, so a Stash address needs a different rule: for example send the key only to addresses the user entered or confirmed, and treat a
   new discovered address as untrusted until the user accepts it.
+
+## Seerr 3.5.0: sign-in with the app's Jellyfin session (checked 2026-10-20 in the Seerr v3.5.0 and Jellyfin v12.2 source and specs; nothing sent to a live server)
+Input for the M3 item "Seerr sign-in without storing a password". Seerr files are under
+`https://github.com/seerr-team/seerr/blob/v3.5.0/` (spec `seerr-api.yml`), Jellyfin files under
+`https://github.com/jellyfin/jellyfin/blob/v12.2/` (spec https://api.jellyfin.org/openapi/stable/jellyfin-openapi-12.2.json). The route
+code, the Jellyfin client headers, the session options and `QuickConnectManager.cs` were re-read by hand; the rest came from a
+research agent reading the same files.
+- **Seerr's three routes** (`server/routes/auth.ts`), all under `/api/v1/auth`, with no `isAuthenticated` and `security: []` in the spec:
+  - `POST /jellyfin/quickconnect/initiate`, no body: 200 `{code, secret}` (Jellyfin's `Code` and `Secret`, passed through).
+    403 `{message: "Quick Connect is only supported by Jellyfin."}` when `mediaServerType` is not Jellyfin. Any Jellyfin error,
+    Quick Connect being off included, becomes 500 `{message: "Failed to initiate quick connect."}`. The spec lists 200 and 500 only.
+  - `GET /jellyfin/quickconnect/check?secret=`: 200 `{authenticated: boolean}`. 400 `Invalid secret format` (zod: 8 to 128 hex
+    characters), 403 as above; any Jellyfin error passes its status through (404 for an unknown or expired secret, 401 when Quick Connect
+    is off) with `{message: "Failed to check Quick Connect status"}`, a Jellyfin that does not answer becomes 502. The spec lists 200 and 404.
+  - `POST /jellyfin/quickconnect/authenticate`, body `{secret}`: 200 with the user (`User.filter()`: no `email`, tokens or device id, but
+    `jellyfinUserId`, `permissions`, `userType`). In order: 400 `Secret required`; 403 `Quick Connect is not available during initial setup.`
+    while `mediaServerType` is not configured or Seerr has no user yet; 403 Jellyfin only; 403 `Access denied.` (unimported user, below);
+    otherwise Jellyfin's status with `{message: "INVALID_CREDENTIALS"}` (404 for a secret that is unknown, expired or not yet
+    approved; 500 if there is none). The spec lists 200, 403 and 500 and no hex pattern.
+  - Error bodies go through the error handler in `server/index.ts`: `{message, errors}` with the given status.
+- **Seerr only proxies.** It keeps no state for the code or secret (the client holds the secret) and calls the Jellyfin server in its
+  settings: `getHostname()` (`server/utils/getHostname.ts`) builds `http(s)://<ip>:<port><urlBase>` from `settings.jellyfin`, never from
+  `externalHostname`. It sends `POST /QuickConnect/Initiate`, `GET /QuickConnect/Connect?secret=`, `POST /Users/AuthenticateWithQuickConnect
+  {Secret}` with `MediaBrowser Client="Seerr", Device="Seerr", DeviceId="Qk9UX3NlZXJy", Version="<Seerr version>"` (`server/api/jellyfin.ts`):
+  the Quick Connect routes pass no device id, so it is the fallback, base64 of `BOT_seerr`, the same for every user.
+- **What Seerr does on success:** finds the Seerr user by `jellyfinUserId == User.Id` from Jellyfin's answer. There is no server id check
+  on this path (the password route only writes `settings.jellyfin.serverId`). If none is found and `settings.main.newPlexLogin` (shown
+  as the setting for new media server sign-ins; default `true`, `server/lib/settings/index.ts`) is off: 403 `Access denied.`; if on,
+  it creates a Jellyfin user (`userType` 3) with `settings.main.defaultPermissions` (default `REQUEST`, 32). It stores Jellyfin's
+  `AccessToken` as `jellyfinAuthToken` and `base64("BOT_seerr_" + name)` as `jellyfinDeviceId` (both never returned to clients), then sets
+  `req.session.userId`. `settings.main.mediaServerLogin` (the admin switch for Jellyfin sign-in) is checked only by the password route,
+  not by Quick Connect.
+- **Jellyfin's side of the flow** (`Emby.Server.Implementations/QuickConnect/QuickConnectManager.cs`, `Jellyfin.Api/Controllers/QuickConnectController.cs`):
+  - Quick Connect is on by default (`ServerConfiguration.QuickConnectAvailable = true`). `GET /QuickConnect/Enabled` and
+    `GET /QuickConnect/Connect?secret=` are anonymous. Codes are 6 digits; secrets are 64 hex characters (32 random bytes).
+  - State is in the server's memory and expires lazily (on the next Quick Connect call): a request lives 10 minutes from `Initiate`; after
+    approval its entry lives 1 more minute plus 10 (so `Connect` still shows `Authenticated: true`) and the stored sign-in result 10
+    minutes. A secret is not single-use: `AuthenticateWithQuickConnect` returns the same result and token until it expires. A code can be
+    approved once. Pending requests are not capped.
+  - Approval creates the token for the device that initiated, so for Seerr's `Qk9UX3NlZXJy` "Seerr" device, not ours. Creating it first
+    logs out any device with the same device id and user (`SessionManager`), so each Quick Connect sign-in through Seerr replaces that
+    user's previous Seerr Quick Connect token; our app's own Jellyfin token is untouched. Device tokens do not expire.
+  - Seerr's sign-out (`POST /auth/logout`) deletes the Jellyfin device `jellyfinDeviceId` with Seerr's admin key, which is
+    `base64("BOT_seerr_<name>")`, not `Qk9UX3NlZXJy`, so (inference) the Quick Connect device stays on Jellyfin after a Seerr sign-out.
+- **Approving the code from our side:** Jellyfin `POST /QuickConnect/Authorize?code=&userId=` with our user's token.
+  - `[Authorize]` with the default policy: any signed-in user, no admin needed; API keys also pass (we never use one). The usual caller
+    checks apply: a disabled account, remote access without `EnableRemoteAccess`, a parental schedule.
+  - `userId` (`RequestHelpers.GetUserId`): left out means the caller; another user's id needs an administrator, else 403. Always leave it out.
+  - 200 with the JSON boolean `true`. Errors, through `ExceptionMiddleware` (outside Development the body is the plain text
+    `Error processing request.`, so go by status): Quick Connect off 401 (the action catches every `AuthenticationException` as
+    `Quick connect is disabled`); unknown or expired code 404; code already approved 500 (`InvalidOperationException`, unmapped); the target
+    user not allowed on Seerr's device or at their session limit 403. The spec lists only 200, 401, 403.
+  - The approved user's own policy is not checked again (no password path): `IsDisabled` and remote access are checked on the caller, which
+    is the same user when `userId` is left out.
+- **Same Jellyfin server on both sides:**
+  - Seerr shows no Jellyfin server id without a session. `GET /api/v1/settings/public` has `mediaServerType` (1 Plex, 2 Jellyfin, 3 Emby,
+    4 not configured; `server/constants/server.ts`), `mediaServerLogin`, `newPlexLogin`, `localLogin`, `jellyfinExternalHost` (an optional
+    link address the admin typed, default empty), `jellyfinForgotPasswordUrl` and others. `jellyfinServerName` is declared but never set.
+    `settings.jellyfin.serverId` is admin only (`GET /settings/jellyfin`). `jellyfinExternalHost` is a hint, not proof.
+  - Proof before approving (inference from the code above): after Seerr's `initiate`, ask **our** Jellyfin `GET /QuickConnect/Connect?secret=`
+    with Seerr's secret. Quick Connect state lives in one Jellyfin process's memory and the secret is 32 random bytes, so 200 with the same
+    `Code` (and `AppName` "Seerr", `DeviceId` `Qk9UX3NlZXJy`) means the pending request is on our server; 404 means Seerr uses another
+    Jellyfin, and the code must not be approved (it could match an unrelated pending request on ours).
+  - Proof after sign-in: `GET /auth/me` returns `jellyfinUserId`, which must equal our Jellyfin user's `Id` (Jellyfin ids are 32 hex
+    characters; compare without dashes and case).
+- **The Seerr session** (`server/index.ts`, mounted on `/api`): express-session with cookie `connect.sid`, `maxAge` 30 days, `httpOnly`,
+  `sameSite` Lax (Strict with CSRF protection on), `secure: 'auto'` (Secure only when Seerr sees HTTPS; `trust proxy` only with the
+  `trustProxy` setting), `resave: false`, no `rolling`, TypeORM store with a 30-day ttl.
+  - Per express-session and connect-typeorm (read at v1.18.1 and `master`, not the exact versions Seerr pins): each request with an
+    unchanged session touches the store, so the server-side expiry slides, but `Set-Cookie` is sent only when the session changes, so the
+    cookie's own `Expires` stays 30 days from sign-in. A client cookie store drops the cookie then. Not verified live.
+  - `GET /api/v1/auth/me`: the user (`id`, `displayName`, `username`, `jellyfinUsername`, `jellyfinUserId`, `userType`, `permissions`, `avatar`,
+    quotas, `requestCount`, `warnings`, ...) plus `settings {locale, discoverRegion, streamingRegion, originalLanguage, notificationTypes,
+    watchlistSyncMovies, watchlistSyncTv}`. Without a cookie the validator answers 401; with a cookie for a missing or expired session,
+    `isAuthenticated` answers 403 `{status: 403, error: "You do not have permission to access this endpoint"}` (`server/middleware/auth.ts`).
+  - `permissions` (`server/lib/permissions.ts`): NONE 0, ADMIN 2, MANAGE_SETTINGS 4, MANAGE_USERS 8, MANAGE_REQUESTS 16, REQUEST 32,
+    VOTE 64, AUTO_APPROVE 128, AUTO_APPROVE_MOVIE 256, AUTO_APPROVE_TV 512, REQUEST_4K 1024, REQUEST_4K_MOVIE 2048, REQUEST_4K_TV 4096,
+    REQUEST_ADVANCED 8192, REQUEST_VIEW 16384, AUTO_APPROVE_4K 32768, AUTO_APPROVE_4K_MOVIE 65536, AUTO_APPROVE_4K_TV 131072,
+    REQUEST_MOVIE 262144, REQUEST_TV 524288, MANAGE_ISSUES 1048576, VIEW_ISSUES 2097152, CREATE_ISSUES 4194304, AUTO_REQUEST 8388608,
+    AUTO_REQUEST_MOVIE 16777216, AUTO_REQUEST_TV 33554432, RECENT_VIEW 67108864, WATCHLIST_VIEW 134217728, MANAGE_BLOCKLIST 268435456,
+    VIEW_BLOCKLIST 1073741824. `hasPermission` treats ADMIN as every permission.
+  - Renewal: `authenticate` only sets `req.session.userId` (no `regenerate`), so a client that still sends its `connect.sid` keeps the same
+    id and gets a new `Set-Cookie` with a fresh 30 days; without one it gets a new session. Another Quick Connect round therefore renews
+    the session silently. No rate limiter is applied to the auth routes (`express-rate-limit` is a dependency; where it is used was not found).
+  - CSRF (`settings.network.csrfProtection`, default off): `@dr.pogodin/csurf` with an `_csrf` cookie (HttpOnly, SameSite Strict, Secure
+    outside development) and a readable `XSRF-TOKEN` cookie set on every response; POSTs, Quick Connect ones included, must echo it in
+    `X-XSRF-TOKEN` (or `CSRF-Token`, `XSRF-Token`, `X-CSRF-Token`, per the package README). Because those cookies are Secure, this
+    presumably works only over HTTPS (inference).
+  - `POST /api/v1/auth/logout`: 200 `{status: "ok"}`, with or without a session.
+- **Failure cases, as the app sees them:**
+
+  | Situation | What answers |
+  |---|---|
+  | Quick Connect off on Jellyfin | Our `GET /QuickConnect/Enabled` is `false`; Seerr `initiate` 500 |
+  | Seerr not on Jellyfin, or not set up | `settings/public` `mediaServerType` not 2, or `initialized` false; `initiate` 403 |
+  | Seerr on another Jellyfin server | Our `GET /QuickConnect/Connect?secret=` 404 (do not approve) |
+  | Our user not imported and new sign-ins off | `authenticate` 403 `Access denied.` (`newPlexLogin` false in `settings/public` predicts it) |
+  | Our user not allowed on Seerr's device, or at their session limit | Our `Authorize` 403 |
+  | Code expired (10 minutes) | Our `Authorize` 404; Seerr `check` and `authenticate` 404 |
+  | Session gone | `GET /auth/me` 403 (cookie sent) or 401 (none) |
+- **Clients:**
+  - Kotlin/Ktor: a cookie store per Seerr server (Ktor's `HttpCookies` plugin with our own `CookiesStorage`). `connect.sid` is a
+    credential: keep it in the `SecretStore` (ADR 0017), never in settings or logs, and redact `Cookie` and `Set-Cookie` in the request
+    log; Seerr requests need no other auth. With CSRF on, read `XSRF-TOKEN` from the store and send it
+    in `X-XSRF-TOKEN` on every POST. Whether Ktor's storage keeps a Secure cookie for an `http` URL was not checked.
+  - Browser: the browser owns the HttpOnly cookie, so the app never sees it. Seerr has no CORS and its validator answers OPTIONS
+    preflights with 405 (express-openapi-validator 5.6.2, no `cors` package in `server/index.ts`), so Seerr's API must be served on the
+    app's origin (reverse proxy) or Seerr needs CORS (see "Seerr" and the roadmap's M3 decision). Same origin, the cookie travels with
+    `fetch` by default and SameSite does not matter. The calls to Jellyfin (`Connect`, `Authorize`) use our token header, and Jellyfin's
+    CORS is open.
+- **Recommended flow** (inference; to confirm end to end against live servers):
+  1. Before offering it: `GET /api/v1/settings/public` shows `mediaServerType` 2 and `initialized`; the app holds a Jellyfin session; our
+     Jellyfin's `GET /QuickConnect/Enabled` is `true`. Otherwise offer the fallback (password or local account, roadmap M3).
+  2. Seerr `POST /api/v1/auth/jellyfin/quickconnect/initiate` → `{code, secret}`.
+  3. Our Jellyfin `GET /QuickConnect/Connect?secret=<secret>` must answer 200 with the same `Code`; on 404 stop ("Seerr uses a different
+     Jellyfin server").
+  4. Our Jellyfin `POST /QuickConnect/Authorize?code=<code>` (no `userId`) with our token → `true`.
+  5. Seerr `POST /api/v1/auth/jellyfin/quickconnect/authenticate {secret}` → 200 and `Set-Cookie: connect.sid` (no polling of `check` is
+     needed, since we approved it ourselves). 403 `Access denied.` means an administrator has to import the user.
+  6. Seerr `GET /api/v1/auth/me`: `jellyfinUserId` must equal our Jellyfin user id; otherwise sign out of Seerr and keep nothing. Keep the
+     cookie in the `SecretStore` and the user, `permissions` (a `Long`) and the time of sign-in in settings.
+  7. Renew by running steps 2 to 6 again well before 30 days from the last `Set-Cookie` (for example after 25 days, at start or when
+     online), and at once when `GET /auth/me` answers 401 or 403, as long as the Jellyfin session is valid. Signing out of Jellyfin does not
+     sign out of Seerr; sign out of both if the user asks.
 
 ## Local network, discovery and plain HTTP: Apple (checked 2026-10-19 in Apple's documentation, read as JSON from developer.apple.com; nothing run on a device)
 - Local network privacy: TN3179 (revised 2026-10-06), https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy
@@ -983,6 +1107,14 @@ Input for "send credentials only to an address that reports the server id saved 
   is covered under "Local network and mixed content: browsers"; it was read, not tried in a browser.
 - Sign-in flows end to end: AuthenticateByName, Quick Connect and playback reporting were never sent to a live server (the web spike
   used an API key and mocks; `PlaybackInfo` was sent live, see "Jellyfin 12.x").
+- Seerr sign-in through the app's Jellyfin session (2026-10-20; source and specs only):
+  - The whole flow against live Seerr 3.5.0 and Jellyfin 12.2, including that approving the code ourselves lets `authenticate` succeed
+    without polling `check`, and the same-server check with `GET /QuickConnect/Connect?secret=`.
+  - That the server-side session expiry slides while the cookie's `Expires` does not (express-session 1.19.0 and connect-typeorm 2.0.0,
+    the versions Seerr pins, were not read); the csurf error status; whether `express-rate-limit` guards any route.
+  - That Seerr's sign-out leaves the Quick Connect "Seerr" device on Jellyfin; the exact 401 body of Jellyfin's `Unauthorized("...")`;
+    what status a disabled caller gets from `Authorize`.
+  - Whether Ktor's cookie storage keeps a Secure cookie for an `http` URL.
 - Dolby Vision's base layer in browsers without Dolby Vision. The web profile accepts `DOVIWithHDR10`, `DOVIWithHDR10Plus`,
   `DOVIWithSDR` and (with HLG) `DOVIWithHLG` everywhere, as ADR 0011 assumes, but no Dolby Vision file was ever played in a browser.
   Check profile 8.1 in Chrome as MKV and as MP4, the latter with a `dvh1`/`dvhe` sample entry as well as `hvc1`. If one fails, turn
