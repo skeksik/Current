@@ -10,7 +10,7 @@ import org.koin.core.scope.Scope
  */
 internal actual fun Scope.platformNetworkChanges(): NetworkChanges = NetworkChanges {
     callbackFlow {
-        val listener: (dynamic) -> Unit = { trySend(Unit) }
+        val listener: (dynamic) -> Unit = { trySend(NetworkChange.Changed) }
         listen(listener)
         awaitClose { unlisten(listener) }
     }
