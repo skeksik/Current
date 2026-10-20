@@ -90,7 +90,8 @@ Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/Ai
 The module tree and build files exist; sources are empty except `core:model` (ADR 0013), the capabilities state (ADR 0014),
 the server clients, error model and redacted request log (`core:network`, ADR 0015), saved servers, the settings store and
 `ServerSetupViewModel` with the Jellyfin probe (ADR 0016), secrets and device identity (`core:database`, ADR 0017),
-Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), `shared` (a placeholder `App()` showing "Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
+Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), several addresses per server with roaming and
+`ServerAddressesViewModel` (ADR 0019), `shared` (a placeholder `App()` showing "Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
 framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
