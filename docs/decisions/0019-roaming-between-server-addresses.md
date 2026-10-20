@@ -13,9 +13,10 @@ is on, so a signal can only mean "something may have changed".
 - **One `RoamingServerAddress` per saved server**, made by `RoamingAddressSources` (bound in Koin in place of the first address),
   started for every saved server and shared by every client of that server. It runs in the app scope until the server is removed,
   follows edits to its addresses, and has no address once stopped.
-- **Choosing:** every address is asked at once with the service's `ServerProbe`, without credentials. The first in priority order that
-  reports the saved server id ends the check. An address that proves itself while higher ones are still being asked is used at once,
-  and the check moves up to each higher one that answers before it ends, so requests never wait for a higher address that hangs until
+- **Choosing: the best address proved so far, upgraded as higher ones answer.** Every address is asked at once with the service's
+  `ServerProbe`, without credentials, and only one that reports the saved server id is used. The first that proves itself is used at
+  once, and the check moves up to each higher one that answers; it ends when the highest proved address has no higher one still
+  being asked, so requests never wait for a higher address that hangs until
   its probe times out (5 s for Jellyfin). An address that answers with another id, a redirect or anything else is never used. In a browser, a local `http` address from an `https`
   page fails as mixed content and simply does not answer.
 - **What the check proves:** the id comes from a public endpoint (`/System/Info/Public`), so it stops credentials going to *another*
@@ -56,8 +57,8 @@ is on, so a signal can only mean "something may have changed".
   (`feature:settings`) lists the addresses with their scope and the one in use, and removes and reorders them.
 
 ## Consequences
-- Android declares `ACCESS_NETWORK_STATE`; without it there is no signal. Reaching a server at all on Android still needs the app
-  shell's `INTERNET` permission, a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
+- Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
+  still needs a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
   (docs/platform-notes.md, "Roaming on Android"); those come with the shell.
 - A network change does not cancel requests already sent: one sent just before it can go to the old address and hang until its own
   timeout (17.8 s over a VPN on Android).
