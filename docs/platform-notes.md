@@ -1147,7 +1147,8 @@ research agent reading the same files.
 - What ran: the placeholder SwiftUI app with a throwaway harness (not committed) that started Koin with the real `databaseModule`,
   `networkModule` and `jellyfinModule`, so the real `RoamingAddressSources`, `JellyfinServerProbe` and Apple `NetworkChanges`. **The
   first two runs used the rules before "Use a proved address at once"** (wait 1 s for a burst to settle, then wait for every higher
-  address); the third used the rules after it ("Third run" below). One Jellyfin 12.2 server, local address first
+  address); the third used the round-3 rules, with it but before round 4's changes (rate-limited request checks, no swap down
+  mid-check, `NetworkChange.Resumed`), which were not run on iOS ("Third run" below). One Jellyfin 12.2 server, local address first
   (`http://192.168.1.10:8096`), internet address second (`https://media.example.com`). Logged with timestamps: every request log entry
   (it names no address; which probe is which follows from timing: the LAN answered in 9-46 ms, the internet address in 40-780 ms, and a
   cancelled probe logs "no response"), the address in use, `reachable`, a request through `awaitCurrent` every 250 ms with how long it
