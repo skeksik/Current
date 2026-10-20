@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -77,7 +78,7 @@ internal fun SettingsScreen(navigator: Navigator) {
             Column(Modifier.weight(1f)) { SectionTitle(stringResource(Res.string.settings_servers)) }
             Button({ navigator.open(AddServerRoute) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
-                Text(stringResource(Res.string.settings_add_server))
+                Text(stringResource(Res.string.settings_add_server), Modifier.padding(start = Spacing.s))
             }
         }
         if (state.servers.isEmpty()) {
@@ -131,12 +132,11 @@ private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit,
                 Text(status, style = MaterialTheme.typography.bodyMedium)
                 if (row.reachable == false) Notice(stringResource(Res.string.settings_offline), NoticeKind.Warning)
             }
-            when {
-                row.signedInAs != null -> OutlinedButton(signOut, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                    Text(stringResource(Res.string.settings_sign_out))
-                }
-                row.ref.service == ServiceType.jellyfin -> Button(signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                    Text(stringResource(Res.string.settings_sign_in))
+            // One button for both, so focus stays on it when signing out turns it into Sign in.
+            val signedIn = row.signedInAs != null
+            if (signedIn || row.ref.service == ServiceType.jellyfin) {
+                OutlinedButton(if (signedIn) signOut else signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+                    Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in))
                 }
             }
             TextButton(remove, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {

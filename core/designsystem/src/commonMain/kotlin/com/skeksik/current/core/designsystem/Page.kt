@@ -60,6 +60,7 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
         modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(Modifier.padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s), content = content)
     }

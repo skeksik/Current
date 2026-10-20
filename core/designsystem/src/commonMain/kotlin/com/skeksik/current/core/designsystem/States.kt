@@ -3,6 +3,7 @@ package com.skeksik.current.core.designsystem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -101,4 +102,16 @@ private fun StateButtons(primary: StateAction, secondary: StateAction?) {
         }
     }
     LaunchedEffect(Unit) { focus.requestFocus() }
+}
+
+/** A small spinner with [message], inside a form or a list rather than in place of the page. */
+@Composable
+fun InlineProgress(message: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+    ) {
+        CircularProgressIndicator(Modifier.size(Size.icon), strokeWidth = 2.dp)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }

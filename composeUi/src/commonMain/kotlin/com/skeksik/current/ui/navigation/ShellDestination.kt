@@ -42,7 +42,7 @@ interface Navigator {
     /** Opens [route] in place of the current page, so Back skips it (a finished step, such as adding a server). */
     fun replace(route: Any)
 
-    /** Goes back to the page below; does nothing on a sidebar entry's first page. */
+    /** Goes back to the previous page. */
     fun back()
 }
 

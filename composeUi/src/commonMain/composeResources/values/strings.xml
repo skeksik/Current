@@ -4,6 +4,7 @@
     <!-- Sidebar -->
     <string name="nav_home">Home</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_back">Back</string>
 
     <!-- Home -->
     <string name="home_title">Home</string>

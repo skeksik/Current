@@ -39,6 +39,13 @@ object CurrentIcons {
         }
     }
 
+    val Back: ImageVector by lazy {
+        icon("Back") {
+            moveTo(19f, 12f); lineTo(5f, 12f)
+            moveTo(11f, 6f); lineTo(5f, 12f); lineTo(11f, 18f)
+        }
+    }
+
     val Add: ImageVector by lazy {
         icon("Add") {
             moveTo(12f, 5f); lineTo(12f, 19f)
