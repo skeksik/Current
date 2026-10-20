@@ -42,13 +42,14 @@ is on, so a signal can only mean "something may have changed".
   - on Android, when the system unblocks the default network (it blocks a background app's network, and a check made then finds
     nothing): the same network is usable again, so the check starts at once, the address in use stays, and the retry waits start over;
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
-    when a request finds no address at all; at most once per 15 s after the last check ended, so a caller that retries on every
-    failure cannot drive checks back to back;
+    when a request finds no address at all. Never while a check runs, which answers it, and at most once per 15 s after the last
+    check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every
+    failure cannot drive checks back to back, and recovery takes at most 15 s plus a probe;
   - every 5 minutes, asking the address in use and those above it: to move back to a higher (local) address, or to notice that the
     one in use stopped answering, in which case every address is asked;
   - while nothing answers, after 15 s, doubling up to 5 minutes after each miss on the timer (not after one a request or a change
     woke), back to 15 s after a success.
-  Triggers that arrive during a check make exactly one more check. A check whose addresses are edited, or whose network changes,
+  Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`).
 - **The platform refusing network access** (Android's `SecurityException` for a missing `INTERNET` permission, and only that one) is a
