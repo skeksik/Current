@@ -3,6 +3,7 @@ package com.skeksik.current.core.network
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -42,6 +43,7 @@ class RoamingAddressSources internal constructor(
     private val scope: CoroutineScope,
     private val timing: RoamingTiming = RoamingTiming(),
     private val unidentifiable: Set<ServiceType> = setOf(ServiceType.stash),
+    private val time: TimeSource = TimeSource.Monotonic,
 ) : ServerAddressSources {
     private class Running(val source: ManagedServerAddress, val job: Job)
 
@@ -58,7 +60,7 @@ class RoamingAddressSources internal constructor(
 
     private fun start(server: SavedServer): ServerAddressSource {
         val source = when {
-            server.ref.service in probes -> RoamingServerAddress(server, probes.getValue(server.ref.service), capabilities, timing)
+            server.ref.service in probes -> RoamingServerAddress(server, probes.getValue(server.ref.service), capabilities, timing, time)
             server.ref.service in unidentifiable -> OrderedServerAddress(server)
             else -> return NoAddress
         }

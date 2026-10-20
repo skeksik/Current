@@ -4,6 +4,8 @@ import com.skeksik.current.core.model.SavedServer
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -45,7 +47,7 @@ internal interface ManagedServerAddress : ServerAddressSource {
     fun update(server: SavedServer)
 
     /** Chooses addresses until cancelled; afterwards the source has no address. */
-    suspend fun run(networkChanges: Flow<Unit>)
+    suspend fun run(networkChanges: Flow<NetworkChange>)
 }
 
 /**
@@ -62,6 +64,8 @@ internal class RoamingServerAddress(
     private val probe: ServerProbe,
     private val capabilities: MutableCapabilitiesState,
     private val timing: RoamingTiming = RoamingTiming(),
+    /** Measures how long ago the last check ended; tests pass their virtual clock. */
+    private val time: TimeSource = TimeSource.Monotonic,
 ) : ManagedServerAddress {
     /** Everything a check's result depends on, changed in one step so that a result never lands on edited addresses. */
     private data class Roam(
@@ -72,7 +76,7 @@ internal class RoamingServerAddress(
         val blocking: Boolean,
         /** Bumped by every edit and network change; a check started under another generation is thrown away. */
         val generation: Int,
-        /** Bumped by every network change, which starts the retry waits over. */
+        /** Bumped by every network change, and when the network is usable again; either starts the retry waits over. */
         val network: Int = 0,
     )
 
@@ -86,16 +90,28 @@ internal class RoamingServerAddress(
 
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
+    /** When the last check ended; null until the first has. */
+    private val lastCheckEnded = MutableStateFlow<TimeMark?>(null)
+
     override suspend fun awaitCurrent(): ServerUrl? {
         val address = withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
         // A request that finds no address asks for a check, so a server that came back is found before the next retry. Not while a
         // network change settles: its own check is about to start.
-        if (address == null && !state.value.blocking) wake.trySend(Unit)
+        if (address == null && !state.value.blocking) checkForRequest()
         return address
     }
 
     override fun reportUnreachable(address: ServerUrl) {
-        if (address == state.value.address) wake.trySend(Unit)
+        if (address == state.value.address) checkForRequest()
+    }
+
+    /**
+     * A request asks for a check. Granted only once [RoamingTiming.retryFirst] has passed since the last check ended, so a caller that
+     * retries on every failure cannot drive probe rounds back to back. Before the first check has ended, that check is the answer.
+     */
+    private fun checkForRequest() {
+        val ended = lastCheckEnded.value ?: return
+        if (ended.elapsedNow() >= timing.retryFirst) wake.trySend(Unit)
     }
 
     override fun update(server: SavedServer) {
@@ -118,11 +134,24 @@ internal class RoamingServerAddress(
         unsettled.trySend(Unit)
     }
 
-    override suspend fun run(networkChanges: Flow<Unit>) {
+    /** The same network is usable again: ask again at once, keeping the address in use, and start the retry waits over. */
+    private fun networkResumed() {
+        state.update { it.copy(network = it.network + 1) }
+        wake.trySend(Unit)
+    }
+
+    override suspend fun run(networkChanges: Flow<NetworkChange>) {
         try {
             coroutineScope {
                 launch { state.collect { published.value = it.address } }
-                launch { networkChanges.collect { networkChanged() } }
+                launch {
+                    networkChanges.collect { change ->
+                        when (change) {
+                            NetworkChange.Changed -> networkChanged()
+                            NetworkChange.Resumed -> networkResumed()
+                        }
+                    }
+                }
                 launch { unsettled.receiveAsFlow().collectLatest { delay(timing.networkSettles); wake.trySend(Unit) } }
                 roam()
             }
@@ -134,6 +163,7 @@ internal class RoamingServerAddress(
 
     private suspend fun roam(): Nothing {
         var full = true
+        var woken = false
         var retry = timing.retryFirst
         var network = state.value.network
         while (true) {
@@ -165,8 +195,10 @@ internal class RoamingServerAddress(
                 // An edit or a network change made the check stale. An edit wakes at once, a network change once it has settled.
                 wake.receive()
                 full = true
+                woken = true
                 continue
             }
+            lastCheckEnded.value = time.markNow()
             val found = checked?.found
             if (found == null && !full) {
                 full = true
@@ -174,14 +206,18 @@ internal class RoamingServerAddress(
             }
             capabilities.update(start.server.ref) { it.copy(reachable = found != null) }
             val wait = if (found == null) {
-                retry.also { retry = (retry * 2).coerceAtMost(timing.retryAtMost) }
+                // Only a miss on the timer makes the next wait longer; one that something woke does not.
+                retry.also { if (!woken) retry = (retry * 2).coerceAtMost(timing.retryAtMost) }
             } else {
                 retry = timing.retryFirst
                 timing.recheckEvery
             }
-            val woken = withTimeoutOrNull(wait) { wake.receive() } != null
+            woken = withTimeoutOrNull(wait) { wake.receive() } != null
             // A network change that has not settled yet: its wake starts the check, not the timer.
-            if (!woken && state.value.blocking) wake.receive()
+            if (!woken && state.value.blocking) {
+                wake.receive()
+                woken = true
+            }
             full = woken || found == null
         }
     }
@@ -201,11 +237,17 @@ internal class RoamingServerAddress(
         }
     }
 
-    /** An address proved while higher ones are still being asked: requests use it until the check ends or a higher one answers. */
+    /**
+     * An address proved while higher ones are still being asked: requests use it until the check ends or a higher one answers. Only
+     * when no address is in use, or when it ranks above the one in use, so a healthy address is never swapped for a lower one mid-check.
+     */
     private fun useMeanwhile(start: Roam, proved: ServerUrl) {
         var used = false
         state.update { now ->
-            used = now.generation == start.generation
+            val urls = now.server.urls()
+            val inUse = now.address?.let(urls::indexOf)?.takeIf { it >= 0 }
+            val rank = urls.indexOf(proved)
+            used = now.generation == start.generation && rank >= 0 && (inUse == null || rank < inUse)
             if (used) now.copy(address = proved, blocking = false) else now
         }
         if (used) capabilities.update(start.server.ref) { it.copy(reachable = true) }
@@ -270,11 +312,13 @@ internal class OrderedServerAddress(server: SavedServer) : ManagedServerAddress 
         if (server.urls() == ordered.addresses) ordered else Ordered(server.urls(), server.urls().firstOrNull())
     }
 
-    override suspend fun run(networkChanges: Flow<Unit>) {
+    override suspend fun run(networkChanges: Flow<NetworkChange>) {
         try {
             coroutineScope {
                 launch { state.collect { published.value = it.address } }
-                networkChanges.collect { state.update { it.copy(address = it.addresses.firstOrNull()) } }
+                networkChanges.collect { change ->
+                    if (change == NetworkChange.Changed) state.update { it.copy(address = it.addresses.firstOrNull()) }
+                }
             }
         } finally {
             state.update { it.copy(addresses = emptyList(), address = null) }

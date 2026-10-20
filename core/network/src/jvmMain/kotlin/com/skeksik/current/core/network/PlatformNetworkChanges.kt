@@ -32,7 +32,7 @@ internal class PolledInterfaces(
             // An unreadable list (an I/O error) is not a change.
             val now = read() ?: continue
             if (now != last) {
-                if (last != null) emit(Unit)
+                if (last != null) emit(NetworkChange.Changed)
                 last = now
             }
         }

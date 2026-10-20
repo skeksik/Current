@@ -16,7 +16,7 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
     return NetworkChanges {
         callbackFlow {
             val callback = try {
-                DefaultNetworkCallback(DefaultNetworkTracker(connectivity.activeNetwork)) { trySend(Unit) }
+                DefaultNetworkCallback(DefaultNetworkTracker(connectivity.activeNetwork)) { trySend(it) }
                     .also { connectivity.registerDefaultNetworkCallback(it) }
             } catch (e: SecurityException) {
                 close()
@@ -29,18 +29,18 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
 
 private class DefaultNetworkCallback(
     private val tracker: DefaultNetworkTracker<Network>,
-    private val changed: () -> Unit,
+    private val changed: (NetworkChange) -> Unit,
 ) : ConnectivityManager.NetworkCallback() {
     override fun onAvailable(network: Network) {
-        if (tracker.available(network)) changed()
+        tracker.available(network)?.let(changed)
     }
 
     override fun onLost(network: Network) {
-        if (tracker.lost(network)) changed()
+        tracker.lost(network)?.let(changed)
     }
 
     /** API 29+; earlier versions never call it. Android blocks a background app's network and unblocks it in the foreground. */
     override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
-        if (tracker.blockedStatus(network, blocked)) changed()
+        tracker.blockedStatus(network, blocked)?.let(changed)
     }
 }

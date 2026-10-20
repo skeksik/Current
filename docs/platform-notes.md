@@ -1231,6 +1231,7 @@ research agent reading the same files.
   - `androidApp`'s manifest has no `INTERNET` permission (only `ACCESS_NETWORK_STATE`), so every request fails. The Android engine throws
     `java.lang.SecurityException: Permission denied (missing INTERNET permission?)`. It is not an `IOException`, so `serviceExceptionFor`
     does not map it and it passes through. The harness's own probe met it and crashed the app (an uncaught exception in a coroutine).
+    Fixed in PR 23: the manifest declares `INTERNET`, and this exception maps to `Unreachable` (ADR 0019).
     `RoamingServerAddress.isSavedServer` also catches only `ServiceException`, so the first check would throw out of `AppScope` the same
     way. That is inferred, not run: the harness crashed first.
   - Cleartext: with no network security config, the `http` local address failed as `Unreachable` within 8-9 ms. This is presumably the
@@ -1275,7 +1276,8 @@ research agent reading the same files.
     - A request made with no address fails in `ServerClient.request` before it could call `reportUnreachable`.
     - The retry had doubled to 30 s across the switch, because a network change does not reset it.
   - So every request failed for 31.5 s after the app came back, until the timer proved the internet address. With more misses it could
-    take up to `retryAtMost` (5 min). Reported on PR 23, not changed here.
+    take up to `retryAtMost` (5 min). Fixed in PR 23 (ADR 0019): an unblocked default network asks again at once, a request that
+    finds no address asks for a check, and a network change starts the retry waits over.
   - Once, the process was frozen for about 6.5 min, with no logs and no timers running. Requests that had been sent before then ended as
     `no response` after about 400 s when the app came back, well past the 30 s request timeout. Their failures woke a check, which proved
     the same local address at once.
@@ -1309,6 +1311,8 @@ research agent reading the same files.
     once, 11.0 s, while the local address (an IP literal) always ended at 5.0 s. Inferred: the internet name's DNS lookup, which the
     Android engine's blocking `HttpURLConnection` does not give up when Ktor's request timeout fires. The first check on the VPN took 12 s,
     so requests waited the full 11 s (`requestWaitsAtMost`) before failing.
+  - While this ran, the branch moved on to "Rate-limit request-driven checks, resume without dropping the address, and never swap down
+    mid-check", which addresses the check per request and the drop on return. Not run on Android.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
@@ -1329,7 +1333,8 @@ research agent reading the same files.
 ## Not verified (research before depending on it)
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
-  Seen on Android 17: a missing `INTERNET` permission throws `SecurityException`, which passes through (section "Roaming on Android").
+  Seen on Android 17: a missing `INTERNET` permission throws `SecurityException` (section "Roaming on Android"); PR 23 maps that one
+  to `Unreachable`.
 - Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines. On Android 17 a 5 s probe once ended
   after 11.0 s over a VPN, probably in a DNS lookup (section "Roaming on Android"); the cause was not confirmed.
 - Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,

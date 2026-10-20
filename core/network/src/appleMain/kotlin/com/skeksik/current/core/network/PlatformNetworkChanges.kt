@@ -20,7 +20,7 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges = NetworkChan
         val monitor = nw_path_monitor_create()
         var first = true
         nw_path_monitor_set_update_handler(monitor) { _ ->
-            if (first) first = false else trySend(Unit)
+            if (first) first = false else trySend(NetworkChange.Changed)
         }
         nw_path_monitor_set_queue(monitor, dispatch_queue_create("com.skeksik.current.network-changes", null))
         nw_path_monitor_start(monitor)

@@ -10,12 +10,24 @@ import org.koin.core.scope.Scope
  */
 fun interface NetworkChanges {
     /** One element per change. Collecting starts listening; the first element is a change after that, not the current network. */
-    fun changes(): Flow<Unit>
+    fun changes(): Flow<NetworkChange>
 
     companion object {
         /** No signal: the periodic check and failed requests are all there is (Android without its permission, tests). */
         val None = NetworkChanges { emptyFlow() }
     }
+}
+
+/** What a [NetworkChanges] element reports. */
+enum class NetworkChange {
+    /** The network may be another one: what answered before proves nothing now. */
+    Changed,
+
+    /**
+     * The same network became usable again after the system blocked the app's access to it (Android, in the background). Checks made
+     * while blocked found nothing, so the addresses are asked again, but the address in use is still proved.
+     */
+    Resumed,
 }
 
 /** This platform's [NetworkChanges]. */
