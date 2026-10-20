@@ -65,6 +65,9 @@ is on, so a signal can only mean "something may have changed".
 - Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
   still needs a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
   (docs/platform-notes.md, "Roaming on Android"); those come with the shell.
+- On Android a probe can outlast its 5 s timeout when a DNS lookup hangs: over a VPN the owner measured 6-11 s for the internet name
+  (docs/platform-notes.md, "Roaming on Android"), so a check can take that long and requests wait the full bound (11 s for Jellyfin)
+  before failing. Requests stay bounded by that wait; bounding the probe itself is a follow-up, to be checked on a device.
 - A network change does not cancel requests already sent: one sent just before it can go to the old address and hang until its own
   timeout (17.8 s over a VPN on Android).
 - Every probe of every address goes into the request log under the server's key, so roaming adds log lines but no hosts.
