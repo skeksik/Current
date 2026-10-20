@@ -5,6 +5,7 @@ import io.ktor.client.plugins.api.Send
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.http.URLBuilder
 import kotlin.time.TimeSource
+import kotlinx.coroutines.currentCoroutineContext
 
 internal class ServerRequestsConfig {
     lateinit var server: ServerRef
@@ -18,7 +19,9 @@ internal val ServerRequests = createClientPlugin("ServerRequests", ::ServerReque
     val address = pluginConfig.address
     val auth = pluginConfig.auth
     onRequest { request, _ ->
-        val base = address.awaitCurrent() ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
+        // Outside ServerClient.request (a raw call), the plugin waits for the source itself.
+        val base = currentCoroutineContext()[ChosenAddress]?.url ?: address.awaitCurrent()
+            ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         request.url.rebaseOnto(base)
         auth.authorize(request)
     }

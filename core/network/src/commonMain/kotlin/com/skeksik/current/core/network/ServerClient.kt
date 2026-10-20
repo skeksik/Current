@@ -4,6 +4,9 @@ import com.skeksik.current.core.model.ServerRef
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -22,17 +25,17 @@ class ServerClient internal constructor(
 ) : AutoCloseable {
     /** Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. */
     suspend fun <T> request(block: suspend HttpClient.() -> T): T {
-        // Waits here while the source is checking, so the address reported on failure is the one the request went to.
-        val used = address.awaitCurrent()
+        // The one wait for the source; the requests in [block] go to this address ([ChosenAddress]), and a failure reports it.
+        val used = address.awaitCurrent() ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         try {
-            return http.block()
+            return withContext(ChosenAddress(used)) { http.block() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val failure = serviceExceptionFor(server, e) ?: throw e
             // A timeout counts too: a dead address often hangs instead of refusing, and desktop has no network signal.
             val noAnswer = failure.kind == ServiceErrorKind.Unreachable || failure.kind == ServiceErrorKind.Timeout
-            if (noAnswer && used != null) address.reportUnreachable(used)
+            if (noAnswer) address.reportUnreachable(used)
             if (failure.kind == ServiceErrorKind.Unauthorized) onUnauthorized?.invoke()
             throw failure
         }
@@ -40,6 +43,11 @@ class ServerClient internal constructor(
 
     /** Closes this server's client; the shared engine stays open. */
     override fun close() = http.close()
+}
+
+/** The address [ServerClient.request] chose for the requests in its block, so [ServerRequests] uses it instead of waiting again. */
+internal class ChosenAddress(val url: ServerUrl) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<ChosenAddress>
 }
 
 /** Makes a [ServerClient] per configured server, all sharing the app's one [HttpClient] and its engine. */

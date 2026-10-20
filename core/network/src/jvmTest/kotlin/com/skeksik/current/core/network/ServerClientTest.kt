@@ -161,6 +161,30 @@ class ServerClientTest {
         assertEquals(listOf(internet), address.reported)
     }
 
+    /** Hands out [first] to the first caller and [then] to any later one, counting the calls. */
+    private class ChangingAddress(private val first: ServerUrl, private val then: ServerUrl) : ServerAddressSource {
+        override val current = MutableStateFlow<ServerUrl?>(first)
+        var waits = 0
+        val reported = mutableListOf<ServerUrl>()
+
+        override suspend fun awaitCurrent(): ServerUrl = if (waits++ == 0) first else then
+
+        override fun reportUnreachable(address: ServerUrl) {
+            reported += address
+        }
+    }
+
+    @Test
+    fun aRequestWaitsForTheSourceOnceAndReportsTheAddressItWentTo() = runBlocking {
+        val recorder = Recorder().apply { answer = { awaitCancellation() } }
+        val address = ChangingAddress(internet, local)
+        val failure = client(recorder, address).use { it.failure { get("Items") } }
+        assertEquals(ServiceErrorKind.Timeout, failure.kind)
+        assertEquals(1, address.waits)
+        assertEquals(listOf("media.example.com"), recorder.requests.map { it.url.host })
+        assertEquals(listOf(internet), address.reported)
+    }
+
     @Test
     fun aRefusedConnectionIsUnreachableAndReported() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
