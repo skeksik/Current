@@ -16,28 +16,28 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges {
     val connectivity = get<Context>().getSystemService(ConnectivityManager::class.java) ?: return NetworkChanges.None
     return NetworkChanges {
         callbackFlow {
-            val callback = object : ConnectivityManager.NetworkCallback() {
-                private var last: Network? = connectivity.activeNetwork
-
-                override fun onAvailable(network: Network) {
-                    if (network != last) trySend(Unit)
-                    last = network
-                }
-
-                override fun onLost(network: Network) {
-                    if (network == last) {
-                        last = null
-                        trySend(Unit)
-                    }
-                }
-            }
-            try {
-                connectivity.registerDefaultNetworkCallback(callback)
+            val callback = try {
+                DefaultNetworkCallback(connectivity.activeNetwork) { trySend(Unit) }
+                    .also { connectivity.registerDefaultNetworkCallback(it) }
             } catch (e: SecurityException) {
                 close()
                 return@callbackFlow
             }
             awaitClose { connectivity.unregisterNetworkCallback(callback) }
+        }
+    }
+}
+
+private class DefaultNetworkCallback(private var last: Network?, private val changed: () -> Unit) : ConnectivityManager.NetworkCallback() {
+    override fun onAvailable(network: Network) {
+        if (network != last) changed()
+        last = network
+    }
+
+    override fun onLost(network: Network) {
+        if (network == last) {
+            last = null
+            changed()
         }
     }
 }
