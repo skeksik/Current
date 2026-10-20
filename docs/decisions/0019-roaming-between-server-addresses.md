@@ -21,7 +21,7 @@ is on, so a signal can only mean "something may have changed".
   server that happens to answer at an address (a different network, a reused IP or name). It does not stop impersonation: anyone who can
   answer on a plain `http` local address can copy the id. HTTPS addresses are protected by TLS as usual.
 - **Requests wait for a proved address** at start and after a network change: a request made while that check runs waits for it (at
-  most twice the probe's timeout, 10 s for Jellyfin) instead of going to an unproved address, and fails as unreachable if nothing is
+  most the 1 s settle window plus twice the probe's timeout, 11 s for Jellyfin) instead of going to an unproved address, and fails as unreachable if nothing is
   proved. On a new network the old address is dropped at once, since whatever answers there may be another server. For the other
   triggers the address in use stays until a check finds another.
 - **A miss keeps the last proved address.** When nothing answers and the network has not changed, the address in use stays in use and
@@ -33,13 +33,14 @@ is on, so a signal can only mean "something may have changed".
   - at start, and when the user adds, removes or reorders addresses;
   - on a network change (`NetworkChanges`): Android's default network callback; the browser's `online` and `navigator.connection`
     `change` events; on desktop, the network interfaces polled every 5 s (a change in which ones are up or in their addresses); on
-    Apple, Network framework's path monitor (`NWPathMonitor`), every update after the first;
+    Apple, Network framework's path monitor (`NWPathMonitor`), every update after the first. The address is dropped and requests
+    wait from the first update, but the check starts only once updates have stopped for 1 s, since one transition comes as a burst;
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored);
   - every 5 minutes, asking the address in use and those above it: to move back to a higher (local) address, or to notice that the
     one in use stopped answering, in which case every address is asked;
   - while nothing answers, after 15 s, doubling up to 5 minutes, back to 15 s after a success.
   Triggers that arrive during a check make exactly one more check. A check whose addresses are edited, or whose network changes,
-  while it runs is cancelled at once and a new one starts.
+  while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`).
 - **A service that cannot identify itself without credentials** (Stash, later; an explicit list) gets its addresses in priority order,
   moves to the next on a reported failure and back to the first on a network change. Every saved address is one the user typed or
@@ -51,7 +52,12 @@ is on, so a signal can only mean "something may have changed".
 ## Consequences
 - Android declares `ACCESS_NETWORK_STATE`; without it there is no signal.
 - Every probe of every address goes into the request log under the server's key, so roaming adds log lines but no hosts.
-- The first request after start or a network change can wait up to twice the probe timeout (10 s for Jellyfin).
+- The first request after start or a network change can wait up to the settle window plus twice the probe timeout (11 s for
+  Jellyfin), longer while a burst of updates goes on. On a Mac (docs/platform-notes.md, "Apple path monitor and roaming on a Mac") a
+  transition came as 7-11 path updates within 3-5 s, and opening the Wi-Fi menu alone sent some. Before the settle window each
+  update restarted the check: mostly a few milliseconds, but on a phone hotspot, where the home address timed out instead of being
+  refused, requests were held 4-7.5 s per update. With the window, a burst costs one check after it ends; an update with nothing
+  changed still costs one check. Ignoring Apple updates whose status, interfaces and gateways are unchanged is a possible follow-up.
 - A network change no signal reports leaves requests on the old address until one fails or times out, or until the next periodic
   check (up to 5 minutes): if another device answers there on the new network, it receives them, credentials included. Known cases: on
   desktop, a move to another network that keeps the same interface addresses (same subnet and lease); on Apple, whatever the path

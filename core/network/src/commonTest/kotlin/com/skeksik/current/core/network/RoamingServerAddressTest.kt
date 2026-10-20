@@ -13,6 +13,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.async
@@ -240,7 +241,7 @@ class RoamingServerAddressTest {
         probe.answers.remove(local)
         probe.asked.clear()
         changes.emit(Unit)
-        runCurrent()
+        advance(1.seconds)
         assertEquals(setOf(local, internet), probe.asked.toSet())
         assertEquals(url(internet), source.current.value)
     }
@@ -257,17 +258,41 @@ class RoamingServerAddressTest {
         val request = async { source.awaitCurrent() }
         runCurrent()
         assertFalse(request.isCompleted)
-        advance(5.seconds)
+        advance(1.seconds + 5.seconds)
         assertEquals(url(internet), request.await())
     }
 
     @Test
-    fun aNetworkChangeWhileNothingAnswersAsksAtOnce() = runTest {
+    fun aNetworkChangeWhileNothingAnswersAsksOnceItSettles() = runTest {
         val source = roaming()
         probe.answers[internet] = homeId
         changes.emit(Unit)
+        advance(1.seconds)
+        assertEquals(url(internet), source.current.value, "well before the 15 s retry")
+    }
+
+    @Test
+    fun aBurstOfNetworkUpdatesMakesOneCheckOnceItSettles() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.asked.clear()
+        changes.emit(Unit)
+        val request = async { source.awaitCurrent() }
+        // Ten updates over 1.8 s, as a Mac reports one Wi-Fi transition.
+        repeat(9) {
+            advance(200.milliseconds)
+            changes.emit(Unit)
+        }
         runCurrent()
-        assertEquals(url(internet), source.current.value)
+        assertTrue(probe.asked.isEmpty(), "nothing is asked during the burst")
+        assertFalse(request.isCompleted, "requests wait throughout")
+        advance(999.milliseconds)
+        assertTrue(probe.asked.isEmpty())
+        advance(1.milliseconds)
+        assertEquals(listOf(local, internet), probe.asked, "one check, 1 s after the last update")
+        assertEquals(url(local), request.await())
+        advance(10.seconds)
+        assertEquals(2, probe.asked.size)
     }
 
     @Test

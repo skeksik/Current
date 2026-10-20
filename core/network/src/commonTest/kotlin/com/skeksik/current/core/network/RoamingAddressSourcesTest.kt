@@ -178,7 +178,7 @@ class RoamingAddressSourcesTest {
         val request = launch { client.request { get("Users/Me") } }
         runCurrent()
         assertTrue(sent.isEmpty(), "nothing is sent while the check runs")
-        advanceTimeBy(5.seconds)
+        advanceTimeBy(1.seconds + 5.seconds)
         runCurrent()
         request.join()
         assertEquals(listOf("media.example.com"), sent)

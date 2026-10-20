@@ -7,11 +7,14 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -25,8 +28,13 @@ data class RoamingTiming(
     val retryFirst: Duration = 15.seconds,
     val retryAtMost: Duration = 5.minutes,
     /**
-     * How long a request waits for a check in progress (at start, after a network change). Null: twice the probe's timeout, room for
-     * a check that a network change restarts.
+     * After a network change, how long no further change must come before the check starts. Platforms report one transition as a
+     * burst of updates (docs/platform-notes.md, "Apple path monitor and roaming on a Mac"); requests wait from the first one.
+     */
+    val networkSettles: Duration = 1.seconds,
+    /**
+     * How long a request waits for a check in progress (at start, after a network change). Null: [networkSettles] plus twice the
+     * probe's timeout, room for a check that a network change restarts.
      */
     val requestWaitsAtMost: Duration? = null,
 )
@@ -74,7 +82,7 @@ internal class RoamingServerAddress(
     /** A full check is due. Conflated: any number of requests while one runs make one more. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
-    private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (probe.timeout * 2)
+    private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
     override suspend fun awaitCurrent(): ServerUrl? =
         withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
@@ -94,9 +102,13 @@ internal class RoamingServerAddress(
         if (edited) wake.trySend(Unit)
     }
 
+    /** Network changes not yet settled; the latest restarts the settle window. */
+    private val unsettled = Channel<Unit>(Channel.CONFLATED)
+
+    /** Requests wait from the first change of a burst; the check starts once the burst has settled. */
     private fun networkChanged() {
         state.update { it.copy(address = null, blocking = true, generation = it.generation + 1) }
-        wake.trySend(Unit)
+        unsettled.trySend(Unit)
     }
 
     override suspend fun run(networkChanges: Flow<Unit>) {
@@ -104,6 +116,7 @@ internal class RoamingServerAddress(
             coroutineScope {
                 launch { state.collect { published.value = it.address } }
                 launch { networkChanges.collect { networkChanged() } }
+                launch { unsettled.receiveAsFlow().collectLatest { delay(timing.networkSettles); wake.trySend(Unit) } }
                 roam()
             }
         } finally {
@@ -135,8 +148,8 @@ internal class RoamingServerAddress(
                 }
             }
             if (!applied) {
-                // An edit or a network change made the check stale; its wake is consumed by asking again now.
-                wake.tryReceive()
+                // An edit or a network change made the check stale. An edit wakes at once, a network change once it has settled.
+                wake.receive()
                 full = true
                 continue
             }
@@ -153,6 +166,8 @@ internal class RoamingServerAddress(
                 timing.recheckEvery
             }
             val woken = withTimeoutOrNull(wait) { wake.receive() } != null
+            // A network change that has not settled yet: its wake starts the check, not the timer.
+            if (!woken && state.value.blocking) wake.receive()
             full = woken || found == null
         }
     }
