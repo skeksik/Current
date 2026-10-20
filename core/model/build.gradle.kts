@@ -5,6 +5,29 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
 }
 
+// AppInfo.version comes from `current.version` in gradle.properties, so servers see the version the build was made from.
+val generateAppInfo = tasks.register("generateAppInfo") {
+    val version = providers.gradleProperty("current.version")
+    val outputDirectory = layout.buildDirectory.dir("generated/appInfo/commonMain/kotlin")
+    inputs.property("version", version)
+    outputs.dir(outputDirectory)
+    doLast {
+        val file = outputDirectory.get().file("com/skeksik/current/core/model/AppInfo.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            |package com.skeksik.current.core.model
+            |
+            |/** Generated from gradle.properties; do not edit. */
+            |object AppInfo {
+            |    const val NAME: String = "Current"
+            |    const val VERSION: String = "${version.get()}"
+            |}
+            |""".trimMargin(),
+        )
+    }
+}
+
 kotlin {
     iosArm64()
     iosSimulatorArm64()
@@ -29,6 +52,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateAppInfo)
+        }
         commonMain.dependencies {
         }
         commonTest.dependencies {

@@ -35,6 +35,12 @@ jobs:
           npm run licences
           npm run build
       - run: ./gradlew :androidApp:assembleDebug
+      - name: Secret Service store (GNOME Keyring in a D-Bus session, ADR 0017)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring libsecret-1-0 dbus-daemon
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets > /dev/null && CURRENT_TEST_SECRET_SERVICE=1 ./gradlew :core:database:jvmTest --tests "*KeyringTest" --rerun'
+          grep -q "Secret Service round trip passed" core/database/build/test-results/jvmTest/TEST-com.skeksik.current.core.database.KeyringTest.xml
 
   # Reports to GitHub's dependency graph (and so to Dependabot) only what ships: the Android release app, the desktop app, the web
   # library and the Apple framework. Build tooling (Gradle plugins, Android test-device tools) is left out on purpose. Replaces

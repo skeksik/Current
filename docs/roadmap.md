@@ -57,8 +57,11 @@ Then:
 - [ ] Spike: find servers on the local network (Jellyfin's discovery; Seerr and Stash likely have none). Check each platform first:
       Apple's local network permission and any entitlement broadcast needs, Android, desktop, and what browsers allow (likely nothing,
       plus mixed content and private network access limits on local addresses)
-- [ ] Jellyfin sign-in with username and password or Quick Connect, one random device id per install (signing in again with the same id
-      revokes the old token), sign out; token in secure storage (desktop: OS credential store; web: browser storage, documented risk)
+- [x] Secure storage and device identity (2026-10-20, ADR 0017): Windows Credential Manager, the Secret Service on Linux (memory, or a
+      file the user chooses, without one), `localStorage` on the web; one random device id per install in a machine-local store; the
+      app version servers see. Android and Apple keep secrets in memory until M4
+- [ ] Jellyfin sign-in with username and password or Quick Connect, using that device id (signing in again with the same id revokes the
+      old token), sign out; token in the secure storage above
 - [ ] Compose shell (desktop): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources
 - [ ] Web shell (ADR 0011):
