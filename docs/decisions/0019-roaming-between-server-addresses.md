@@ -14,15 +14,16 @@ is on, so a signal can only mean "something may have changed".
   started for every saved server and shared by every client of that server. It runs in the app scope until the server is removed,
   follows edits to its addresses, and has no address once stopped.
 - **Choosing:** every address is asked at once with the service's `ServerProbe`, without credentials. The first in priority order that
-  reports the saved server id is used; a higher address is waited for until it answers or its probe times out (5 s for Jellyfin). An
-  address that answers with another id, a redirect or anything else is never used. In a browser, a local `http` address from an `https`
+  reports the saved server id ends the check. An address that proves itself while higher ones are still being asked is used at once,
+  and the check moves up to each higher one that answers before it ends, so requests never wait for a higher address that hangs until
+  its probe times out (5 s for Jellyfin). An address that answers with another id, a redirect or anything else is never used. In a browser, a local `http` address from an `https`
   page fails as mixed content and simply does not answer.
 - **What the check proves:** the id comes from a public endpoint (`/System/Info/Public`), so it stops credentials going to *another*
   server that happens to answer at an address (a different network, a reused IP or name). It does not stop impersonation: anyone who can
   answer on a plain `http` local address can copy the id. HTTPS addresses are protected by TLS as usual.
 - **Requests wait for a proved address** at start and after a network change: a request made while that check runs waits for it (at
-  most the 1 s settle window plus twice the probe's timeout, 11 s for Jellyfin) instead of going to an unproved address, and fails as unreachable if nothing is
-  proved. On a new network the old address is dropped at once, since whatever answers there may be another server. For the other
+  most the 1 s settle window plus twice the probe's timeout, 11 s for Jellyfin) instead of going to an unproved address, and fails as
+  unreachable if nothing is proved. On a new network the old address is dropped at once, since whatever answers there may be another server. For the other
   triggers the address in use stays until a check finds another.
 - **A miss keeps the last proved address.** When nothing answers and the network has not changed, the address in use stays in use and
   the server is marked unreachable; the check is retried with the waits below. Only a network change, or an edit that removes it,
@@ -33,15 +34,20 @@ is on, so a signal can only mean "something may have changed".
   - at start, and when the user adds, removes or reorders addresses;
   - on a network change (`NetworkChanges`): Android's default network callback; the browser's `online` and `navigator.connection`
     `change` events; on desktop, the network interfaces polled every 5 s (a change in which ones are up or in their addresses); on
-    Apple, Network framework's path monitor (`NWPathMonitor`), every update after the first. The address is dropped and requests
+    Apple, Network framework's path monitor (`NWPathMonitor`), every update after the first. On Android a default network that the
+    system unblocks (it blocks a background app's network) is a change too, since a check made while blocked finds nothing. A network
+    change also starts the retry waits over at 15 s. The address is dropped and requests
     wait from the first update, but the check starts only once updates have stopped for 1 s, since one transition comes as a burst;
-  - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored);
+  - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
+    when a request finds no address at all;
   - every 5 minutes, asking the address in use and those above it: to move back to a higher (local) address, or to notice that the
     one in use stopped answering, in which case every address is asked;
   - while nothing answers, after 15 s, doubling up to 5 minutes, back to 15 s after a success.
   Triggers that arrive during a check make exactly one more check. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`).
+- **The platform refusing network access** (a `SecurityException`, as Android throws without its `INTERNET` permission) is a request
+  failure (`Unreachable`), not a bug, so it cannot end the roaming loop.
 - **A service that cannot identify itself without credentials** (Stash, later; an explicit list) gets its addresses in priority order,
   moves to the next on a reported failure and back to the first on a network change. Every saved address is one the user typed or
   confirmed (ADR 0016). Any other service without a probe gets no address.
@@ -50,7 +56,11 @@ is on, so a signal can only mean "something may have changed".
   (`feature:settings`) lists the addresses with their scope and the one in use, and removes and reorders them.
 
 ## Consequences
-- Android declares `ACCESS_NETWORK_STATE`; without it there is no signal.
+- Android declares `ACCESS_NETWORK_STATE`; without it there is no signal. Reaching a server at all on Android still needs the app
+  shell's `INTERNET` permission, a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
+  (docs/platform-notes.md, "Roaming on Android"); those come with the shell.
+- A network change does not cancel requests already sent: one sent just before it can go to the old address and hang until its own
+  timeout (17.8 s over a VPN on Android).
 - Every probe of every address goes into the request log under the server's key, so roaming adds log lines but no hosts.
 - The first request after start or a network change can wait up to the settle window plus twice the probe timeout (11 s for
   Jellyfin), longer while a burst of updates goes on. On a Mac (docs/platform-notes.md, "Apple path monitor and roaming on a Mac") a
