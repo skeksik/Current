@@ -1143,6 +1143,71 @@ research agent reading the same files.
 - Consequence for ADR 0019 (not changed here): counting every update as a change holds up, but bursts and no-change updates cost a check
   each, and on a network where a higher address times out, each such update holds requests for up to the probe timeout.
 
+## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
+- What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
+  `networkModule`, `jellyfinModule`) with the real `RoamingAddressSources`, `JellyfinServerProbe` and Android `NetworkChanges`, for one
+  Jellyfin server saved with a local address (`http://192.168.1.10:8096`, first) and an internet address (`https://media.example.com`).
+  At home the internet name resolves to the server's LAN address (split DNS). It logged, with timestamps, every probe (the redacted request
+  log), every `NetworkChanges` element (a second registration of the same callback), the address in use and `reachable`. It also made a
+  request through a `ServerClient` every 2 s, at each raw callback and at each return to the foreground, and logged how long `awaitCurrent`
+  held it. A second, independent `registerDefaultNetworkCallback` logged every raw callback. The owner switched networks by hand, mostly
+  with the app in front. The phone has no mobile data.
+- **As it stands, the app cannot reach a server on Android.** There are three gaps; the run closed all three in the throwaway build only:
+  - `androidApp`'s manifest has no `INTERNET` permission (only `ACCESS_NETWORK_STATE`), so every request fails. The Android engine throws
+    `java.lang.SecurityException: Permission denied (missing INTERNET permission?)`. It is not an `IOException`, so `serviceExceptionFor`
+    does not map it and it passes through. The harness's own probe met it and crashed the app (an uncaught exception in a coroutine).
+    `RoamingServerAddress.isSavedServer` also catches only `ServiceException`, so the first check would throw out of `AppScope` the same
+    way. That is inferred, not run: the harness crashed first.
+  - Cleartext: with no network security config, the `http` local address failed as `Unreachable` within 8-9 ms. This is presumably the
+    default `cleartextTrafficPermitted="false"`; the exception was not logged.
+  - `ACCESS_LOCAL_NETWORK` (mandatory at target 37, section "Local network, discovery and cleartext HTTP: Android"): without it, the
+    internet address on home Wi-Fi (which resolves to the LAN address) timed out at 5 s, as the docs say for TCP. With `INTERNET`, a
+    permissive base config and the permission granted (`adb shell pm grant`), both addresses reported the same server id.
+- **Registering reports the current network at once.** With Wi-Fi up, `onAvailable`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`
+  and `onBlockedStatusChanged` for the `activeNetwork` arrived within 4-12 ms. Because the callback is seeded from `activeNetwork`, none of
+  these was a signal. One check at start proved the local address about 35 ms after the source started, and requests were held 36 ms.
+  - Started offline (airplane mode), `activeNetwork` was null and nothing was reported. The retries came at 15, 30 and 60 s. The first
+    connection, 2 min 42 s after start, came as an `onAvailable` and a signal, so it was not missed.
+- **One check per transition, not one per callback.** Each new default network brought 5-9 raw callbacks within 0.5 s: `onAvailable`,
+  1-3 `onLinkPropertiesChanged`, 1-2 `onCapabilitiesChanged` as validation finished, and `onBlockedStatusChanged`. On a steady Wi-Fi,
+  `onCapabilitiesChanged` also kept arriving every 3-10 s (signal strength). Only `onAvailable` of another network and `onLost` of the
+  default one are signals, so each transition made one or two signals and one check. Two signals 38 ms apart (VPN off: `onLost` of the VPN,
+  `onAvailable` of the Wi-Fi) restarted the settle and made one check.
+- Per case, times from the raw callback:
+  - Home Wi-Fi to another Wi-Fi without the LAN, standing in for mobile data: break-before-make, with `onLost` and then `onAvailable`
+    3.9 s later. The address was cleared 8 ms after `onLost`. The check after the settle found no network (both probes failed within 52 ms),
+    so `reachable` went false, and the requests held meanwhile failed after 1.1 s. After `onAvailable`, the internet address answered in
+    290 ms, but the local one timed out (5 s) instead of being refused. So the internet address was in use 6.06 s after `onAvailable`, and
+    requests were held up to 5.2 s.
+  - Back to home Wi-Fi: the same `onLost`, gap (2.2 s) and `onAvailable`. The local address was in use 1.06 s after `onAvailable` (the
+    1 s settle plus a 15 ms probe).
+  - Airplane mode on: the address was cleared 10 ms after `onLost`, `reachable` went false 1.05 s later, and requests then failed at
+    once. Airplane mode off: the local address was in use 1.09 s after `onAvailable`, and a request was held 293 ms.
+  - A VPN on and off, on home Wi-Fi. On: the VPN network (Wi-Fi and VPN transports) came as `onAvailable` with no `onLost` of the Wi-Fi
+    under it (make-before-break). That was a signal, and the address was cleared within 4 ms. Neither address answered through this VPN
+    (both probes timed out; not investigated), so `reachable` went false 6.07 s later, after holding requests up to 4.4 s. Off: `onLost`
+    of the VPN and `onAvailable` of the Wi-Fi came 32 ms apart and made one check. The local address was in use 1.07 s after `onAvailable`.
+  - Wi-Fi to and from mobile data: not run (no mobile data), so make-before-break was seen only with the VPN.
+  - On home Wi-Fi with the permission, the internet probe often failed within 18-54 ms right after joining, while the local one answered.
+    Not investigated.
+- **In the background, Android 17 blocks the app's network but keeps delivering callbacks.** `onBlockedStatusChanged blocked=true` came
+  5 s after `onStop`, and `false` at the next `onStart`.
+  - A switch from home Wi-Fi to the other Wi-Fi in the background still delivered `onLost` and `onAvailable` (the latter with
+    `blocked=true`). So the settled check ran while blocked: the internet probe failed in 26 ms and the local one timed out, leaving
+    `reachable` false and no address.
+  - **On return to the foreground nothing started a check**, for three reasons:
+    - `onBlockedStatusChanged` is not a signal.
+    - A request made with no address fails in `ServerClient.request` before it could call `reportUnreachable`.
+    - The retry had doubled to 30 s across the switch, because a network change does not reset it.
+  - So every request failed for 31.5 s after the app came back, until the timer proved the internet address. With more misses it could
+    take up to `retryAtMost` (5 min). Reported on PR 23, not changed here.
+  - Once, the process was frozen for about 6.5 min, with no logs and no timers running. Requests that had been sent before then ended as
+    `no response` after about 400 s when the app came back, well past the 30 s request timeout. Their failures woke a check, which proved
+    the same local address at once.
+- A network change does not cancel requests already sent. One request read the address 5-15 ms before the signal, went to the old address
+  over the new (VPN) route, and hung 17.8 s until the VPN went off. ADR 0019 says nothing about requests in flight.
+- Android 16: not run for roaming (the phone had been updated to 17).
+
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
   Ktor client 3.6.0. It is a new dependency, so it needs approval (CLAUDE.md, ADR 0009).
@@ -1162,6 +1227,7 @@ research agent reading the same files.
 ## Not verified (research before depending on it)
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
+  Seen on Android 17: a missing `INTERNET` permission throws `SecurityException`, which passes through (section "Roaming on Android").
 - Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
 - Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
   private network access) for local addresses (roadmap, M1 spike).
@@ -1237,6 +1303,8 @@ research agent reading the same files.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Whether a broadcast discovery needs a `MulticastLock`; Media3's and Coil's handling of the cleartext policy.
+    - Roaming between Wi-Fi and mobile data, and between access points of one network; why a probe of the internet address on home
+      Wi-Fi sometimes failed fast right after joining (section "Roaming on Android").
   - Desktop: whether `255.255.255.255` leaves every interface on a multi-homed Windows PC; firewall prompts for a first-run UDP listener;
     OS-level network change notifications (Windows, macOS, Linux).
   - Web:
