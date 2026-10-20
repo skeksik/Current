@@ -18,7 +18,7 @@ internal val ServerRequests = createClientPlugin("ServerRequests", ::ServerReque
     val address = pluginConfig.address
     val auth = pluginConfig.auth
     onRequest { request, _ ->
-        val base = address.current.value ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
+        val base = address.awaitCurrent() ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         request.url.rebaseOnto(base)
         auth.authorize(request)
     }

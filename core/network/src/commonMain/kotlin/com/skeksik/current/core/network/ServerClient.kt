@@ -22,14 +22,17 @@ class ServerClient internal constructor(
 ) : AutoCloseable {
     /** Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. */
     suspend fun <T> request(block: suspend HttpClient.() -> T): T {
-        val used = address.current.value
+        // Waits here while the source is checking, so the address reported on failure is the one the request went to.
+        val used = address.awaitCurrent()
         try {
             return http.block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val failure = serviceExceptionFor(server, e) ?: throw e
-            if (failure.kind == ServiceErrorKind.Unreachable && used != null) address.reportUnreachable(used)
+            // A timeout counts too: a dead address often hangs instead of refusing, and desktop has no network signal.
+            val noAnswer = failure.kind == ServiceErrorKind.Unreachable || failure.kind == ServiceErrorKind.Timeout
+            if (noAnswer && used != null) address.reportUnreachable(used)
             if (failure.kind == ServiceErrorKind.Unauthorized) onUnauthorized?.invoke()
             throw failure
         }

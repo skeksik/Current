@@ -152,13 +152,13 @@ class ServerClientTest {
     }
 
     @Test
-    fun aSlowServerTimesOut() = runBlocking {
+    fun aSlowServerTimesOutAndIsReported() = runBlocking {
         val recorder = Recorder().apply { answer = { awaitCancellation() } }
         val address = SwitchableAddress(internet)
         val failure = client(recorder, address).use { it.failure { get("Items?ApiKey=secret-key") } }
         assertEquals(ServiceErrorKind.Timeout, failure.kind)
         assertFalse("secret-key" in failure.message.orEmpty())
-        assertEquals(emptyList(), address.reported)
+        assertEquals(listOf(internet), address.reported)
     }
 
     @Test
