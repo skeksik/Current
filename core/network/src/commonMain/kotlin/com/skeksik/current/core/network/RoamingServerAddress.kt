@@ -72,6 +72,8 @@ internal class RoamingServerAddress(
         val blocking: Boolean,
         /** Bumped by every edit and network change; a check started under another generation is thrown away. */
         val generation: Int,
+        /** Bumped by every network change, which starts the retry waits over. */
+        val network: Int = 0,
     )
 
     private val state = MutableStateFlow(Roam(server, address = null, blocking = true, generation = 0))
@@ -84,8 +86,13 @@ internal class RoamingServerAddress(
 
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
-    override suspend fun awaitCurrent(): ServerUrl? =
-        withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
+    override suspend fun awaitCurrent(): ServerUrl? {
+        val address = withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
+        // A request that finds no address asks for a check, so a server that came back is found before the next retry. Not while a
+        // network change settles: its own check is about to start.
+        if (address == null && !state.value.blocking) wake.trySend(Unit)
+        return address
+    }
 
     override fun reportUnreachable(address: ServerUrl) {
         if (address == state.value.address) wake.trySend(Unit)
@@ -107,7 +114,7 @@ internal class RoamingServerAddress(
 
     /** Requests wait from the first change of a burst; the check starts once the burst has settled. */
     private fun networkChanged() {
-        state.update { it.copy(address = null, blocking = true, generation = it.generation + 1) }
+        state.update { it.copy(address = null, blocking = true, generation = it.generation + 1, network = it.network + 1) }
         unsettled.trySend(Unit)
     }
 
@@ -128,13 +135,20 @@ internal class RoamingServerAddress(
     private suspend fun roam(): Nothing {
         var full = true
         var retry = timing.retryFirst
+        var network = state.value.network
         while (true) {
             val start = state.value
+            if (start.network != network) {
+                network = start.network
+                retry = timing.retryFirst
+            }
             full = full || start.address == null
             val addresses = start.server.urls()
             // The periodic check asks the address in use and those above it; all of them only when none of those answers.
             val candidates = if (full) addresses else addresses.subList(0, addresses.indexOf(start.address) + 1)
-            val checked = unlessStale(start.generation) { firstAnswering(start.server, candidates) }
+            val checked = unlessStale(start.generation) {
+                firstAnswering(start.server, candidates) { proved -> useMeanwhile(start, proved) }
+            }
             var applied = false
             if (checked != null) {
                 state.update { now ->
@@ -187,15 +201,43 @@ internal class RoamingServerAddress(
         }
     }
 
+    /** An address proved while higher ones are still being asked: requests use it until the check ends or a higher one answers. */
+    private fun useMeanwhile(start: Roam, proved: ServerUrl) {
+        var used = false
+        state.update { now ->
+            used = now.generation == start.generation
+            if (used) now.copy(address = proved, blocking = false) else now
+        }
+        if (used) capabilities.update(start.server.ref) { it.copy(reachable = true) }
+    }
+
     /**
-     * Asks every candidate at once; the first, in priority order, that reports the saved server id. A higher address is waited for
-     * until it answers or fails, which the probe's own timeout bounds.
+     * Asks every candidate at once and returns the first, in priority order, that reports the saved server id; null when none does.
+     * An address that proves itself while a higher one is still being asked goes to [meanwhile] at once, and so does each higher one
+     * that answers later, so requests do not wait for an address that hangs until the probe's timeout.
      */
-    private suspend fun firstAnswering(server: SavedServer, candidates: List<ServerUrl>): ServerUrl? = coroutineScope {
-        val attempts = candidates.map { url -> async { isSavedServer(server, url) } }
-        val index = attempts.indexOfFirst { it.await() }
-        attempts.forEach { it.cancel() }
-        candidates.getOrNull(index)
+    private suspend fun firstAnswering(
+        server: SavedServer,
+        candidates: List<ServerUrl>,
+        meanwhile: (ServerUrl) -> Unit,
+    ): ServerUrl? = coroutineScope {
+        val results = Channel<Pair<Int, Boolean>>(Channel.UNLIMITED)
+        val attempts = candidates.mapIndexed { index, url -> launch { results.send(index to isSavedServer(server, url)) } }
+        val done = BooleanArray(candidates.size)
+        var best: Int? = null
+        repeat(candidates.size) {
+            val (index, answered) = results.receive()
+            done[index] = true
+            val before = best
+            if (answered && (before == null || index < before)) best = index
+            val found = best ?: return@repeat
+            if ((0 until found).all { done[it] }) {
+                attempts.forEach { it.cancel() }
+                return@coroutineScope candidates[found]
+            }
+            if (answered && index == found) meanwhile(candidates[found])
+        }
+        null
     }
 
     private suspend fun isSavedServer(server: SavedServer, url: ServerUrl): Boolean = try {

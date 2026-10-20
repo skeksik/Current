@@ -34,7 +34,7 @@ class RoamingAddressSourcesTest {
     private val repository = StoredServerRepository(InMemoryKeyValueStore(), capabilities)
     private val changes = MutableSharedFlow<Unit>()
 
-    /** The saved server answers everywhere, unless [answers] says otherwise: another id, or "slow" (fails after 5 s). */
+    /** The saved server answers everywhere, unless [answers] says otherwise: another id, "late" (answers after 3 s) or "slow" (fails after 5 s). */
     private val probe = object : ServerProbe {
         override val service = ServiceType.jellyfin
         override val defaultPort = 8096
@@ -44,6 +44,10 @@ class RoamingAddressSourcesTest {
         override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
             asked += address.toString()
             return when (val answer = answers[address.toString()]) {
+                "late" -> {
+                    delay(3.seconds)
+                    ServerIdentity(homeId, "Home", null)
+                }
                 "slow" -> {
                     delay(5.seconds)
                     throw ServiceException(server, ServiceErrorKind.Timeout)
@@ -150,14 +154,14 @@ class RoamingAddressSourcesTest {
 
     @Test
     fun aClientsFirstRequestWaitsForTheFirstCheck() = runTest {
-        probe.answers[local.url] = "slow"
+        probe.answers += mapOf(local.url to "slow", internet.url to "late")
         val home = server().also(repository::save)
         val sent = mutableListOf<String>()
         val client = client(sources().forServer(home), sent)
         val request = launch { client.request { get("Users/Me") } }
         runCurrent()
         assertTrue(sent.isEmpty())
-        advanceTimeBy(5.seconds)
+        advanceTimeBy(3.seconds)
         runCurrent()
         request.join()
         assertEquals(listOf("media.example.com"), sent)
