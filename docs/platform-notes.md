@@ -1282,6 +1282,33 @@ research agent reading the same files.
 - A network change does not cancel requests already sent. One request read the address 5-15 ms before the signal, went to the old address
   over the new (VPN) route, and hung 17.8 s until the VPN went off. ADR 0019 says nothing about requests in flight.
 - Android 16: not run for roaming (the phone had been updated to 17).
+- **Rerun at the same code**, same phone and harness, with a phone hotspot as the other network. It repeated the numbers above to about
+  0.1 s: the internet address in use 6.09 s after joining the hotspot, local 1.08-1.17 s after rejoining home Wi-Fi, a VPN request in
+  flight hung 17.6 s, and after a switch in the background requests failed for 18.9 s until the 15 s retry. Two more things showed:
+  - A guest Wi-Fi network cut off from the LAN but handed the home DNS also resolves the internet name to the LAN address. So neither
+    address answers there: correct, but split DNS makes the internet address useless on such a network.
+  - A network that lasted 1.3 s on the way to the hotspot started a check that was thrown away when it went; no address came from it.
+- **Second run, at the fixes for the above** (same day, branch at "Add the second iOS roaming run": `INTERNET` declared, an unblocked
+  default network counted as a change, a proved address used at once, a check when a request finds no address, retries reset on a
+  change). The harness still added `ACCESS_LOCAL_NETWORK` and the cleartext config. Times from the raw callback:
+  - The background switch is fixed: home Wi-Fi to the hotspot in the background, the check made while blocked failed as before, and
+    `blocked=false` on return started a check at once. The internet address was in use 309 ms after the app came back (was 18.9-31.5 s).
+  - The cost: every return after more than 5 s in the background drops the address, even with no switch. After 6.6 s in the background
+    on the hotspot, the same internet address was proved again 1.1 s after the return, and a request was held about 0.6 s.
+  - A proved address used at once: the internet address on the hotspot was in use 0.36-0.56 s after start, `onAvailable` or VPN off,
+    while the local probe still ran to its 5 s timeout and changed nothing. Rejoining home Wi-Fi, or after airplane mode: local in use
+    110-184 ms after `onAvailable` (was about 1.07 s), because of the skipped settle below.
+  - **A request that finds no address now starts a check each time**, so while nothing answers, checks follow the app's requests
+    instead of the 15 s to 5 min retries. With the harness reading the address every 2 s (twice per test request), airplane mode for
+    53 s made a check every 2 s, about 52 checks, against 3 before. Over the VPN, where both probes time out, checks ran back to back for
+    49 s. Started offline, the same every 2 s until the network came.
+  - It also skips the settle: a wake left by such a request starts the check as soon as the network changes. After airplane mode off, the
+    first check ran 13 ms after `onAvailable` on a network not ready yet and missed; one woken by the next request proved local 184 ms
+    after `onAvailable`.
+  - **The 5 s probe timeout is not a bound on Android when a lookup hangs**: over the VPN, probes ended as `no response` after 6.0 s and,
+    once, 11.0 s, while the local address (an IP literal) always ended at 5.0 s. Inferred: the internet name's DNS lookup, which the
+    Android engine's blocking `HttpURLConnection` does not give up when Ktor's request timeout fires. The first check on the VPN took 12 s,
+    so requests waited the full 11 s (`requestWaitsAtMost`) before failing.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
@@ -1303,7 +1330,8 @@ research agent reading the same files.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
   Seen on Android 17: a missing `INTERNET` permission throws `SecurityException`, which passes through (section "Roaming on Android").
-- Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
+- Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines. On Android 17 a 5 s probe once ended
+  after 11.0 s over a VPN, probably in a DNS lookup (section "Roaming on Android"); the cause was not confirmed.
 - Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
   private network access) for local addresses (roadmap, M1 spike).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
