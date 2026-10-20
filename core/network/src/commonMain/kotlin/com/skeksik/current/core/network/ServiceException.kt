@@ -90,3 +90,6 @@ private fun kindFor(status: Int): ServiceErrorKind = when {
 
 /** Whether [error] is the platform refusing network access to the app: Android without its `INTERNET` permission. */
 internal expect fun isPermissionDenied(error: Throwable): Boolean
+
+/** Android's message for a socket refused for want of `INTERNET`: "Permission denied (missing INTERNET permission?)". */
+internal fun isMissingInternetPermission(message: String?): Boolean = message.orEmpty().contains("INTERNET permission")
