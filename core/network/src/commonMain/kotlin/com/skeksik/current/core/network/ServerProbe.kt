@@ -2,6 +2,8 @@ package com.skeksik.current.core.network
 
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** Who answers at an address, read without credentials. */
 data class ServerIdentity(
@@ -20,6 +22,9 @@ interface ServerProbe {
 
     /** The port a typed address without one may be on (`http://host:8096`), or null. */
     val defaultPort: Int?
+
+    /** The longest [identify] waits for an answer; roaming makes requests wait for a check about twice that (ADR 0019). */
+    val timeout: Duration get() = 5.seconds
 
     /** Throws [ServiceException]: unreachable, a redirect, or an answer that is not this service. Logged under [server]. */
     suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity

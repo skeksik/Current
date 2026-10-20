@@ -177,7 +177,7 @@ class RoamingServerAddressTest {
         probe.answers.clear()
         source.reportUnreachable(url(internet))
         runCurrent()
-        assertNull(source.current.value)
+        assertEquals(false, reachable)
         probe.asked.clear()
         advance(15.seconds)
         assertEquals(2, probe.asked.size, "back to 15 s after a success")
@@ -216,10 +216,19 @@ class RoamingServerAddressTest {
     }
 
     @Test
-    fun aFailedPeriodicCheckKeepsTheAddressInUse() = runTest {
+    fun aMissKeepsTheLastProvedAddressAndMarksTheServerUnreachable() = runTest {
         probe.answers += mapOf(internet to homeId)
         val source = roaming()
+        // A slow but correct server: at the periodic check it does not answer in time.
+        probe.answers[internet] = "slow"
         advance(5.minutes)
+        assertEquals(url(internet), source.awaitCurrent(), "requests are not held up by the check")
+        advance(5.seconds)
+        advance(5.seconds)
+        assertEquals(url(internet), source.current.value)
+        assertEquals(false, reachable)
+        probe.answers[internet] = homeId
+        advance(15.seconds)
         assertEquals(url(internet), source.current.value)
         assertEquals(true, reachable)
     }
@@ -310,18 +319,20 @@ class RoamingServerAddressTest {
     }
 
     @Test
-    fun aCheckWhoseAddressesWereEditedMeanwhileIsThrownAway() = runTest {
+    fun aCheckWhoseAddressesWereEditedMeanwhileIsCancelled() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()
         probe.answers[local] = "slow"
         source.reportUnreachable(url(local))
         runCurrent()
+        probe.asked.clear()
         // The running check would choose the internet address, which is removed before it finishes.
         source.update(saved.withoutAddress(internet))
+        runCurrent()
+        assertEquals(listOf(local), probe.asked, "a new check starts at once")
         advance(5.seconds)
-        assertNotEquals(url(internet), source.current.value)
-        advance(5.seconds)
-        assertNull(source.current.value)
+        assertEquals(url(local), source.current.value, "a miss keeps the address in use")
+        assertEquals(false, reachable)
     }
 
     @Test

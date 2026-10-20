@@ -119,8 +119,9 @@ class RoamingAddressSourcesTest {
         runCurrent()
         assertEquals(url(local), source.current.value)
         source.reportUnreachable(url(local))
-        assertEquals(url(internet), source.current.value)
+        assertEquals(url(internet), source.awaitCurrent())
         source.reportUnreachable(url(local))
+        runCurrent()
         assertEquals(url(internet), source.current.value, "a stale report is ignored")
         changes.emit(Unit)
         runCurrent()
@@ -163,18 +164,23 @@ class RoamingAddressSourcesTest {
     }
 
     @Test
-    fun afterANetworkChangeAClientNeverSendsToTheOldAddress() = runTest {
+    fun afterANetworkChangeAClientSendsNothingUntilAnAddressIsProved() = runTest {
         val home = server().also(repository::save)
         val sent = mutableListOf<String>()
         val source = sources().forServer(home)
         runCurrent()
         assertEquals(url(local), source.current.value)
-        // On the new network another server answers at the old local address.
-        probe.answers[local.url] = otherId
+        // On the new network something slow answers at the old local address.
+        probe.answers[local.url] = "slow"
         changes.emit(Unit)
         runCurrent()
         val client = client(source, sent)
-        client.request { get("Users/Me") }
+        val request = launch { client.request { get("Users/Me") } }
+        runCurrent()
+        assertTrue(sent.isEmpty(), "nothing is sent while the check runs")
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        request.join()
         assertEquals(listOf("media.example.com"), sent)
     }
 }

@@ -71,6 +71,11 @@ class RoamingAddressSources internal constructor(
         }
         // A source that stopped, for whatever reason, is forgotten, so the next caller starts a new one.
         made.job.invokeOnCompletion { running.update { map -> if (map[server.ref] === made) map - server.ref else map } }
+        if (servers.server(server.ref) == null) {
+            // Removed while this source was being made, after sync looked: it never starts.
+            made.job.cancel()
+            return NoAddress
+        }
         made.job.start()
         return source
     }
