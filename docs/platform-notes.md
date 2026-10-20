@@ -1031,6 +1031,11 @@ research agent reading the same files.
 - Network changes: `ConnectivityManager.registerDefaultNetworkCallback` (`@RequiresPermission(ACCESS_NETWORK_STATE)`; at most 100 callbacks per app;
   unregister them). `NetworkCallback` has `onAvailable`, `onLosing`, `onLost`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`,
   `onBlockedStatusChanged`. AOSP `ConnectivityManager.java`. Nothing run.
+  - Reading network state (https://developer.android.com/training/basics/network-ops/reading-network-state, checked 2026-10-20):
+    `getActiveNetwork()` gives "the current default network". "When a new network becomes the default, the app receives a call to
+    `onAvailable(Network)` for the new network." In its sample sequence, after `registerDefaultNetworkCallback()` "the default network
+    callback starts receiving calls to `onAvailable()` ... for the mobile network, because the mobile network is the default network", so
+    registering can report the current network at once; the page does not say so as a rule. Not verified on a device.
 
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
