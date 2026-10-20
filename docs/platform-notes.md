@@ -1143,6 +1143,51 @@ research agent reading the same files.
 - Consequence for ADR 0019 (not changed here): counting every update as a change holds up, but bursts and no-change updates cost a check
   each, and on a network where a higher address times out, each such update holds requests for up to the probe timeout.
 
+## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
+- What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
+  It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
+  `JellyfinServerProbe` does through `ServerClients` (`GET System/Info/Public`, 5 s timeout). It covered one Jellyfin 12.2 server with a local
+  address (`http://192.168.1.10:8096`, first) and an internet address (`https://media.example.com`). It logged, with timestamps, every raw
+  `online`/`offline`/`connection.change`/`visibilitychange` event, every `NetworkChanges` element, every probe, the address in use,
+  `reachable`, and one request through `ServerClient` every 10 s. The owner changed the network by hand. Windows' own logs (NetworkProfile
+  and the Ethernet driver) gave the real times of each change. Not `RoamingAddressSources` itself: one source, never restarted.
+- The PC: wired Ethernet plus Wi-Fi, with two mesh VPN adapters and two Hyper-V virtual switches always up.
+- From `http://localhost`, every browser reached both addresses: no local network access prompt (Chrome, Edge, Firefox), no CORS
+  failure, no mixed content. No https deployment was at hand, so the prompt from an https page was not run.
+- **Real network changes fire nothing reliable.** `navigator.onLine` stayed `true`, and `online`/`offline` never fired for any of these.
+  Ethernet disabled for 44-82 s while Wi-Fi was on a phone hotspot, and joining or leaving the hotspot (Edge, Chrome, Firefox). The VPN
+  on and off (Edge, Firefox). Cable unplugged for 21 s, and Wi-Fi on and off while wired (Edge). Inference, not verified: Windows counts the PC as connected
+  while any adapter (here the virtual ones) is up. A PC without such adapters may behave differently.
+- **`navigator.connection.change` (Chrome, Edge) follows the speed estimate, not the network.** On desktop `type` is `undefined`. Only
+  `effectiveType`, `downlink` and `rtt` change, and `change` fired when they did. It fired with no network change at all (rtt 0 → 150 →
+  50, 4g → 3g → 4g). It did not fire at all through a 44 s and an 82 s hotspot switch, or a cable unplug. In one hotspot run it fired
+  36 s after the switch, and again 6.6 s after leaving the hotspot. Each event costs a check, and requests wait for it: about 1.02 s with
+  the local address answering.
+- What the app then does:
+  - **On a switch to the hotspot, roaming never noticed in 2 of 3 runs** (Chrome, Edge, Firefox). Requests to the local address hung for
+    the Windows connect timeout (21 s) or until the route changed back (5-15 s), then failed. The internet address, which answered in
+    0.24 s over the hotspot, was never tried, and `reachable` stayed `true`. Only the periodic check (5 min, seen on schedule) or a
+    failed request could notice, and failed requests do not, because of the bug below.
+  - In the one run where `connection.change` fired (Edge), the check asked both addresses at once. It used the internet address 6.0 s
+    after the event, because the local probe had to time out (5 s) first. A request waiting meanwhile took 2.2 s.
+  - The VPN on: requests to the local address hung 18-22 s and failed (Edge). No event fired (Edge, Firefox).
+  - Background tab (Edge, hidden under 5 minutes): the 1 s settle timer and the 10 s requests ran nearly on time (10 s became 11 s).
+    The check after a `change` event finished in 2.9 s. Longer hiding, where intensive timer throttling applies, was not tried.
+- **DevTools "Offline" is not a real change.** In Chrome and Edge it fires `connection.change` (downlink 0) and `offline`, and fetches fail
+  at once. Turning it off fires `connection.change` and `online`. In Firefox it fires `offline` and `online`, but the page's fetches went
+  through while it was on. After `online`, the check re-proved the local address in 1.03 s (Firefox).
+- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`), an unresolvable name, and a
+  connection that drops all fail with a plain `Error("Fail to fetch")`, caused by the browser's `TypeError: Failed to fetch`, in Chrome,
+  Edge and Firefox. `serviceExceptionFor` does not map it, so `ServerClient.request` rethrows it as a bug. There is no `Unreachable` and no
+  `reportUnreachable`. A request timeout is still `HttpRequestTimeoutException`, which is mapped.
+- **That error ends roaming.** `RoamingServerAddress` catches only `ServiceException` from a probe. A probe that fails fast throws out of
+  the check, and `run` ends: `current` stays null, and every later request fails as `Unreachable` within 1 ms, even after `online`.
+  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a refused address listed above a working
+  one (13 ms). A local address that only times out on the hotspot did not trigger it. Reported on the PR; not fixed here.
+- Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
+  and all of them in Firefox. What is left is the periodic check and failed requests, and on the web failed requests report nothing
+  until fetch failures are mapped.
+
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
   Ktor client 3.6.0. It is a new dependency, so it needs approval (CLAUDE.md, ADR 0009).
