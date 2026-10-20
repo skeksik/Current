@@ -1081,7 +1081,8 @@ research agent reading the same files.
 ## Detecting network changes (checked 2026-10-19; documentation only)
 - Apple: `NWPathMonitor` (iOS 12, macOS 10.14, tvOS 12): `pathUpdateHandler` receives `NWPath` values with `status`, `availableInterfaces`,
   `gateways`, `usesInterfaceType(_:)`, `supportsIPv4/IPv6`, `isExpensive`, `isConstrained`, `unsatisfiedReason` (including
-  `.localNetworkDenied`). It gives no SSID. Whether a Wi-Fi to Wi-Fi switch fires an update, and whether `gateways` can tell two networks apart, is not verified.
+  `.localNetworkDenied`). It gives no SSID. A Wi-Fi to Wi-Fi switch fires updates on macOS 26.6.2 (see "Apple path monitor and roaming
+  on a Mac"); whether `gateways` can tell two networks apart is not verified.
   https://developer.apple.com/documentation/network/nwpathmonitor
 - Android: `registerDefaultNetworkCallback`, see above; `onLinkPropertiesChanged` and `onCapabilitiesChanged` report address and capability changes on the same network.
 - Browsers: `online`/`offline` on `window` (Baseline since July 2015) but "inherently unreliable": a LAN counts as online even without
@@ -1097,12 +1098,50 @@ research agent reading the same files.
 - Apple, C API of the same monitor (checked 2026-10-20 in Apple's documentation JSON): `nw_path_monitor_set_update_handler` "Sets a
   handler to receive network path updates" (iOS 12, macOS 10.14, tvOS 12); `NWPathMonitor.start(queue:)` "Starts monitoring path changes,
   and sets a queue on which to deliver path events"; `cancel()` "Stops receiving network path updates". The reference does not say that
-  the handler is called with the current path when monitoring starts. Not verified: that first call, and whether a Wi-Fi to Wi-Fi switch
-  fires an update.
+  the handler is called with the current path when monitoring starts. On macOS 26.6.2 it is, and a Wi-Fi to Wi-Fi switch fires updates
+  (see "Apple path monitor and roaming on a Mac"); iOS and tvOS not verified.
   https://developer.apple.com/documentation/network/nw_path_monitor_set_update_handler(_:_:),
   https://developer.apple.com/documentation/network/nwpathmonitor
 - Implication (inference): treat every platform signal as "something may have changed" and re-probe the server addresses; none of them
   says which network the device is on.
+
+## Apple path monitor and roaming on a Mac (checked 2026-10-20 on macOS 26.6.2, Apple silicon; ADR 0019)
+- What ran: a throwaway `macosArm64Test` binary (not committed) built `networkModule`'s real `RoamingAddressSources` with the real
+  `JellyfinServerProbe` and the Apple `NetworkChanges`, for one Jellyfin 12.2 server with a local address (`http://192.168.1.10:8096`,
+  first) and an internet address (`https://media.example.com`). It logged, with timestamps, every probe, every `NetworkChanges` element, the
+  address in use, `reachable`, and once a second where a request would go and how long `awaitCurrent` held it. A second, independent
+  `nw_path_monitor` logged every raw update (status, interface types and names, `isExpensive`; gateways and IPv4/IPv6 support were not
+  logged). The owner toggled the network by hand. A command-line test binary, not the app bundle: ATS and the app's `Info.plist` did not
+  apply (plain `http` to an IP literal worked), so this says nothing about ATS.
+- **The monitor reports the current path at start**: in all four launches the first update came 1-2 ms after `nw_path_monitor_start`,
+  with the current path (satisfied, Wi-Fi). So skipping the first update is right: each launch made exactly one check (both addresses at
+  once, the local one proved in 10-17 ms, requests held 9-17 ms) and no second one. The first real change after launch was not lost:
+  Wi-Fi off 5.5 s after launch, and an update 13.7 s after launch, both cleared the address and started a check.
+- **A Wi-Fi to Wi-Fi switch produces updates**, in both directions, when the network is picked in the Wi-Fi menu: the path goes
+  unsatisfied for about 0.3 s between the two networks. A move between access points of one network (same SSID) was not tried.
+- **Every transition comes as a burst of updates**, 7-11 within 3-5 s, most of them alike in what was logged (satisfied, Wi-Fi, `en0`).
+  Opening the Wi-Fi menu alone also produced such updates, with nothing changed. Each update is a `NetworkChanges` element, so each
+  one cleared the address in use and restarted the check (ADR 0019's rule).
+- Per case, times from the first update of the transition:
+  - Wi-Fi off: unsatisfied 0.25 s after the first update; the address was cleared at once, both probes failed (`Unreachable`) within
+    0.1 s, requests were held 0.34 s and then failed as unreachable, `reachable` false; the next check came 15 s later, as specified.
+  - Wi-Fi on: the first update was still unsatisfied but listed `en0`; the local address was proved 0.13 s later. Eight more updates
+    followed in 3 s, each clearing and re-proving it (5-310 ms each); the longest hold the once-a-second sampler saw was 81 ms.
+  - Home Wi-Fi to a phone hotspot (`isExpensive` true there): the internet address answered after 0.55 s, but the local address on the
+    hotspot timed out (5 s) instead of being refused, and a lower address is used only once the higher ones have failed. The internet
+    address was in use 9.2 s after the first update; a request was held 7.5 s. A later update on the hotspot (Wi-Fi menu opened) cleared
+    it again and held a request 4.2 s, for the same local timeout.
+  - Hotspot back to home Wi-Fi: the local address was in use 0.8 s after the first update (one update in between listed only a wired
+    interface); 11 updates in 3.5 s, each re-proved in 8-136 ms.
+  - A VPN on and off: a `utun` interface appeared and disappeared in `availableInterfaces`; interface types stayed Wi-Fi (one update
+    was "satisfiable" with Wi-Fi and cellular). About 9 updates going on and 7 going off, each re-proving the local address in 5-150 ms.
+  - tvOS and iOS: not run (no Apple TV at hand; the simulators share the Mac's network).
+- Local network privacy, seen on the side: the binary's very first request to the local address failed as `Unreachable` within 53 ms
+  while macOS showed its Local Network prompt; after Allow, the next run reached it. This matches TN3179's "first operation may be refused
+  at once" (section "Local network, discovery and plain HTTP: Apple"). Inference: on an app's first launch at home, the local address can
+  miss the first check and wait for the 15 s retry.
+- Consequence for ADR 0019 (not changed here): counting every update as a change holds up, but bursts and no-change updates cost a check
+  each, and on a network where a higher address times out, each such update holds requests for up to the probe timeout.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
@@ -1193,7 +1232,8 @@ research agent reading the same files.
     - Whether Apple grants the multicast entitlement for a media client, and how fast.
     - Whether `NSAllowsLocalNetworking` admits public IP addresses, and whether AVPlayer follows it.
     - That a dotted non-`.local` name such as `media.lan` is blocked by ATS under `NSAllowsLocalNetworking` (read from the key's text, not tried).
-    - Whether `NWPathMonitor` fires for a Wi-Fi to Wi-Fi switch.
+    - Whether `NWPathMonitor` reports the current path at start and fires for a Wi-Fi to Wi-Fi switch on iOS and tvOS (it does on
+      macOS 26.6.2), and for a move between access points of one network.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Whether a broadcast discovery needs a `MulticastLock`; Media3's and Coil's handling of the cleartext policy.
