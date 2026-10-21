@@ -158,9 +158,46 @@ class RoamingAddressSourcesTest {
     }
 
     @Test
-    fun anyOtherServiceWithoutAProbeGetsNoAddress() = runTest {
+    fun aServiceThatCannotIdentifyItselfIsReachableAfterASuccessAndOfflineOnceEveryAddressFailed() = runTest {
+        val stash = server(ServiceType.stash).also(repository::save)
+        val source = sources().forServer(stash)
+        runCurrent()
+        val reachable = { capabilities.capabilities.value.status(stash.ref)?.reachable }
+        assertNull(reachable(), "unknown until a request")
+        source.reportReachable(url(local))
+        assertEquals(true, reachable())
+        source.reportUnreachable(url(local))
+        assertEquals(true, reachable(), "another address is left to try")
+        source.reportUnreachable(url(internet))
+        assertEquals(false, reachable())
+        assertEquals(url(local), source.awaitCurrent(), "the addresses keep taking turns")
+        source.reportReachable(url(internet))
+        assertEquals(false, reachable(), "a report for an address not in use is ignored")
+        source.reportReachable(url(local))
+        assertEquals(true, reachable())
+    }
+
+    @Test
+    fun aNetworkChangeStartsTheCountOfFailedAddressesAgain() = runTest {
+        val stash = server(ServiceType.stash).also(repository::save)
+        val source = sources().forServer(stash)
+        runCurrent()
+        source.reportReachable(url(local))
+        source.reportUnreachable(url(local))
+        changes.emit(NetworkChange.Changed)
+        runCurrent()
+        source.reportUnreachable(url(local))
+        assertEquals(true, capabilities.capabilities.value.status(stash.ref)?.reachable, "only one address failed on this network")
+        source.reportUnreachable(url(internet))
+        assertEquals(false, capabilities.capabilities.value.status(stash.ref)?.reachable)
+    }
+
+    @Test
+    fun anyOtherServiceWithoutAProbeGetsNoAddressAndIsOffline() = runTest {
         val seerr = server(ServiceType.seerr).also(repository::save)
         assertNull(sources().forServer(seerr).awaitCurrent())
+        runCurrent()
+        assertEquals(false, capabilities.capabilities.value.status(seerr.ref)?.reachable)
     }
 
     @Test
