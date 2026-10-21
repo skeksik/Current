@@ -10,6 +10,8 @@ dependencies {
     implementation(project(":shared"))
     // AppInfo.NAME for the window title.
     implementation(project(":core:model"))
+    // AppFolders.local() for the single-instance lock.
+    implementation(project(":core:database"))
 
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
@@ -17,6 +19,13 @@ dependencies {
     implementation(libs.jna)
 
     implementation(libs.compose.uiToolingPreview)
+
+    testImplementation(libs.kotlin.test)
+}
+
+// A plain JVM module's tests run in `test`; this alias puts them in `./gradlew jvmTest` with every other module's (scripts/check.sh, CI).
+tasks.register("jvmTest") {
+    dependsOn(tasks.test)
 }
 
 // The window icon reads the installer's PNG from the classpath (main.kt), so there is one icon file per format.

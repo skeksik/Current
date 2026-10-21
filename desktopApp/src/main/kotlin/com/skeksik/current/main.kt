@@ -11,25 +11,68 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.skeksik.current.core.database.AppFolders
 import com.skeksik.current.core.model.AppInfo
 import java.awt.Dimension
+import java.io.IOException
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import org.jetbrains.skia.Image
+import kotlin.system.exitProcess
 
-fun main() = application {
+fun main() {
+    // Before Koin, so a second launch never opens the settings files (docs/architecture.md, "Single instance (desktop)").
+    val activations = claimSingleInstance()
+    app(activations)
+}
+
+/** The app's claim on this machine, or exits when another process holds it. Emits each time a later launch asks to come forward. */
+private fun claimSingleInstance(): SharedFlow<Unit> {
+    val activations = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val claim = try {
+        FileLockSingleInstance(AppFolders.local(), beforeSignal = WindowsForeground::allow).claim { activations.tryEmit(Unit) }
+    } catch (e: IOException) {
+        // The folder cannot hold the lock: starting unguarded beats not starting at all.
+        System.err.println("Current: no single-instance check (${e.javaClass.simpleName})")
+        return activations
+    }
+    when (claim) {
+        // application() ends the process with exitProcess, so the claim is released by a shutdown hook.
+        is Claim.Primary -> Runtime.getRuntime().addShutdownHook(Thread(claim::close))
+        Claim.Signalled -> exitProcess(0)
+        Claim.NotReached -> {
+            System.err.println("Current is already running but did not answer")
+            exitProcess(1)
+        }
+    }
+    return activations
+}
+
+private fun app(activations: SharedFlow<Unit>) = application {
     // Koin around the windows, not inside one: the video window (ADR 0010) will join the same graph.
     CurrentKoin {
         // Compose desktop turns an Esc nothing handled into the window's back event (docs/platform-notes.md, "Esc on desktop").
         val input = remember { MainWindowInput(escapeIsWindowBack = true) }
         val icon = remember { appIcon() }
+        val windowState = rememberWindowState(width = 1200.dp, height = 780.dp)
         Window(
             onCloseRequest = ::exitApplication,
             // The product name, the same in every language; not a string resource.
             title = AppInfo.NAME,
             icon = icon,
-            state = rememberWindowState(width = 1200.dp, height = 780.dp),
+            state = windowState,
             onPreviewKeyEvent = input::onPreviewKeyEvent,
         ) {
             LaunchedEffect(Unit) { window.minimumSize = Dimension(760, 520) }
+            // A later launch of the app: restore this window and bring it forward instead.
+            LaunchedEffect(Unit) {
+                activations.collect {
+                    windowState.isMinimized = false
+                    window.toFront()
+                    window.requestFocus()
+                }
+            }
             // The app follows the system theme (CurrentTheme), and so does the title bar.
             val dark = isSystemInDarkTheme()
             LaunchedEffect(dark) { WindowsTitleBar.setDark(window, dark) }
