@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package com.skeksik.current.core.database
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.CFBridgingRelease
 import platform.SystemConfiguration.SCDynamicStoreCopyComputerName
 
