@@ -44,7 +44,8 @@ private fun claimSingleInstance(): SharedFlow<Unit> {
         Claim.Signalled -> exitProcess(0)
         Claim.NotReached -> {
             // A GUI app's stderr is not seen, so say it on screen. Plain Swing: nothing of the app has started.
-            JOptionPane.showMessageDialog(null, NOT_RESPONDING, AppInfo.NAME, JOptionPane.WARNING_MESSAGE)
+            val message = if (System.getProperty("os.name").startsWith("Windows")) NOT_RESPONDING_WINDOWS else NOT_RESPONDING
+            JOptionPane.showMessageDialog(null, message, AppInfo.NAME, JOptionPane.WARNING_MESSAGE)
             exitProcess(1)
         }
     }
@@ -52,7 +53,8 @@ private fun claimSingleInstance(): SharedFlow<Unit> {
 }
 
 /** Shown before Koin and Compose start, so not a string resource; English only until the app has more languages. */
-private const val NOT_RESPONDING = "Current is already running but isn't responding. Close it in Task Manager and try again."
+private const val NOT_RESPONDING_WINDOWS = "Current is already running but isn't responding. Close it in Task Manager and try again."
+private const val NOT_RESPONDING = "Current is already running but isn't responding. Close it and try again."
 
 private fun app(activations: SharedFlow<Unit>) = application {
     // Koin around the windows, not inside one: the video window (ADR 0010) will join the same graph.
