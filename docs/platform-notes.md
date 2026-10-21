@@ -1083,6 +1083,49 @@ research agent reading the same files.
   what a `false` from `shouldShowRequestPermissionRationale()` means; that such a dismissal is not counted as a denial is not verified.
 - What the app does with it: ADR 0020.
 
+## Local network permission on Android: run on a device (checked 2026-10-21 on a Pixel 8 Pro, Android 17, API 37; PR 27 debug build)
+- Build: `fix/android-network-setup` at 5c524d9, `./gradlew :androidApp:installDebug`, a fresh install before each case, so the
+  permission started undecided. A live Jellyfin 12.2 on the home network at a plain `http://192.168.1.10:8096`-style address, and an
+  internet name `media.example.com` that the home router resolves to that LAN address (split DNS). State read with
+  `adb shell dumpsys package com.skeksik.current`.
+- **Blocker, not from this PR: the build crashed at start** with `MissingResourceException: Missing resource with path:
+  composeResources/com.skeksik.current.ui.resources/values/strings.commonMain.cvr`. The APK had no `composeResources` at all: `composeUi`
+  (strings since PR 24) does not set `androidResources { enable = true }` in its `android {}` block, as `shared` does. With that block
+  added locally (not committed) the strings were packaged and the app started; every run below used that build.
+- The system dialog: "Allow Current to find, connect to and determine the relative position of nearby devices?", buttons **Allow** and
+  **Don't allow**. It does not mention the local network or servers; the app's own line naming "Nearby devices" is what connects the two.
+  In system settings the permission is App info > Permissions > Nearby devices.
+- Steps from the PR:
+  1. First ask, then allow: **pass.** The notice and **Continue** showed; the first **Check** of the LAN `http` address raised the dialog
+     before probing; after **Allow** the server was found within a second ("On your local network"), no timeout, and the notice was gone.
+     Plain `http` to a LAN address works with the network security config.
+  2. Denial: **pass.** **Continue**, **Don't allow**: the notice changed to the "Without Nearby devices ..." text with **Ask again**. A
+     public Jellyfin over `https` was found and nothing was asked. A later **Check** of the LAN address asked nothing and ended in "The
+     server took too long to answer." (the connect timeout). But the split-DNS internet name also timed out while denied, since at home it
+     resolves to the LAN address: "Internet addresses still work" is not true for such a name, and the timeout message does not point to
+     the permission.
+  3. Final denial: **pass, with a layout bug.** **Ask again**, **Don't allow**: the notice said Nearby devices is off, with **Open
+     settings** and **Try again**. **Try again** showed no dialog. **Open settings** opened Current's App info; after allowing Nearby
+     devices there and going back, the notice was gone (read again on resume) and the LAN address checked fine. Bug: on the phone's
+     portrait width the two buttons sit in one `Row` (`AddServerScreen.kt`) that does not wrap; **Try again** is squeezed to a sliver
+     about 144 px wide that runs past the content column, its label unreadable.
+  4. Rotation: **pass.** **Continue**, the phone rotated to landscape while the dialog showed (the events log has
+     `wm_relaunch_activity`, `wm_on_destroy_called`, `wm_on_create_called` for MainActivity), then **Allow**: granted, no notice, and the
+     next **Check** of the LAN address found the server without asking.
+  5. Split DNS: **pass.** With the permission allowed, the internet name found the same server ("On the internet", same version).
+  6. Optional: `dumpsys` shows `ACCESS_LOCAL_NETWORK: granted=false` with no `USER_SET` flag before any answer, `USER_SET` after a denial
+     or a grant. The overlay VPN case was not run.
+- Dismissed dialog (listed as not run in the PR): Back on the dialog left the permission without `USER_SET`, so Android did not count
+  it as a denial. The page showed the denial notice with **Ask again**; then **Ask again** and one **Don't allow** still offered **Ask
+  again**, not **Blocked**, which matches Android (one real denial so far). **Pass.**
+- Keyboard and D-pad (focus polish from PR 28), with `adb shell input keyevent`: Tab cycles sidebar Home, Settings and the page's
+  button, then wraps; D-pad Up and Down move within the sidebar, Right and Left move between the sidebar and the page; a tap hides the ring;
+  Enter on **Add a server** opens the page with the address field focused; the keyboard's Enter key runs **Check**. Bug: after a tap
+  with nothing focused, the first Tab focuses Home without a ring; the ring shows from the next key on.
+- Other things seen: at phone width the sidebar takes about half the screen, and the window draws under the status bar (the "Current"
+  title overlaps the clock), so system bar insets are not applied. A "took too long" error stays on the page after the permission is
+  granted in settings, until the next **Check**.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
