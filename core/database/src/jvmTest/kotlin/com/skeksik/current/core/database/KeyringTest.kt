@@ -37,7 +37,7 @@ class KeyringTest {
         if (!AppFolders.isWindows) return
         val keyring = assertNotNull(WindowsCredentials.openOrNull(prefix = "Current-test-"))
         roundTrip(keyring)
-        assertFailsWith<IllegalArgumentException> { keyring.put(key, "x".repeat(2561)) }
+        assertFailsWith<SecretBackendException> { keyring.put(key, "x".repeat(2561)) }
     }
 
     @Test
