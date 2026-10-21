@@ -1629,6 +1629,48 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   not one network's, so a switch while blocked stays suspended until the new default is reported unblocked. On every platform, a
   `Resumed` with no address in use holds requests until the check it starts ends. Both are meant to fix the two failures above.
 
+## Roaming on Android, suspension fix (checked 2026-10-21 on the same Pixel 8 Pro, Android 17, SDK 37, build CP3A.261005.005; ADR 0019)
+- What ran: PR 23 at c59f387 (the fix is 7cac0e2; c59f387 adds notes only). Same throwaway harness, server, addresses, networks and adb
+  steps as "Roaming on Android, final", with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm grant` and a permissive cleartext config,
+  neither committed. Two changes to the harness: a 200 ms ticker that logs gaps, to show when the freezer stopped the process; and,
+  after the first run of case B, each request timed through `ServerClient.request` alone (before that the harness also called
+  `awaitCurrent` itself, so a request could wait twice). Times are from the unblock (`Resumed`) unless said.
+- **`Suspended` and `Resumed` arrive as meant.** `blocked=true` came 5.0 s after `onStop` at every trip to the background, and
+  `Suspended` reached the app 3-18 ms later; `blocked=false` and `Resumed` came within 12 ms of `onStart`. A switch while blocked came
+  as `onLost`, `Changed`, then `onAvailable` 1.1-5.3 s later with `blocked=true` and another `Changed`. No check ran in the background
+  after it, and requests went on waiting.
+- **Case A, a switch while in the background: pass**, 10 times. Home, a Wi-Fi switch about 8 s later, the return about 10 s after it.
+  - To the hotspot (3 times): the internet address proved 251-341 ms after the unblock. The request made at the return was held until
+    then and succeeded 301-578 ms after it, its own request over the hotspot included.
+  - To home Wi-Fi (6 times; in 3 of them the tap was meant for the hotspot, which had switched itself off, or the guest network, and
+    the phone rejoined home Wi-Fi as a new network): local proved 29-57 ms after the unblock, and the request at the return succeeded
+    56-91 ms after it.
+  - To the guest network, where nothing answers (once): requests were held through the check and failed as `Unreachable` 5.02 s after
+    the unblock, when both probes had timed out.
+  - Before the fix, the request at the return failed as `Unreachable` within 0-4 ms, 45-356 ms before the check proved an address.
+- **Case B, requests waiting when the freezer stops the app: fail.** Stays of 100 s (twice), 40 s and 150 s on home Wi-Fi. The freezer
+  stopped the process 70 s after `onStop` each time (65 s after the block; gaps of 29.8 s, 29.8 s and 79.7 s). Every request made after
+  the block was held, but `awaitCurrent` measures its bound in real time, and on Android the process runs for about a minute while
+  suspended:
+  - In the background, before the freezer: every held request failed as `Unreachable` 22.0 s after it was made, the app still
+    blocked: 21 failures in the second 100 s stay and in the 150 s stay, and 6 in the 40 s stay. Its first 11 s wait
+    (`requestWaitsAtMost`) ran out, then the 11 s it gives a suspended app to return, and it gave up while `suspended` was still set.
+  - At the return: requests whose second 11 s ran out during the freeze failed 0-3 ms around `Resumed`, before the check. That was 6
+    requests (41.6-51.6 s old) after 100 s away and 5 (93-101 s old) after 150 s away. This is the failure of the final run, now
+    only for requests made 11-22 s before the freeze.
+  - The rest waited again and succeeded once the check proved local after the return: 10-15 per stay, up to 91 s old. These were the
+    requests made in the last 11 s before the freeze and those still in their first 22 s at the return.
+  - Inferred from the code, not changed: the rule that time spent suspended does not count holds on iOS, where the app is suspended
+    within 1.3 s of going to the background ("Roaming on iOS, suspension fix"), but not on Android. There the network is blocked 5 s
+    after the background, and the process is frozen only about 65 s later. Reported as a bug, not fixed here.
+- **A return on the same network: pass, with a longer hold.** 11 returns after 19 s to 150 s away: the address in use was kept every
+  time, and `Resumed` made one check that proved it, in 35-100 ms on home Wi-Fi and 725 ms on the hotspot. Requests now wait for that
+  check from the block, as on iOS, so the request made at the return took 71-157 ms on home Wi-Fi (its own request included) and
+  1.14 s on the hotspot, against 1-3 ms in the final run, when Android sent no `Suspended`.
+- **Offline: pass.** Airplane mode for 68 s with the app in front: one check 1.03 s after `onLost`, then one every 15.04-15.05 s
+  (4 more), each probe failing in 7-20 ms. Airplane mode off: local in use 1.07 s after `onAvailable`.
+- Not run: a switch to mobile data (the phone has none), the VPN, Android 16.
+
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
   It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
