@@ -15,11 +15,12 @@ import com.skeksik.current.core.database.AppFolders
 import com.skeksik.current.core.model.AppInfo
 import java.awt.Dimension
 import java.io.IOException
+import javax.swing.JOptionPane
+import kotlin.system.exitProcess
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import org.jetbrains.skia.Image
-import kotlin.system.exitProcess
 
 fun main() {
     // Before Koin, so a second launch never opens the settings files (docs/architecture.md, "Single instance (desktop)").
@@ -42,12 +43,16 @@ private fun claimSingleInstance(): SharedFlow<Unit> {
         is Claim.Primary -> Runtime.getRuntime().addShutdownHook(Thread(claim::close))
         Claim.Signalled -> exitProcess(0)
         Claim.NotReached -> {
-            System.err.println("Current is already running but did not answer")
+            // A GUI app's stderr is not seen, so say it on screen. Plain Swing: nothing of the app has started.
+            JOptionPane.showMessageDialog(null, NOT_RESPONDING, AppInfo.NAME, JOptionPane.WARNING_MESSAGE)
             exitProcess(1)
         }
     }
     return activations
 }
+
+/** Shown before Koin and Compose start, so not a string resource; English only until the app has more languages. */
+private const val NOT_RESPONDING = "Current is already running but isn't responding. Close it in Task Manager and try again."
 
 private fun app(activations: SharedFlow<Unit>) = application {
     // Koin around the windows, not inside one: the video window (ADR 0010) will join the same graph.

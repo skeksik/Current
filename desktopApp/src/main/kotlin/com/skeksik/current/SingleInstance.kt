@@ -98,12 +98,14 @@ internal class FileLockSingleInstance(
         if (server != null) {
             Thread({ accept(server, token, onActivate) }, "single-instance").apply { isDaemon = true }.start()
         }
+        // Runs in a shutdown hook: every step runs even when one before it fails, and nothing is thrown out of it.
         return Claim.Primary {
-            server?.close()
-            // Before the lock goes, so a process that claims next never loses its own port file to this one.
-            if (server != null) Files.deleteIfExists(portFile)
-            lock.release()
-            channel.close()
+            quietly { server?.close() }
+            // Before the lock goes, so a process that claims next never loses its own port file to this one. If it stays, the next
+            // holder overwrites it.
+            if (server != null) quietly { Files.deleteIfExists(portFile) }
+            quietly { lock.release() }
+            quietly { channel.close() }
         }
     }
 
@@ -213,6 +215,14 @@ internal class FileLockSingleInstance(
 
         /** 127.0.0.1 itself, never another interface; built from its bytes, so nothing is looked up. */
         val LOOPBACK: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+
+        inline fun quietly(step: () -> Unit) {
+            try {
+                step()
+            } catch (e: IOException) {
+                // Nothing left to do about it on the way out.
+            }
+        }
 
         fun newToken(): String {
             val bytes = ByteArray(32).also(SecureRandom()::nextBytes)
