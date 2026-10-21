@@ -27,12 +27,19 @@ object CurrentTokens {
         val textDark = Color(0xFFE7ECEE)
         val textMutedDark = Color(0xFF9AA5AB)
 
-        val paper = Color(0xFFF7F9FA)
+        /**
+         * Light pairs meet WCAG AA against every light background (ContrastTest): text 4.5:1, borders 3:1. The page is a shade darker
+         * than the white sidebar and panels so they stand apart, and panels add [panelEdgeLight].
+         */
+        val paper = Color(0xFFEBEFF2)
         val surfaceLight = Color(0xFFFFFFFF)
-        val surfaceRaisedLight = Color(0xFFEEF2F4)
-        val outlineLight = Color(0xFFC3CBD0)
+        val outlineLight = Color(0xFF7E8A91)
+        /** The edge of a white panel on [paper]; decoration, not a control's border, so it stays light. */
+        val panelEdgeLight = Color(0xFFD3DADE)
+        /** The selected sidebar entry: [accentDark] at about a quarter on white. */
+        val selectedLight = Color(0xFFC2DFDC)
         val textLight = Color(0xFF14191C)
-        val textMutedLight = Color(0xFF55636B)
+        val textMutedLight = Color(0xFF4E5B63)
     }
 
     object Spacing {

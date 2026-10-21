@@ -92,7 +92,7 @@ fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, modifier: M
             // Entries sit Spacing.xs apart and their fill is not the ring's colour, so the ring hugs the edge.
             .focusRing(shape, gap = 0.dp)
             .clip(shape)
-            .background(if (selected) colors.primary.copy(alpha = 0.16f) else colors.surface)
+            .background(if (selected) colors.secondaryContainer else colors.surface)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = Spacing.m),
         verticalAlignment = Alignment.CenterVertically,
@@ -100,6 +100,6 @@ fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, modifier: M
     ) {
         val tint = if (selected) colors.primary else colors.onSurfaceVariant
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(Size.icon))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) colors.onSurface else colors.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant)
     }
 }
