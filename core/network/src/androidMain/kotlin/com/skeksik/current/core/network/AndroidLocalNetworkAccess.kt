@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import com.skeksik.current.core.database.KeyValueStore
 import com.skeksik.current.core.database.MachineLocal
+import kotlinx.coroutines.flow.Flow
 import org.koin.core.scope.Scope
 
 /**
@@ -17,7 +18,7 @@ import org.koin.core.scope.Scope
 val localNetworkRequests = LocalNetworkRequestBridge()
 
 internal actual fun Scope.platformLocalNetworkAccess(): LocalNetworkAccess =
-    AndroidLocalNetworkAccess(get(), get(MachineLocal), localNetworkRequests)
+    AndroidLocalNetworkAccess(get(), get(MachineLocal), localNetworkRequests, localNetworkRequests.changes)
 
 /**
  * `ACCESS_LOCAL_NETWORK` (ADR 0020): a runtime permission from API 37, required when the app targets 37. Below API 37 the app has
@@ -27,6 +28,7 @@ class AndroidLocalNetworkAccess(
     context: Context,
     store: KeyValueStore,
     private val requester: LocalNetworkRequester,
+    override val changes: Flow<Unit>,
 ) : LocalNetworkAccess {
     private val context = context.applicationContext
     private val state = LocalNetworkPermissionState(store)

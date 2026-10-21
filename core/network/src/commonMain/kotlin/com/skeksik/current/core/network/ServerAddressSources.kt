@@ -53,6 +53,8 @@ class RoamingAddressSources internal constructor(
     private val timing: RoamingTiming = RoamingTiming(),
     private val unidentifiable: Set<ServiceType> = setOf(ServiceType.stash),
     private val time: TimeSource = TimeSource.Monotonic,
+    /** Local addresses are left out while it denies them (ADR 0019). */
+    private val localAccess: LocalNetworkAccess = LocalNetworkAccess.NotNeeded,
 ) : ServerAddressSources {
     /** One run of [source]; [wait] is how long it waited after the last run that a bug ended. */
     private class Running(val source: StableAddress, val job: Job, val wait: Duration) {
@@ -80,8 +82,9 @@ class RoamingAddressSources internal constructor(
         running.value[server.ref]?.source ?: servers.server(server.ref)?.let(::start) ?: NoAddress
 
     private fun make(server: SavedServer): ManagedServerAddress? = when {
-        server.ref.service in probes -> RoamingServerAddress(server, probes.getValue(server.ref.service), capabilities, timing, time)
-        server.ref.service in unidentifiable -> OrderedServerAddress(server)
+        server.ref.service in probes ->
+            RoamingServerAddress(server, probes.getValue(server.ref.service), capabilities, timing, time, localAccess)
+        server.ref.service in unidentifiable -> OrderedServerAddress(server, localAccess)
         else -> null
     }
 

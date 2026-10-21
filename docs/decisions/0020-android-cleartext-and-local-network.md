@@ -44,9 +44,16 @@ HTTP: Android" and "Local network permission on Android: the API" have the docum
 
 ## Consequences
 - Any http host is allowed by the platform; a request that skips the app's rule is not stopped by Android.
-- Code that probes local addresses (roaming, discovery) should read `status()` first rather than wait for a timeout.
+- Code that probes local addresses reads `status()` first rather than wait for a timeout. Roaming skips local addresses while access is
+  denied, and an internet name that timed out then while another address is left, and follows `LocalNetworkAccess.changes` to use them
+  again after a grant (ADR 0019). `MainActivity.onResume` reports each return to the foreground through
+  `LocalNetworkRequestBridge.resumed()`. Discovery must do the same when it comes.
+- A denied probe ends at the probe's request timeout (5 s for Jellyfin). The Android engine lowers its connect timeout to that same
+  value (docs/platform-notes.md, "Request timeouts on blocking engines"), so it may end as `Timeout` or as `Unreachable`; roaming counts
+  any probe that failed after its whole timeout as timed out. Not verified on a device for an internet name that resolves locally.
 - `100.64.0.0/10` (Tailscale) counts as `Local` (ADR 0016), but the permission excludes VPN connections, so a user whose only local
-  address is a Tailscale one is asked for a permission that address presumably does not need. Not verified on a device.
+  address is a Tailscale one is asked for a permission that address presumably does not need. Not verified on a device. For the same
+  reason roaming does not skip Tailscale addresses (`100.64.0.0/10`, `.ts.net`) while access is denied (ADR 0019).
 - The machine-local store is not yet kept out of Android backups (ADR 0017, M4); until then a restored phone may carry a `Blocked` state,
   which `status()` corrects as soon as the permission is granted, and "Try again" works around.
 - Whether Media3 and Coil honour the cleartext setting is not verified (docs/platform-notes.md).
