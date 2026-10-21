@@ -103,6 +103,8 @@ internal fun AddServerScreen(navigator: Navigator) {
                 Button(check, Modifier.focusRing(MaterialTheme.shapes.extraLarge), enabled = shown.input.isNotBlank()) {
                     Text(stringResource(Res.string.add_server_check))
                 }
+                // Check leaves while checking, which drops focus; after a failure it goes back to the address.
+                LaunchedEffect(shown.problem) { if (shown.problem != null) field.requestFocus() }
             }
             is ServerSetupUiState.Checking -> InlineProgress(stringResource(Res.string.add_server_checking))
             is ServerSetupUiState.Found -> {

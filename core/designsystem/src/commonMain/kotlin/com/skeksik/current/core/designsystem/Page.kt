@@ -15,12 +15,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 
-/** A scrolling page with a [title], an optional [subtitle] and its content in a readable column. [actions] sit beside the title. */
+/**
+ * What a page shows above its title, set by the shell: a Back button on pages below a sidebar entry's first. It scrolls with the page,
+ * so nothing the page scrolls slides under it.
+ */
+val LocalPageTop = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
+
+/**
+ * A scrolling page with a [title], an optional [subtitle] and its content in a readable column. [actions] sit beside the title, and
+ * [LocalPageTop] above it.
+ */
 @Composable
 fun Page(
     title: String,
@@ -33,6 +43,7 @@ fun Page(
             Modifier.widthIn(max = Size.contentMaxWidth).padding(Spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(Spacing.l),
         ) {
+            LocalPageTop.current?.invoke()
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Text(title, style = MaterialTheme.typography.headlineSmall)
