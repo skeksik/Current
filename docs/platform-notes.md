@@ -1348,6 +1348,62 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   a minute on cellular), the second update at start causes a second check, and a request held when the app is suspended outlasts the
   11 s cap and fails at the return.
 
+## Roaming on iOS, final (checked 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: commit 2c42934 of PR 23, the event loop with Apple's compared path updates and `Resumed` on returning to the foreground,
+  with the same throwaway harness as "Roaming on iOS" (same server and addresses, `Info.plist` keys added for the run only). The harness
+  also logged the UIKit lifecycle notifications and SwiftUI's `scenePhase`. Not rerun on the later commits of the branch, which add a
+  request deadline but leave the roaming loop and the Apple signal as they were. One fresh install, launched from the Mac with the
+  cable in. This time the console stream kept running through Wi-Fi off and three minutes on cellular; the earlier end about 24 s
+  after Wi-Fi went off did not recur. The steps were driven by a throwaway XCUITest runner (not committed) that tapped Control Center
+  (Wi-Fi, airplane mode), Settings (the other Wi-Fi network, the VPN switch, local network access) and Home. Turning airplane mode on
+  or off cut the Mac's link to the phone, cable included, so the runner and the console stopped there; the app's own log covers it.
+  Times from the first update that differed, or from the return to the foreground.
+- **No-change updates: pass.** About 230 updates identical to the one before (on home Wi-Fi every 5-30 s, on cellular every 1-13 s)
+  made no `Changed`; 48 `Changed` came against 46 visible changes of interfaces. On cellular, requests were held at most 3 ms between
+  transitions, against about 1 s per update before.
+- **Second identical update at start: pass.** It came in all 8 relaunches (6 allowed, 2 with local network access denied), 0.17-0.83 s
+  after start, and caused no `Changed`. The local address was in use 65-160 ms after launch (requests held 14-107 ms); denied, the
+  internet address 0.67 s and 1.01 s after launch, against 1.6-1.7 s before.
+  - New: **a cold launch posts `UIApplicationWillEnterForegroundNotification` too**, 33-44 ms after start. In every relaunch a second
+    check of both addresses followed the first at once (5-7 ms, nothing held). By timing this is the launch's `Resumed` arriving
+    during the first check ("exactly one more check"); the harness's own collector, which subscribed later, saw it in 1 of 6.
+- **A request waiting while the app was suspended: fail.** Reproduced by turning Wi-Fi on and pressing Home at once, so the app was
+  suspended while requests were held (Wi-Fi off and Home was too slow: the check ended first). At the return `Resumed` came at once.
+  - Away 8 s: the request (waiting 8.5 s) was served the local address 30 ms after the return.
+  - Away 16 s: **the request, waiting 16.3 s, failed** 12 ms after `Resumed`, and the check proved the local address 20 ms later.
+    That is under the 22 s overall limit, so the wait should have restarted. Inference from the code: `awaitCurrent`'s 11 s timeout
+    ran out during the suspension and fires as soon as the process resumes, before the loop has handled `Resumed`, so the resume count
+    it compares has not changed yet. Reported as a bug, not fixed here.
+  - Away 40 s, and 195 s once by accident: failed at the return, as the 22 s overall limit says. A request waiting before a longer
+    suspension cannot succeed under ADR 0019's rule.
+- **Cellular and another Wi-Fi network: pass.** Wi-Fi off with the app in front, ten times: the internet address in use 1.1-2.0 s after
+  the change (the 1 s settle, then the internet address in 0.07-1.0 s), requests held 0.9-2.0 s, none failed. Wi-Fi off while away:
+  1.16 s after the return. To the other Wi-Fi network (switched in Settings, then back to the app): 1.53 s after the return, held
+  1.28 s, no failures in the 30 s that followed. Back to home Wi-Fi from it: the local address 1.09 s after the return. Wi-Fi on with
+  the app in front: the local address 1.9-2.1 s after the first change, since joining comes as two changes about 1 s apart (cellular
+  listed first, then Wi-Fi); on while away: 1.05 s after the return.
+- **VPN, airplane mode, local network access denied: as before or better.** A VPN switched on in Settings (`utun7` appeared) and off:
+  the local address 1.02-1.03 s after the return, held 0.77-0.79 s (1.15 s before). Airplane mode on and off (Wi-Fi stays on): the
+  local address 1.22 s and 1.23 s after the change. Access denied in Settings: the internet address 1.37 s after the return (1.6 s
+  before); with it denied, Wi-Fi off 1.64 s, Wi-Fi on 2.52 s; allowed again, the local address 40 ms after the return.
+- **The foreground notification under the SwiftUI scene lifecycle: posted.** On iOS 27.0.1 `UIApplicationWillEnterForegroundNotification`
+  (and `UISceneWillEnterForegroundNotification`) came at every return from the background and at every cold launch, a few ms before
+  `scenePhase` went to inactive. Opening and closing Control Center posted only `WillResignActive` and `DidBecomeActive`, so no `Resumed`.
+- Also seen:
+  - At a return, `Resumed` came 3-30 ms before the path update that followed it, and `Resumed` keeps the address: in that window a
+    request got the address in use before leaving. Coming back on the other Wi-Fi network, one request got the home local address 1 ms
+    before the `Changed`; with local network access just denied, one got the local address 8 ms after the return. The same race as in
+    "Roaming on iOS", case 7; still open.
+  - A probe running when the app was suspended reported 8.6-40.6 s at the return: its 5 s timeout does not run while suspended. The
+    return's check replaced it.
+  - With Personal Hotspot on, opening its Settings page made cellular the primary interface (listed first, `isExpensive` true) while
+    Wi-Fi stayed listed: a `Changed`, and the local address still answered over Wi-Fi. It stayed so until the Wi-Fi network was picked
+    again in Settings; Wi-Fi on from Control Center then asked to disconnect hotspot users first.
+- Consequence for ADR 0019 (not changed here): the compared path updates remove the no-change holds and the second check at start,
+  and returning to the foreground is signalled. Still open: a request whose wait runs out during a suspension of 11-22 s fails at the
+  return (above); any request waiting across a longer suspension fails by rule; a request made in the few ms between the return and its
+  path update gets the old address.
+
 ## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
 - What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
   `networkModule`, `jellyfinModule`) with the real `RoamingAddressSources`, `JellyfinServerProbe` and Android `NetworkChanges`, for one
@@ -1645,9 +1701,9 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     - That a dotted non-`.local` name such as `media.lan` is blocked by ATS under `NSAllowsLocalNetworking` (read from the key's text, not tried).
     - Whether `NWPathMonitor` reports the current path at start and fires for a Wi-Fi to Wi-Fi switch on iOS and tvOS (it does on
       macOS 26.6.2), and for a move between access points of one network.
-    - Whether `UIApplicationWillEnterForegroundNotification`, which the Apple `NetworkChanges` observes by that string name, is the name
-      UIKit posts, and whether it is posted under the SwiftUI scene lifecycle the app uses. Neither was checked in Apple's documentation
-      or on a device; the owner's device run decides it.
+    - Whether `UIApplicationWillEnterForegroundNotification`, which the Apple `NetworkChanges` observes by that string name, is posted
+      under the SwiftUI scene lifecycle on tvOS. On iOS 27.0.1 it is, at every return and every cold launch (section "Roaming on iOS,
+      final"); not checked in Apple's documentation.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16 or 17, see
