@@ -40,6 +40,9 @@
     <string name="settings_secrets_keep_in_file">Keep sign-ins in a file</string>
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s</string>
+    <string name="settings_diagnostics_hint">Copies the app version and the last requests to your servers, without addresses or passwords, to paste into a problem report.</string>
+    <string name="settings_copy_diagnostics">Copy diagnostics</string>
+    <string name="settings_diagnostics_copied">Copied</string>
     <string name="settings_addresses">Addresses</string>
 
     <!-- Server addresses -->

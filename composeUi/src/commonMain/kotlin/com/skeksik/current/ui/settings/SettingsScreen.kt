@@ -163,6 +163,7 @@ internal fun SettingsScreen(navigator: Navigator) {
             Text(stringResource(Res.string.app_name), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(Res.string.settings_version, AppInfo.VERSION), style = MaterialTheme.typography.bodyMedium)
         }
+        CopyDiagnostics()
     }
 
     removing?.let { row ->
