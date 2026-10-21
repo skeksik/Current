@@ -1070,6 +1070,90 @@ research agent reading the same files.
     callback starts receiving calls to `onAvailable()` ... for the mobile network, because the mobile network is the default network", so
     registering can report the current network at once; the page does not say so as a rule. Not verified on a device.
 
+## Local network permission on Android: the API (checked 2026-10-21 in the Android reference and guides; nothing run for this section)
+- `Manifest.permission.ACCESS_LOCAL_NETWORK`: "Added in API level 37", constant value `"android.permission.ACCESS_LOCAL_NETWORK"`,
+  protection level dangerous. "A local network refers to an IP network that utilizes a broadcast-capable network interface, such as Wi-Fi
+  or Ethernet, but excludes cellular (WWAN) or VPN connections." https://developer.android.com/reference/android/Manifest.permission
+  So an overlay VPN address (Tailscale, which ADR 0016 counts as `Local`) presumably does not need it. Not verified on a device.
+- https://developer.android.com/privacy-and-security/local-network-permission : "required only if your app targets Android 17 (SDK 37) or
+  higher"; declare it in the manifest; "Before attempting any local network access, applications must check if the permission has been
+  granted"; apps must handle a denial or a later revocation in settings, after which "local network traffic will be blocked". If another
+  permission of the group is already granted (such as Bluetooth), the user is not prompted again. The page mentions a mechanism that resets
+  the denial count for this permission, giving the app further chances to ask; how it is triggered was not read.
+- Runtime requests, https://developer.android.com/training/permissions/requesting (last updated 2026-10-16): "if the user taps Deny for a
+  specific permission more than once ... the user will no longer see the system permissions dialog ... considered a permanent denial";
+  once denied it is flagged `USER_SET`, twice `USER_FIXED`. `shouldShowRequestPermissionRationale()` returning true means show an
+  explanation; the page does not define `false`. The Activity Result API's `RequestPermission` contract needs `androidx.activity` 1.2.0+,
+  and the dialog cannot be customised. The page does not say what closing the dialog without an answer (back, tapping outside) does, nor
+  what a `false` from `shouldShowRequestPermissionRationale()` means; that such a dismissal is not counted as a denial is not verified.
+- What the app does with it: ADR 0020.
+
+## Local network permission on Android: run on a device (checked 2026-10-21 on a Pixel 8 Pro, Android 17, API 37; PR 27 debug build)
+- Build: `fix/android-network-setup` at 5c524d9, `./gradlew :androidApp:installDebug`, a fresh install before each case, so the
+  permission started undecided. A live Jellyfin 12.2 on the home network at a plain `http://192.168.1.10:8096`-style address, and an
+  internet name `media.example.com` that the home router resolves to that LAN address (split DNS). State read with
+  `adb shell dumpsys package com.skeksik.current`.
+- **Blocker, not from this PR: the build crashed at start** with `MissingResourceException: Missing resource with path:
+  composeResources/com.skeksik.current.ui.resources/values/strings.commonMain.cvr`. The APK had no `composeResources` at all: `composeUi`
+  (strings since PR 24) does not set `androidResources { enable = true }` in its `android {}` block, as `shared` does. With that block
+  added locally (not committed) the strings were packaged and the app started; every run below used that build.
+- The system dialog: "Allow Current to find, connect to and determine the relative position of nearby devices?", buttons **Allow** and
+  **Don't allow**. It does not mention the local network or servers; the app's own line naming "Nearby devices" is what connects the two.
+  In system settings the permission is App info > Permissions > Nearby devices.
+- Steps from the PR:
+  1. First ask, then allow: **pass.** The notice and **Continue** showed; the first **Check** of the LAN `http` address raised the dialog
+     before probing; after **Allow** the server was found within a second ("On your local network"), no timeout, and the notice was gone.
+     Plain `http` to a LAN address works with the network security config.
+  2. Denial: **pass.** **Continue**, **Don't allow**: the notice changed to the "Without Nearby devices ..." text with **Ask again**. A
+     public Jellyfin over `https` was found and nothing was asked. A later **Check** of the LAN address asked nothing and ended in "The
+     server took too long to answer." (the connect timeout). But the split-DNS internet name also timed out while denied, since at home it
+     resolves to the LAN address: "Internet addresses still work" is not true for such a name, and the timeout message does not point to
+     the permission.
+  3. Final denial: **pass, with a layout bug.** **Ask again**, **Don't allow**: the notice said Nearby devices is off, with **Open
+     settings** and **Try again**. **Try again** showed no dialog. **Open settings** opened Current's App info; after allowing Nearby
+     devices there and going back, the notice was gone (read again on resume) and the LAN address checked fine. Bug: on the phone's
+     portrait width the two buttons sit in one `Row` (`AddServerScreen.kt`) that does not wrap; **Try again** is squeezed to a sliver
+     about 144 px wide that runs past the content column, its label unreadable.
+  4. Rotation: **pass.** **Continue**, the phone rotated to landscape while the dialog showed (the events log has
+     `wm_relaunch_activity`, `wm_on_destroy_called`, `wm_on_create_called` for MainActivity), then **Allow**: granted, no notice, and the
+     next **Check** of the LAN address found the server without asking.
+  5. Split DNS: **pass.** With the permission allowed, the internet name found the same server ("On the internet", same version).
+  6. Optional: `dumpsys` shows `ACCESS_LOCAL_NETWORK: granted=false` with no `USER_SET` flag before any answer, `USER_SET` after a denial
+     or a grant. The overlay VPN case was not run.
+- Dismissed dialog (listed as not run in the PR): Back on the dialog left the permission without `USER_SET`, so Android did not count
+  it as a denial. The page showed the denial notice with **Ask again**; then **Ask again** and one **Don't allow** still offered **Ask
+  again**, not **Blocked**, which matches Android (one real denial so far). **Pass.**
+- Keyboard and D-pad (focus polish from PR 28), with `adb shell input keyevent`: Tab cycles sidebar Home, Settings and the page's
+  button, then wraps; D-pad Up and Down move within the sidebar, Right and Left move between the sidebar and the page; a tap hides the ring;
+  Enter on **Add a server** opens the page with the address field focused; the keyboard's Enter key runs **Check**. Bug: after a tap
+  with nothing focused, the first Tab focuses Home without a ring; the ring shows from the next key on.
+- Other things seen: at phone width the sidebar takes about half the screen, and the window draws under the status bar (the "Current"
+  title overlaps the clock), so system bar insets are not applied. A "took too long" error stays on the page after the permission is
+  granted in settings, until the next **Check**.
+
+## Local network permission on Android: emulator rerun (checked 2026-10-21 on the Android Emulator, Android 17, API 37; PR 27 debug build)
+- Build: `fix/android-network-setup` at 6c4dedb (includes the Compose resources fix; no local change), `./gradlew :androidApp:installDebug`.
+  AVD: Pixel 8 profile, `system-images;android-37.0;google_apis;x86_64` (r06), portrait 1080x2400. App data cleared with `pm clear`
+  before each case, so the permission started undecided. Driven with `adb shell input` and `uiautomator dump`.
+- Server: a stand-in on the host answering `GET /System/Info/Public` with a Jellyfin-shaped body, reached at the emulator's private
+  alias for the host. Android treats that alias as local network: while denied, no request reached the stand-in. Split DNS was
+  stood in by a public wildcard-DNS name that resolves to the same private alias; no real split-DNS name was available.
+- Steps 2 and 3 from the PR, rerun for the fixes from the device run:
+  2. Denial: **pass.** **Continue**, **Don't allow** (`USER_SET`): the notice now says a denial also blocks an internet name that leads
+     home, and that other internet servers still work. A **Check** of the private address ended in "The server took too long to
+     answer." plus the new hint ("Nearby devices" being off is the likely cause) with **Ask again**. **Ask again**, **Allow**: the
+     timed-out check ran again by itself in the same second and found the server ("On your local network"), no **Check** tapped.
+  3. Final denial: **pass.** A second **Don't allow** gave `USER_FIXED` and the Blocked notice. **Open settings** and **Try again** now
+     wrap onto separate lines at portrait width, both fully readable (**Open settings** breaks its label over two lines inside the
+     button). **Try again** showed no dialog. A **Check** then timed out with the hint, which offers **Open settings** here instead of
+     **Ask again**. The hint's **Open settings** opened Current's App info; `pm grant` for the permission, Back: the timed-out check ran
+     again on resume and found the server.
+  - Split-DNS stand-in while denied: **pass.** The name timed out with the same hint; **Ask again**, **Allow** re-ran it and found the
+    server. It is labelled "On the internet" with the plain `http` warning, since the app classifies by name, not by resolved address
+    (as on the device).
+- Not run here: steps 1 and 4 to 6, the dismissed dialog, keyboard and D-pad. Still seen, as on the device: at phone width the sidebar
+  takes about half the screen and the page draws under the status bar.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
@@ -1674,6 +1758,35 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   `Resumed` without a time limit, and only time not suspended counts toward the bound and the overall limit. This holds whether or not
   the process is frozen, so the requests that failed after 22 s between the block and the freeze, and those that failed around
   `Resumed`, should now wait for the return's check.
+
+## Roaming on Android, case B (emulator) (checked 2026-10-21 on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05; ADR 0019)
+- What ran: PR 23 at cecd180 (the fix is cd270f5; cecd180 merges main). The harness of "Roaming on Android, suspension fix", unchanged
+  (a request every 2 s through `ServerClient.request`, the 200 ms gap ticker), with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm
+  grant` and a permissive cleartext config, neither committed. The server was a throwaway stand-in on the host for
+  `System/Info/Public` and `System/Ping`, reached through the emulator's host alias: one port saved as the local address (first), one
+  as the internet address, the same server id on both. Through the emulator's NAT each request took about 0.5 s (1 ms on the host).
+  The background was the Home key, the return `am start`, and `dumpsys activity processes` was read every 2 s for `isFrozen`.
+- **The emulator blocks and freezes as the phone does.** `blocked=true` came 4.90-4.98 s after `onStop` on all 6 trips, and
+  `Suspended` reached the app 0-3 ms later; `blocked=false` and `Resumed` came within 10 ms of `onStart`. The freezer stopped the
+  process on every stay of 100 s or more: the ticker's gap began 69.84-69.88 s after `onStop` (64.88-64.95 s after the block), and
+  `dumpsys` showed `isFrozen=true` from 73-74 s. Stays of 40 s and 15 s were not frozen.
+- **Case B: pass for every waiting request.** Stays of 40 s, 100 s (twice) and 150 s (twice), all on the same network:
+  - No request made after the block failed while away, and none failed around `Resumed` (none ended within 5 ms of it).
+  - Every request waiting at the return succeeded after the return's check, 152-1308 ms after `Resumed`: 17 after 40 s (1.7-33.7 s
+    old), 32 and 32 after 100 s (up to 94.0 s old), 33 and 33 after 150 s (up to 144.1 s old). That is 147 of 147, among them all
+    the requests made between the block and the freeze, and the 22 made 11-22 s before the freeze, which failed on the phone before
+    the fix. The request made at the return succeeded in 262-1245 ms.
+  - Two requests failed while away, in two of the six stays: each was already sent when the block came (0.15 s and 0.52 s before it)
+    and failed as `Unreachable` at the block. This is ADR 0019's known case, a change does not cancel a request already sent; the
+    stand-in's 0.5 s answers make one in flight at the block likelier than on the phone.
+- **A return on the same network: pass.** After 15 s away the address in use stayed, and the request at the return took 52 ms.
+  After the longer stays local ended in use each time, but in four of six returns the internet address was used first for 32-184 ms:
+  a kept address counts as unproved after a suspension, so the first address proved is used meanwhile, and here both addresses are
+  the same host, so either can answer first.
+- Also seen: in 3 checks one `System/Info/Public` probe was logged as `no response` 11-134 ms after the other had answered. The
+  harness formats its own log lines and ignores the `cancelled` field of PR 33, so these are most likely the lower probe cancelled
+  when the check ended, the case PR 33 found. Not checked further.
+- Not run here: case A (a switch while in the background), offline, the VPN.
 
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
