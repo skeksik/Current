@@ -133,7 +133,7 @@ internal class StoredJellyfinAccounts(
 
     /**
      * Another copy wrote a token or a user: this copy takes on what the stores hold now, so every copy converges on the last write. It
-     * only reads: the copy that wrote has already stored or removed the session, and ended it on the server.
+     * never writes a token: the copy that wrote has already stored or removed the session, and ended it on the server.
      */
     private fun follow() {
         // The servers a change touches; every one for a cleared store (a null key).
@@ -162,7 +162,13 @@ internal class StoredJellyfinAccounts(
                 return@withLock
             }
             tokens.update { it + (server to stored) }
-            settings.get(userKey(server))?.let(::decodeUser)?.let { markSignedIn(server, it.toUser(server)) }
+            val user = settings.get(userKey(server))?.let(::decodeUser)
+            if (user != null) {
+                markSignedIn(server, user.toUser(server))
+            } else {
+                // A sign-out elsewhere removed the user while this session stayed stored: the server says who it is, as at restore.
+                servers.server(server)?.let { saved -> scope.launch { verify(saved, stored) } }
+            }
         }
     }
 
