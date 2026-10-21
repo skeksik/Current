@@ -52,9 +52,12 @@ is on, so a signal can only mean "something may have changed".
   Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`).
-- **The platform refusing network access** (Android's `SecurityException` for a missing `INTERNET` permission, and only that one) is a
-  request failure (`Unreachable`), not a bug, so it cannot end the roaming loop. It is logged once, so a shell without the permission
-  does not pass for a server that is down. Any other `SecurityException` stays a bug.
+- **Connection failures reported outside `IOException`** are request failures (`Unreachable`), not bugs, so they cannot end the roaming
+  loop: Android's `SecurityException` for a missing `INTERNET` permission (logged once, so a shell without the permission does not pass
+  for a server that is down), and Ktor's browser `Error("Fail to fetch")` for any failed fetch. Only those exact shapes count; any other
+  `SecurityException` or `Error` stays a bug.
+- **A loop that a bug ends starts again** after 15 s with the same source, so clients holding it get an address again; the bug still
+  reaches the app scope's exception handler.
 - **A service that cannot identify itself without credentials** (Stash, later; an explicit list) gets its addresses in priority order,
   moves to the next on a reported failure and back to the first on a network change. Every saved address is one the user typed or
   confirmed (ADR 0016). Any other service without a probe gets no address.

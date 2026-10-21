@@ -73,9 +73,10 @@ internal fun serviceExceptionFor(server: ServerRef, error: Throwable): ServiceEx
         is IOException -> ServiceException(server, ServiceErrorKind.Unreachable, detail = detail)
         is SerializationException, is ContentConvertException, is NoTransformationFoundException ->
             ServiceException(server, ServiceErrorKind.InvalidResponse, detail = detail)
-        // The platform refused network access to the app: the server cannot be reached, which must not end a roaming loop as an
-        // unexpected exception would. Other errors of the same class (a file without a grant) stay bugs.
-        else -> if (isPermissionDenied(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
+        // A connection failure the platform reports outside IOException: Android refusing network access to the app, a browser's
+        // failed fetch. The server cannot be reached, which must not end a roaming loop as an unexpected exception would. Other errors
+        // of the same classes (a file without a grant, any other Error) stay bugs.
+        else -> if (isPlatformUnreachable(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
     }
 }
 
@@ -88,8 +89,17 @@ private fun kindFor(status: Int): ServiceErrorKind = when {
     else -> ServiceErrorKind.InvalidResponse
 }
 
-/** Whether [error] is the platform refusing network access to the app: Android without its `INTERNET` permission. */
-internal expect fun isPermissionDenied(error: Throwable): Boolean
+/**
+ * Whether [error] is a connection failure this platform's engine reports outside `IOException`: Android refusing network access to an
+ * app without `INTERNET`, or the browser engine's failed fetch.
+ */
+internal expect fun isPlatformUnreachable(error: Throwable): Boolean
+
+/**
+ * Ktor's JS engine wraps every failed fetch (offline, refused, an unknown name, a dropped connection) in `Error("Fail to fetch")`,
+ * whose cause is the browser's `TypeError` (docs/platform-notes.md, "Roaming in browsers"). Only that exact message counts.
+ */
+internal fun isKtorFetchFailure(message: String?): Boolean = message == "Fail to fetch"
 
 /** Android's message for a socket refused for want of `INTERNET`: "Permission denied (missing INTERNET permission?)". */
 internal fun isMissingInternetPermission(message: String?): Boolean = message.orEmpty().contains("INTERNET permission")

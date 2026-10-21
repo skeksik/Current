@@ -3,10 +3,13 @@ package com.skeksik.current.core.network
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import kotlin.time.Duration
 import kotlin.time.TimeSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,15 +67,14 @@ class RoamingAddressSources internal constructor(
             server.ref.service in unidentifiable -> OrderedServerAddress(server)
             else -> return NoAddress
         }
-        val made = Running(source, scope.launch(start = CoroutineStart.LAZY) { source.run(changes) })
+        val made = Running(source, runLater(source, after = Duration.ZERO))
         // Two callers may race to start the same server's source: one wins, the other's never started job is dropped.
         val winner = running.updateAndGet { if (server.ref in it) it else it + (server.ref to made) }.getValue(server.ref)
         if (winner !== made) {
             made.job.cancel()
             return winner.source
         }
-        // A source that stopped, for whatever reason, is forgotten, so the next caller starts a new one.
-        made.job.invokeOnCompletion { running.update { map -> if (map[server.ref] === made) map - server.ref else map } }
+        watch(server.ref, made)
         if (servers.server(server.ref) == null) {
             // Removed while this source was being made, after sync looked: it never starts.
             made.job.cancel()
@@ -80,6 +82,34 @@ class RoamingAddressSources internal constructor(
         }
         made.job.start()
         return source
+    }
+
+    private fun runLater(source: ManagedServerAddress, after: Duration): Job = scope.launch(start = CoroutineStart.LAZY) {
+        delay(after)
+        source.run(changes)
+    }
+
+    /**
+     * A run that a bug ended starts again after [RoamingTiming.retryFirst] with the same source, so clients that hold it get an address
+     * again; the bug itself still reaches the scope's exception handler. A run that is cancelled (the server removed, the app closing)
+     * is forgotten, so the next caller starts a new one.
+     */
+    private fun watch(ref: ServerRef, run: Running) {
+        run.job.invokeOnCompletion { cause ->
+            if (cause == null || cause is CancellationException) {
+                running.update { map -> if (map[ref] === run) map - ref else map }
+                return@invokeOnCompletion
+            }
+            val again = Running(run.source, runLater(run.source, after = timing.retryFirst))
+            val replaced = running.updateAndGet { map -> if (map[ref] === run) map + (ref to again) else map }[ref] === again
+            if (replaced && servers.server(ref) != null) {
+                watch(ref, again)
+                again.job.start()
+            } else {
+                again.job.cancel()
+                running.update { map -> if (map[ref] === again) map - ref else map }
+            }
+        }
     }
 
     /** Follows the saved servers as they are now, not as a possibly stale emission listed them. */

@@ -1376,10 +1376,10 @@ research agent reading the same files.
 - **That error ends roaming.** `RoamingServerAddress` catches only `ServiceException` from a probe. A probe that fails fast throws out of
   the check, and `run` ends: `current` stays null, and every later request fails as `Unreachable` within 1 ms, even after `online`.
   Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a refused address listed above a working
-  one (13 ms). A local address that only times out on the hotspot did not trigger it. Reported on the PR; not fixed here.
+  one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
+  `Unreachable`, and a loop that a bug ends starts again (ADR 0019).
 - Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
-  and all of them in Firefox. What is left is the periodic check and failed requests, and on the web failed requests report nothing
-  until fetch failures are mapped.
+  and all of them in Firefox. What is left is the periodic check and failed requests, which PR 23 now maps and reports.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has

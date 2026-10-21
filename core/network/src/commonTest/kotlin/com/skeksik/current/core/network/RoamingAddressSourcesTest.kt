@@ -16,6 +16,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
@@ -137,6 +141,36 @@ class RoamingAddressSourcesTest {
     fun anyOtherServiceWithoutAProbeGetsNoAddress() = runTest {
         val seerr = server(ServiceType.seerr).also(repository::save)
         assertNull(sources().forServer(seerr).awaitCurrent())
+    }
+
+    @Test
+    fun aSourceWhoseLoopABugEndedStartsAgainAndTheBugSurfaces() = runTest {
+        val bugs = mutableListOf<Throwable>()
+        val appScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob() + CoroutineExceptionHandler { _, e -> bugs += e })
+        var buggy = true
+        val probe = object : ServerProbe {
+            override val service = ServiceType.jellyfin
+            override val defaultPort = 8096
+
+            override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+                if (buggy) {
+                    buggy = false
+                    throw IllegalStateException("a bug in a probe")
+                }
+                return ServerIdentity(homeId, "Home", null)
+            }
+        }
+        val home = server().also(repository::save)
+        val sources = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, appScope, time = testTimeSource)
+        val source = sources.forServer(home)
+        runCurrent()
+        assertEquals(listOf("a bug in a probe"), bugs.map { it.message }, "the bug is not swallowed")
+        assertNull(source.current.value)
+        advanceTimeBy(15.seconds)
+        runCurrent()
+        assertEquals(url(local), source.current.value, "the same source runs again")
+        assertSame(source, sources.forServer(home))
+        appScope.cancel()
     }
 
     /** A real client on a mock engine that runs on the test's clock, recording where each request went. */
