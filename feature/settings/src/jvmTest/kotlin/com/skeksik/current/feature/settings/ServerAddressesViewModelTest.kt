@@ -137,7 +137,9 @@ class ServerAddressesViewModelTest {
     }
 
     @Test
-    fun aServerReachableAtNoAddressIsShownAsUnreachableUntilItAnswersAgain() = runTest {
+    fun reachableFollowsThisServersStatusOnly() = runTest {
+        // Another saved server that cannot be reached says nothing about this one.
+        capabilities.put(ServerStatus(ServerRef(ServiceType.jellyfin, "b"), reachable = false))
         capabilities.put(ServerStatus(ref, reachable = true))
         val viewModel = viewModel()
         assertEquals(true, viewModel.state.value.reachable)

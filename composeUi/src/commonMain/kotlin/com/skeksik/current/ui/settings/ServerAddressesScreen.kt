@@ -19,12 +19,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
@@ -49,7 +50,10 @@ import com.skeksik.current.ui.resources.addresses_internet
 import com.skeksik.current.ui.resources.addresses_keep_one
 import com.skeksik.current.ui.resources.addresses_local
 import com.skeksik.current.ui.resources.addresses_move_down
+import com.skeksik.current.ui.resources.addresses_move_down_description
 import com.skeksik.current.ui.resources.addresses_move_up
+import com.skeksik.current.ui.resources.addresses_move_up_description
+import com.skeksik.current.ui.resources.addresses_remove_description
 import com.skeksik.current.ui.resources.addresses_remove_message
 import com.skeksik.current.ui.resources.addresses_remove_title
 import com.skeksik.current.ui.resources.addresses_subtitle
@@ -62,26 +66,28 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navigator) {
     val ref = route.server
-    val viewModel = pageViewModel(key = "${ref.service.value}/${ref.key}") { ServerAddressesViewModel(ref, get(), get(), get()) }
+    val viewModel = pageViewModel(key = ref.saveKey) { ServerAddressesViewModel(ref, get(), get(), get()) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val name = state.name.ifEmpty { route.name }
     var removing by remember { mutableStateOf<AddressRow?>(null) }
     // This page places focus only after keyboard input: after a click or a touch, focus nobody asked for would act on the next Enter.
     val focusVisibility = LocalFocusVisibility.current
     val addAddress = remember { FocusRequester() }
-    val rowFocus = remember { mutableMapOf<String, RowFocus>() }
+    val urls = state.addresses.map { it.url }
+    val rowFocus = remember { mutableMapOf<String, RowFocus>() }.apply { keys.retainAll(urls.toSet()) }
     // Where focus goes once a move or a removal shows in the list: a moved row's button can be disabled at the new place, and a removed
     // row's buttons are gone.
     var pending by remember { mutableStateOf<PendingFocus?>(null) }
-    LaunchedEffect(pending, state.addresses) {
+    LaunchedEffect(pending, urls) {
         val shown = pending ?: return@LaunchedEffect
-        val urls = state.addresses.map { it.url }
         when (shown) {
             is PendingFocus.Moved -> {
-                if (urls.indexOf(shown.url) != shown.to) return@LaunchedEffect
-                if (focusVisibility.keyboard) {
+                // Waits for the new order; where the row is now, however many moves it took.
+                if (urls == shown.before) return@LaunchedEffect
+                val index = urls.indexOf(shown.url)
+                if (focusVisibility.keyboard && index >= 0) {
                     // The same button while it still moves the row; at either end, the other one.
-                    val up = if (shown.up) shown.to > 0 else shown.to == urls.lastIndex
+                    val up = if (shown.up) index > 0 else index == urls.lastIndex
                     rowFocus[shown.url]?.let { (if (up) it.up else it.down).requestFocus() }
                 }
             }
@@ -97,23 +103,19 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
         }
         pending = null
     }
-    // Back from Add address, focus goes back to it. Saved, because this page leaves the composition while the other is shown.
-    var addOpened by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (addOpened && focusVisibility.keyboard) addAddress.requestFocus()
-        addOpened = false
-    }
+    // Opened by keyboard, or back from Add address, focus goes to Add address.
+    LaunchedEffect(Unit) { if (focusVisibility.keyboard) addAddress.requestFocus() }
     LaunchedEffect(state.saved) { if (!state.saved) navigator.back() }
 
-    val rows = rememberListFocus(state.addresses.size)
+    val rows = rememberListFocus(urls)
     Page(
         title = stringResource(Res.string.addresses_title),
         subtitle = stringResource(Res.string.addresses_subtitle, name),
         actions = {
-            Button({
-                addOpened = true
-                navigator.open(AddServerAddressRoute(ref, name))
-            }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addAddress)) {
+            Button(
+                { navigator.open(AddServerAddressRoute(ref, name)) },
+                Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addAddress),
+            ) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
                 Text(stringResource(Res.string.addresses_add), Modifier.padding(start = Spacing.s))
             }
@@ -132,15 +134,15 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
                             count = state.addresses.size,
                             focus = focus,
                             moveUp = {
+                                pending = PendingFocus.Moved(row.url, up = true, before = viewModel.state.value.addresses.map { it.url })
                                 viewModel.moveUp(row.url)
-                                pending = PendingFocus.Moved(row.url, to = index - 1, up = true)
                             },
                             moveDown = {
+                                pending = PendingFocus.Moved(row.url, up = false, before = viewModel.state.value.addresses.map { it.url })
                                 viewModel.moveDown(row.url)
-                                pending = PendingFocus.Moved(row.url, to = index + 1, up = false)
                             },
                             remove = { removing = row },
-                            modifier = Modifier.item(index).focusRequester(focus.row),
+                            modifier = Modifier.item(row.url).focusRequester(focus.row),
                         )
                     }
                 }
@@ -196,18 +198,35 @@ private fun AddressPanel(
         if (count > 1) {
             // Wraps at phone width, where the three buttons do not fit side by side.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                OutlinedButton(moveUp, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(focus.up), enabled = index > 0) {
+                // The buttons say which address they act on, as a screen reader reads them apart from the row.
+                val moveUpLabel = stringResource(Res.string.addresses_move_up_description, row.url)
+                val moveDownLabel = stringResource(Res.string.addresses_move_down_description, row.url)
+                val removeLabel = stringResource(Res.string.addresses_remove_description, row.url)
+                OutlinedButton(
+                    moveUp,
+                    Modifier.focusRing(MaterialTheme.shapes.extraLarge)
+                        .focusRequester(focus.up)
+                        .semantics { contentDescription = moveUpLabel },
+                    enabled = index > 0,
+                ) {
                     Text(stringResource(Res.string.addresses_move_up))
                 }
                 OutlinedButton(
                     moveDown,
-                    Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(focus.down),
+                    Modifier.focusRing(MaterialTheme.shapes.extraLarge)
+                        .focusRequester(focus.down)
+                        .semantics { contentDescription = moveDownLabel },
                     enabled = index < count - 1,
                 ) {
                     Text(stringResource(Res.string.addresses_move_down))
                 }
                 if (row.canRemove) {
-                    TextButton(remove, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(focus.remove)) {
+                    TextButton(
+                        remove,
+                        Modifier.focusRing(MaterialTheme.shapes.extraLarge)
+                            .focusRequester(focus.remove)
+                            .semantics { contentDescription = removeLabel },
+                    ) {
                         Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -225,8 +244,8 @@ private class RowFocus {
 }
 
 private sealed interface PendingFocus {
-    /** [url] was moved to index [to] by its Move up button ([up]) or Move down. */
-    data class Moved(val url: String, val to: Int, val up: Boolean) : PendingFocus
+    /** [url] was moved by its Move up button ([up]) or Move down, from the order [before]. */
+    data class Moved(val url: String, val up: Boolean, val before: List<String>) : PendingFocus
 
     /** [url] was removed from index [index]. */
     data class Removed(val url: String, val index: Int) : PendingFocus

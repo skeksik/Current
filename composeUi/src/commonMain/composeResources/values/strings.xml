@@ -52,6 +52,9 @@
     <string name="addresses_unreachable">%1$s does not answer at any of these addresses right now.</string>
     <string name="addresses_move_up">Move up</string>
     <string name="addresses_move_down">Move down</string>
+    <string name="addresses_move_up_description">Move %1$s up</string>
+    <string name="addresses_move_down_description">Move %1$s down</string>
+    <string name="addresses_remove_description">Remove %1$s</string>
     <string name="addresses_keep_one">A server keeps at least one address, so this one cannot be removed.</string>
     <string name="addresses_remove_title">Remove %1$s?</string>
     <string name="addresses_remove_message">Current stops trying this address. You can add it again later, while the server answers there.</string>
