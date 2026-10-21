@@ -1,7 +1,9 @@
 package com.skeksik.current.ui.shell
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -9,9 +11,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -27,11 +33,13 @@ import androidx.navigation.compose.rememberNavController
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
+import com.skeksik.current.core.designsystem.LocalPageTop
 import com.skeksik.current.core.designsystem.SidebarItem
 import com.skeksik.current.core.designsystem.SidebarItems
 import com.skeksik.current.core.designsystem.SidebarScaffold
 import com.skeksik.current.core.designsystem.SidebarTitle
 import com.skeksik.current.core.designsystem.focusRing
+import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.ShellGraph
 import com.skeksik.current.ui.resources.Res
@@ -42,7 +50,8 @@ import kotlin.reflect.KClass
 
 /**
  * The app on wide screens: the sidebar from [graph], and the current page beside it. Pages below a sidebar entry's first page get a Back
- * button; Alt+Left goes back too.
+ * button at the top of the page ([LocalPageTop]); Alt+Left goes back too. Going back focuses the page's first element (the sidebar entry when the page has none), unless the
+ * page puts focus somewhere itself (on what opened the page just left).
  */
 @Composable
 fun Shell(graph: ShellGraph) {
@@ -52,9 +61,10 @@ fun Shell(graph: ShellGraph) {
     val destination = entry?.destination
     val owner = destination?.let { shown -> graph.owner { shown.hasRoute(it) } }
     val atSidebarRoot = destination == null || graph.sidebar.any { destination.hasRoute(it.route::class) }
+    val selectedEntry = remember { FocusRequester() }
 
     SidebarScaffold(
-        modifier = Modifier.onPreviewKeyEvent { event ->
+        modifier = Modifier.trackFocusVisibility().onPreviewKeyEvent { event ->
             val back = event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed && !atSidebarRoot
             if (back) navigator.back()
             back
@@ -65,7 +75,13 @@ fun Shell(graph: ShellGraph) {
             SidebarItems(features.size) { index, modifier ->
                 val feature = features[index]
                 val sidebar = checkNotNull(feature.sidebar)
-                SidebarItem(stringResource(sidebar.label), sidebar.icon, selected = feature == owner, modifier = modifier) {
+                val selected = feature == owner
+                SidebarItem(
+                    stringResource(sidebar.label),
+                    sidebar.icon,
+                    selected = selected,
+                    modifier = if (selected) modifier.focusRequester(selectedEntry) else modifier,
+                ) {
                     // Every entry opens its feature's first page on top of the start page, even the entry already shown: an inner
                     // page (Add server) is left, not kept for later.
                     controller.navigate(sidebar.route) {
@@ -76,27 +92,40 @@ fun Shell(graph: ShellGraph) {
             }
         },
     ) {
-        Column(Modifier.fillMaxSize()) {
-            if (!atSidebarRoot) {
-                TextButton(
-                    navigator::back,
-                    Modifier.padding(start = Spacing.xl, top = Spacing.l).focusRing(MaterialTheme.shapes.extraLarge),
-                ) {
-                    Icon(CurrentIcons.Back, contentDescription = null, modifier = Modifier.size(Size.icon))
-                    Text(stringResource(Res.string.nav_back), Modifier.padding(start = Spacing.s))
-                }
-            }
-            NavHost(controller, startDestination = graph.start, modifier = Modifier.weight(1f)) {
-                graph.pages.forEach { page ->
-                    @Suppress("UNCHECKED_CAST")
-                    composable(page.route as KClass<Any>, typeMap = emptyMap()) { entry -> page.content(entry, navigator) }
+        NavHost(controller, startDestination = graph.start, modifier = Modifier.fillMaxSize()) {
+            graph.pages.forEach { page ->
+                val atRoot = graph.sidebar.any { it.route::class == page.route }
+                @Suppress("UNCHECKED_CAST")
+                composable(page.route as KClass<Any>, typeMap = emptyMap()) { entry ->
+                    val pageFocus = remember { FocusRequester() }
+                    // Before the page's own effects, so a page that focuses something itself has the last word.
+                    LaunchedEffect(Unit) {
+                        if (navigator.takeReturn() && !pageFocus.requestFocus()) selectedEntry.requestFocus()
+                    }
+                    CompositionLocalProvider(LocalPageTop provides if (atRoot) null else ({ BackButton(navigator::back) })) {
+                        Box(Modifier.fillMaxSize().focusRequester(pageFocus).focusGroup()) { page.content(entry, navigator) }
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun BackButton(onClick: () -> Unit) {
+    // Shifted by the button's own padding, so the arrow lines up with the page title.
+    TextButton(onClick, Modifier.offset(x = -Spacing.m).focusRing(MaterialTheme.shapes.extraLarge)) {
+        Icon(CurrentIcons.Back, contentDescription = null, modifier = Modifier.size(Size.icon))
+        Text(stringResource(Res.string.nav_back), Modifier.padding(start = Spacing.s))
+    }
+}
+
 private class ControllerNavigator(private val controller: NavHostController) : Navigator {
+    // Set by back(), taken by the page shown next: focus was on the page just left, which is gone.
+    private var returning = false
+
+    fun takeReturn(): Boolean = returning.also { returning = false }
+
     // Single top: a held Enter or a double click opens a page once.
     override fun open(route: Any) = controller.navigate(route) { launchSingleTop = true }
 
@@ -106,6 +135,9 @@ private class ControllerNavigator(private val controller: NavHostController) : N
     }
 
     override fun back() {
-        if (controller.previousBackStackEntry != null) controller.popBackStack()
+        if (controller.previousBackStackEntry != null) {
+            returning = true
+            controller.popBackStack()
+        }
     }
 }

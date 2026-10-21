@@ -1,9 +1,14 @@
 package com.skeksik.current
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.input.key.KeyEvent
 import com.skeksik.current.core.database.databaseModule
 import com.skeksik.current.core.designsystem.CurrentTheme
+import com.skeksik.current.core.designsystem.FocusVisibility
+import com.skeksik.current.core.designsystem.LocalFocusVisibility
 import com.skeksik.current.core.network.networkModule
 import com.skeksik.current.data.jellyfin.jellyfinModule
 import com.skeksik.current.ui.home.homeUiModule
@@ -44,12 +49,29 @@ fun CurrentKoin(content: @Composable () -> Unit) {
     KoinApplication(configuration = koinConfiguration { modules(platformModules + appModules) }) { content() }
 }
 
+/** What the main window feeds its content from outside the composition. */
+@Stable
+class MainWindowInput {
+    internal val focusVisibility = FocusVisibility()
+
+    /**
+     * For desktop's `Window(onPreviewKeyEvent = ...)`, which sees every key, even when nothing has focus (after a click on empty space),
+     * so the first Tab then shows the focus ring. Never consumes the event.
+     */
+    fun onPreviewKeyEvent(event: KeyEvent): Boolean {
+        focusVisibility.onKeyEvent(event)
+        return false
+    }
+}
+
 /** The main window's content: the theme, the sidebar and the pages. Needs [CurrentKoin] around it. */
 @Composable
-fun AppContent() {
+fun AppContent(input: MainWindowInput = remember { MainWindowInput() }) {
     val koin = getKoin()
     val graph = remember(koin) { ShellGraph(koin.getAll<ShellDestination>()) }
-    CurrentTheme { Shell(graph) }
+    CompositionLocalProvider(LocalFocusVisibility provides input.focusVisibility) {
+        CurrentTheme { Shell(graph) }
+    }
 }
 
 /** Definitions only the platform can make, such as Android's application `Context`. */

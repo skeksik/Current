@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +37,9 @@ import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.SectionTitle
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.designsystem.focusRing
+import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.core.model.AppInfo
+import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.settings.ServerRow
 import com.skeksik.current.feature.settings.ServersViewModel
@@ -84,6 +87,14 @@ internal fun SettingsScreen(navigator: Navigator) {
         }
     }
     val rows = rememberListFocus(state.servers.size)
+    // The server whose Sign in button opened the sign-in page; focus goes back to that button (by then Sign out) on return. Saved,
+    // because this page leaves the composition while sign-in is shown.
+    var signInOpener by rememberSaveable { mutableStateOf<String?>(null) }
+    val signInButton = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (signInOpener != null) signInButton.requestFocus()
+        signInOpener = null
+    }
 
     Page(title = stringResource(Res.string.settings_title)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -103,10 +114,14 @@ internal fun SettingsScreen(navigator: Navigator) {
                     key(row.ref) {
                         ServerPanel(
                             row,
-                            signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
+                            signIn = {
+                                signInOpener = row.ref.saveKey
+                                navigator.open(SignInRoute(row.ref, row.name))
+                            },
                             signOut = { viewModel.signOut(row.ref) },
                             remove = { removing = row },
                             modifier = Modifier.item(index),
+                            signInModifier = if (row.ref.saveKey == signInOpener) Modifier.focusRequester(signInButton) else Modifier,
                         )
                     }
                 }
@@ -140,7 +155,14 @@ internal fun SettingsScreen(navigator: Navigator) {
 }
 
 @Composable
-private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit, remove: () -> Unit, modifier: Modifier = Modifier) {
+private fun ServerPanel(
+    row: ServerRow,
+    signIn: () -> Unit,
+    signOut: () -> Unit,
+    remove: () -> Unit,
+    modifier: Modifier = Modifier,
+    signInModifier: Modifier = Modifier,
+) {
     Panel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -154,7 +176,7 @@ private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit,
             // One button for both, so focus stays on it when signing out turns it into Sign in.
             val signedIn = row.signedInAs != null
             if (signedIn || row.ref.service == ServiceType.jellyfin) {
-                OutlinedButton(if (signedIn) signOut else signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+                OutlinedButton(if (signedIn) signOut else signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(signInModifier)) {
                     Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in))
                 }
             }
@@ -171,6 +193,8 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
     val cancel = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = dismiss,
+        // The dialog gets its keys and clicks apart from the window, so it tells the focus rings itself.
+        modifier = Modifier.trackFocusVisibility(),
         title = { Text(stringResource(Res.string.settings_remove_title, row.name)) },
         text = { Text(stringResource(Res.string.settings_remove_message)) },
         confirmButton = {
@@ -187,6 +211,8 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
         },
     )
 }
+
+private val ServerRef.saveKey get() = "${service.value}/$key"
 
 private fun SecretStorage.description() = when (this) {
     SecretStorage.CredentialManager -> Res.string.settings_secrets_credential_manager
