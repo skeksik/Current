@@ -58,8 +58,9 @@ internal sealed interface Route {
         private fun signIn(path: String): Route? {
             val parts = path.removePrefix("/").split('/')
             if (parts.size != 5 || parts[0] != "settings" || parts[1] != "servers" || parts[4] != "sign-in") return null
-            if (parts[2].isBlank() || parts[3].isBlank()) return null
-            return SignIn(ServerRef(ServiceType(parts[2]), parts[3]))
+            // Only Jellyfin has a sign-in page yet (signInPath).
+            if (parts[2] != ServiceType.jellyfin.value || parts[3].isBlank()) return null
+            return SignIn(ServerRef(ServiceType.jellyfin, parts[3]))
         }
     }
 }
@@ -82,16 +83,26 @@ internal fun backStep(step: Int, route: Route): BackStep = when {
     else -> route.parent?.let { BackStep.Replace(it) } ?: BackStep.None
 }
 
+/**
+ * The page shown and how it came to be shown: [opener] names what opened the page above it (a `data-focus-id`), set only when Back or
+ * Forward returns to an entry that recorded one, so the app puts focus back there. [visit] grows with every navigation.
+ */
+internal data class Shown(val route: Route, val opener: String?, val visit: Int)
+
 private fun locationPath(): String = js("window.location.pathname")
 
 /** The step stored in the current history entry, or -1 for an entry the app did not make (the first page load of the tab). */
 private fun currentStep(): Int = js("(function (s) { return s && typeof s.step === 'number' ? s.step : -1; })(window.history.state)")
 
+private fun currentOpener(): String? = js("(function (s) { return s && typeof s.opener === 'string' ? s.opener : null; })(history.state)")
+
 @Suppress("UNUSED_PARAMETER")
 private fun pushState(step: Int, path: String): Unit = js("window.history.pushState({ step: step }, '', path)")
 
+/** Rewrites the current entry's state, and its URL unless [path] is null (an undefined URL keeps the query and fragment). */
 @Suppress("UNUSED_PARAMETER")
-private fun replaceState(step: Int, path: String): Unit = js("window.history.replaceState({ step: step }, '', path)")
+private fun replaceState(step: Int, opener: String?, path: String?): Unit =
+    js("window.history.replaceState({ step: step, opener: opener }, '', path === null ? undefined : path)")
 
 private fun historyBack(): Unit = js("window.history.back()")
 
@@ -101,51 +112,62 @@ private fun onPopState(handler: () -> Unit): Unit = js("window.addEventListener(
 private fun scrollToTop(): Unit = js("window.scrollTo(0, 0)")
 
 /**
- * Routing through the History API: the current [route] follows the URL; Back, Forward and reloads work. Every page opened is a new
- * history entry (as on desktop, docs/architecture.md), and each entry records its [step], so a Back from the first page opened in the
- * tab shows that page's parent rather than leaving the app.
+ * Routing through the History API: the [shown] page follows the URL; Back, Forward and reloads work. Every page opened is a new history
+ * entry (as on desktop, docs/architecture.md). Each entry records its step, so a Back from the first page opened in the tab shows that
+ * page's parent rather than leaving the app, and what opened the next page, so focus goes back there on return.
  */
 internal class BrowserRouter {
-    private val _route = MutableStateFlow(Route.parse(locationPath()))
-    val route: StateFlow<Route> = _route.asStateFlow()
-
     private var step = currentStep()
+    private var visit = 0
+
+    private val _shown = MutableStateFlow(Shown(Route.parse(locationPath()), opener = null, visit))
+    val shown: StateFlow<Shown> = _shown.asStateFlow()
+
+    private val route: Route get() = _shown.value.route
 
     init {
         // A reload keeps the entry's state; a fresh tab gets step 0.
         if (step < 0) {
             step = 0
-            replaceState(step, locationPath())
+            replaceState(step, opener = null, path = null)
         }
         onPopState {
             step = currentStep().coerceAtLeast(0)
-            _route.value = Route.parse(locationPath())
+            show(Route.parse(locationPath()), currentOpener())
         }
     }
 
-    /** Opens [route] as a new history entry; the page already shown adds none (a double click opens it once). */
-    fun navigate(route: Route) {
-        if (route.path != locationPath()) {
-            step += 1
-            pushState(step, route.path)
-        }
-        _route.value = route
+    /**
+     * Opens [route] as a new history entry, recording [opener] in the entry left. The page already shown adds none and changes nothing
+     * (a double click, or its sidebar entry, opens it once).
+     */
+    fun navigate(route: Route, opener: String?) {
+        if (route.path == locationPath()) return
+        replaceState(step, opener, path = null)
+        step += 1
+        pushState(step, route.path)
+        show(route, opener = null)
         scrollToTop()
     }
 
     /** Shows [route] in place of the current entry, so Back skips the page it replaces (a finished step, such as adding a server). */
     fun replace(route: Route) {
-        replaceState(step, route.path)
-        _route.value = route
+        replaceState(step, opener = null, route.path)
+        show(route, opener = null)
         scrollToTop()
     }
 
     fun back() {
-        when (val next = backStep(step, _route.value)) {
+        when (val next = backStep(step, route)) {
             BackStep.History -> historyBack()
             is BackStep.Replace -> replace(next.route)
             BackStep.None -> Unit
         }
+    }
+
+    private fun show(route: Route, opener: String?) {
+        visit += 1
+        _shown.value = Shown(route, opener, visit)
     }
 }
 

@@ -29,6 +29,12 @@ class RouteTest {
     }
 
     @Test
+    fun onlyJellyfinHasASignInPage() {
+        val path = "/settings/servers/stash/0a1b2c/sign-in"
+        assertEquals(Route.NotFound(path), Route.parse(path))
+    }
+
+    @Test
     fun theSidebarPagesHaveNoParentAndTheOthersReturnToTheirs() {
         assertEquals(null, Route.Home.parent)
         assertEquals(null, Route.Settings.parent)

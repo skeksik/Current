@@ -68,13 +68,14 @@ Then:
       settings (servers, sign out, about), loading/error/empty states, strings in resources; `HomeViewModel` for the first screen.
       Keyboard alone works throughout. Add, sign in (password, Quick Connect), restart signed in and sign out checked with the keyboard on
       Linux against a local stand-in for the sign-in endpoints; a real server on Windows is the owner's hand check. Android shows this desktop layout until its own layouts (M4)
-- [x] Web shell (ADR 0011):
+- [ ] Web shell (ADR 0011):
   - [x] pure-Kotlin modules gain a `js()` target (they lose `wasmJs`, and the Compose modules leave the web);
   - [x] a Kotlin/JS umbrella module (`web`) with the `@JsExport` facade;
   - [x] the browser probes and web device profile in `core:playback`, tested against `docs/web-probes/`, with Dolby Vision probes;
-  - [x] `webApp` becomes the Vite + React + TypeScript app, with the same sidebar layout, settings and states as desktop: home's
+  - [ ] `webApp` becomes the Vite + React + TypeScript app, with the same sidebar layout, settings and states as desktop: home's
         states, settings (servers, sign in and out, remove, where sign-ins are kept, about), add server, sign in with a password or
-        Quick Connect, keyboard use and Back over the browser's history, light and dark;
+        Quick Connect, keyboard use and Back over the browser's history, light and dark (built; ticked once sign in, reload and sign out
+        have run in a browser against the real core);
   - [x] routing through the core's History API router; npm in CI with a licence check
 - [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only when `CURRENT_LIVE_*` environment variables are set, never
       in CI; read-only apart from a sign-in they end again. Password and Quick Connect sign-in, restore and sign-out passed against a live 12.2 server

@@ -12,7 +12,6 @@ export function PlaybackSupport() {
     <Page
       title={webStrings.playbackSupportTitle}
       subtitle="What this browser plays itself, from its probes. The server remuxes or transcodes the rest."
-      hasBack
     >
       {page && <PlaybackSupportReport page={page} />}
     </Page>

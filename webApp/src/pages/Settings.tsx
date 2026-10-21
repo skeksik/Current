@@ -11,10 +11,7 @@ export function Settings() {
   const core = useCore();
   const page = usePage(() => core.settingsPage(), [core]);
   return (
-    <Page
-      title={strings.settingsTitle}
-      hasBack={false}
-    >
+    <Page title={strings.settingsTitle}>
       {page && <SettingsContent page={page} />}
     </Page>
   );
@@ -92,6 +89,7 @@ function SettingsContent({ page }: { page: SettingsPage }) {
 }
 
 const sessionFocusId = (id: string) => `session:${id}`;
+const removeFocusId = (id: string) => `remove:${id}`;
 
 function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: () => void; remove: () => void }) {
   return (
@@ -111,26 +109,31 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
         ) : row.signInPath ? (
           <Link path={row.signInPath} className="button outlined" focusId={sessionFocusId(row.id)}>{strings.settingsSignIn}</Link>
         ) : null}
-        <button type="button" className="text-button danger" onClick={remove}>{strings.settingsRemove}</button>
+        <button type="button" className="text-button danger" data-focus-id={removeFocusId(row.id)} onClick={remove}>
+          {strings.settingsRemove}
+        </button>
       </div>
     </Panel>
   );
 }
 
-/** Asks before removing. Cancel has focus, so Enter alone never removes a server; Escape cancels. */
+/**
+ * Asks before removing. Cancel has focus, so Enter alone never removes a server; Escape cancels and focus goes back to the server's
+ * Remove button (by its id: after a click, Safari and Firefox on macOS leave focus on the page rather than the button).
+ */
 function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: () => void; dismiss: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const opener = useRef<Element | null>(null);
   useEffect(() => {
-    opener.current = document.activeElement;
-    dialog.current?.showModal();
+    const shown = dialog.current;
+    shown?.showModal();
+    return () => shown?.close();
   }, []);
   // The page behind a modal dialog is inert, so the dialog closes before focus moves there.
   const close = () => dialog.current?.close();
   const cancel = () => {
     close();
     dismiss();
-    (opener.current as HTMLElement | null)?.focus();
+    focusSoon(`[data-focus-id="${CSS.escape(removeFocusId(row.id))}"]`);
   };
   return (
     <dialog

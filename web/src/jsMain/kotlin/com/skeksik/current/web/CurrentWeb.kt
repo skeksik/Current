@@ -19,10 +19,11 @@ import org.koin.dsl.koinApplication
 
 /**
  * The current page: [kind] is "home", "settings", "addServer", "signIn", "playbackSupport" or "notFound". [hasBack] is true for pages
- * below a sidebar entry's page, which show a Back button.
+ * below a sidebar entry's page, which show a Back button. [opener] is set when Back or Forward returned to this page: the
+ * `data-focus-id` of what opened the page that left, to focus again. Each navigation gets a new view, even to the same page.
  */
 @JsExport
-class RouteView(val kind: String, val path: String, val hasBack: Boolean)
+class RouteView(val kind: String, val path: String, val hasBack: Boolean, val opener: String?)
 
 /** The whole core as the React app sees it; one per page load. */
 @JsExport
@@ -38,19 +39,22 @@ class CurrentWeb {
     /** The browser probes run once per page load, when a page first needs them. */
     private val mediaSupport = mainScope.async(start = CoroutineStart.LAZY) { probeMediaSupport() }
 
-    val route: Observable<RouteView> = router.route.observe { it.toView() }
+    val route: Observable<RouteView> = router.shown.observe { it.route.toView(it.opener) }
 
     val version: String = AppInfo.VERSION
 
-    /** Navigates for a plain click and returns true (call `preventDefault`); leaves other clicks to the browser. */
-    fun onLinkClick(path: String, button: Int, ctrl: Boolean, meta: Boolean, shift: Boolean, alt: Boolean): Boolean {
+    /**
+     * Navigates for a plain click and returns true (call `preventDefault`); leaves other clicks to the browser. [opener] is the link's
+     * `data-focus-id`, focused again when Back returns here.
+     */
+    fun onLinkClick(path: String, opener: String?, button: Int, ctrl: Boolean, meta: Boolean, shift: Boolean, alt: Boolean): Boolean {
         if (!isPlainClick(button, ctrl, meta, shift, alt)) return false
-        router.navigate(Route.parse(path))
+        router.navigate(Route.parse(path), opener)
         return true
     }
 
-    /** Opens [path] as a new history step, as a button that leads to another page does. */
-    fun open(path: String) = router.navigate(Route.parse(path))
+    /** Opens [path] as a new history step, as a button that leads to another page does; [opener] as for [onLinkClick]. */
+    fun open(path: String, opener: String?) = router.navigate(Route.parse(path), opener)
 
     /** Shows [path] in place of the current page, so Back skips this one (a finished step, such as adding a server). */
     fun replace(path: String) = router.replace(Route.parse(path))
@@ -75,7 +79,7 @@ class CurrentWeb {
     fun playbackSupportPage() = PlaybackSupportPage(holdViewModel { PlaybackSupportViewModel { mediaSupport.await() } })
 }
 
-private fun Route.toView() = RouteView(
+private fun Route.toView(opener: String?) = RouteView(
     kind = when (this) {
         Route.Home -> "home"
         Route.Settings -> "settings"
@@ -86,4 +90,5 @@ private fun Route.toView() = RouteView(
     },
     path = path,
     hasBack = parent != null && this !is Route.NotFound,
+    opener = opener,
 )

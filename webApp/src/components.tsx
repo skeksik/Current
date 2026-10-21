@@ -1,18 +1,18 @@
 import { useEffect, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
-import { useNav } from './nav';
+import { useNav, useRoute } from './nav';
 import { strings } from './strings';
 
 // The web counterparts of core/designsystem's Page, Panel, Notice and state screens.
 
 /** A page: a Back button on pages below a sidebar entry's page, the title (focused when the page opens) and its content. */
-export function Page({ title, subtitle, hasBack, actions, children }: {
+export function Page({ title, subtitle, actions, children }: {
   title: string;
   subtitle?: string;
-  hasBack: boolean;
   actions?: ReactNode;
   children?: ReactNode;
 }) {
+  const { hasBack } = useRoute();
   useDocumentTitle(title);
   return (
     <div className="page">

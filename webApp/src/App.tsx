@@ -76,19 +76,25 @@ function skipToContent(e: MouseEvent) {
   (document.getElementById('page-title') ?? document.getElementById('main'))?.focus();
 }
 
-/** Up and Down move between the sidebar's entries and stop at the ends; Tab leaves the sidebar. */
+/**
+ * The arrow keys move between the sidebar's entries and stop at the ends: Up and Down, and Left and Right at phone width, where the
+ * sidebar is a bar. Tab leaves the sidebar.
+ */
+const arrowSteps: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+
 function arrowKeys(e: KeyboardEvent<HTMLElement>) {
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const stepBy = arrowSteps[e.key];
+  if (!stepBy || e.altKey) return;
   const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('.sidebar-item'));
   const index = items.indexOf(document.activeElement as HTMLElement);
   if (index < 0) return;
   e.preventDefault();
-  items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+  items[Math.max(0, Math.min(items.length - 1, index + stepBy))].focus();
 }
 
 function NotFound() {
   return (
-    <Page title={webStrings.notFoundTitle} hasBack={false}>
+    <Page title={webStrings.notFoundTitle}>
       <p className="muted">{webStrings.notFoundMessage} <Link path="/">{webStrings.notFoundHome}</Link></p>
     </Page>
   );

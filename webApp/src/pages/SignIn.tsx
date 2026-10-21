@@ -13,14 +13,14 @@ export function SignIn({ path }: { path: string }) {
   if (!page) return null;
   if (page.serverName == null) {
     return (
-      <Page title={strings.signInTitle('')} hasBack>
+      <Page title={strings.signInTitle('')}>
         <Notice>{strings.signInProblems.ServerNotSaved}</Notice>
         <p><Link path="/settings">{strings.navSettings}</Link></p>
       </Page>
     );
   }
   return (
-    <Page title={strings.signInTitle(page.serverName)} subtitle={strings.signInSubtitle} hasBack>
+    <Page title={strings.signInTitle(page.serverName)} subtitle={strings.signInSubtitle}>
       <SignInContent page={page} />
     </Page>
   );

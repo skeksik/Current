@@ -3,10 +3,13 @@ import type { CurrentWeb, RouteView } from 'current-core';
 
 // Navigation as the desktop shell does it (docs/architecture.md): every page opened is a history step (here the browser's), and any
 // Back goes one step back. Focus follows: a page opened gets focus on its title, and a page shown again by Back gets it on what opened
-// the page that left (the server's Sign in button, Add server), else on its title.
+// the page that left (the server's Sign in button, Add server), which the router keeps in that page's history entry.
 
 const Core = createContext<CurrentWeb>(null!);
 export const useCore = () => useContext(Core);
+
+const Route = createContext<RouteView>(null!);
+export const useRoute = () => useContext(Route);
 
 interface Nav {
   /** Opens `path` as a new step; `opener` is the `data-focus-id` that gets focus again when Back returns to this page. */
@@ -21,55 +24,36 @@ const NavContext = createContext<Nav>(null!);
 export const useNav = () => useContext(NavContext);
 
 export function NavProvider({ core, route, children }: { core: CurrentWeb; route: RouteView; children: ReactNode }) {
-  // What opened the page above each page, by path.
-  const openers = useRef(new Map<string, string>());
-  // Set by the app's own forward navigation; anything else (Back, the browser's Back and Forward) is a return.
-  const forward = useRef(false);
-  const current = useRef(route.path);
-  current.current = route.path;
+  const nav = useMemo<Nav>(() => ({
+    open(path, opener) {
+      core.open(path, opener ?? null);
+    },
+    follow(event, path, opener) {
+      if (core.onLinkClick(path, opener ?? null, event.button, event.ctrlKey, event.metaKey, event.shiftKey, event.altKey)) {
+        event.preventDefault();
+      }
+    },
+    replace(path) {
+      core.replace(path);
+    },
+    back() {
+      core.back();
+    },
+  }), [core]);
 
-  const nav = useMemo<Nav>(() => {
-    const leave = (opener?: string) => {
-      if (opener) openers.current.set(current.current, opener);
-      else openers.current.delete(current.current);
-      forward.current = true;
-    };
-    return {
-      open(path, opener) {
-        leave(opener);
-        core.open(path);
-      },
-      follow(event, path, opener) {
-        leave(opener);
-        if (core.onLinkClick(path, event.button, event.ctrlKey, event.metaKey, event.shiftKey, event.altKey)) event.preventDefault();
-        else forward.current = false;
-      },
-      replace(path) {
-        forward.current = true;
-        core.replace(path);
-      },
-      back() {
-        core.back();
-      },
-    };
-  }, [core]);
-
-  const first = useRef(true);
+  // Every navigation is a new route view. The first one keeps the browser's own focus; so does StrictMode's second run of this effect.
+  const shown = useRef(route);
   useEffect(() => {
-    // The first page of a load keeps the browser's own focus.
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    const opener = forward.current ? undefined : openers.current.get(route.path);
-    forward.current = false;
-    openers.current.delete(route.path);
-    focusSoon(opener ? `[data-focus-id="${CSS.escape(opener)}"]` : null);
-  }, [route.path]);
+    if (shown.current === route) return;
+    shown.current = route;
+    focusSoon(route.opener ? `[data-focus-id="${CSS.escape(route.opener)}"]` : null);
+  }, [route]);
 
   return (
     <Core.Provider value={core}>
-      <NavContext.Provider value={nav}>{children}</NavContext.Provider>
+      <Route.Provider value={route}>
+        <NavContext.Provider value={nav}>{children}</NavContext.Provider>
+      </Route.Provider>
     </Core.Provider>
   );
 }

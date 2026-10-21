@@ -10,7 +10,7 @@ export function AddServer() {
   const core = useCore();
   const page = usePage(() => core.addServerPage(), [core]);
   return (
-    <Page title={strings.addServerTitle} subtitle={strings.addServerSubtitle} hasBack>
+    <Page title={strings.addServerTitle} subtitle={strings.addServerSubtitle}>
       {page && <AddServerForm page={page} />}
     </Page>
   );
