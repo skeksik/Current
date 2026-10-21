@@ -13,7 +13,12 @@ kotlin {
     tvosArm64()
     tvosSimulatorArm64()
 
-    jvm()
+    jvm {
+        testRuns["test"].executionTask.configure {
+            // The live smoke tests reach a real server only on request (-Pcurrent.liveTests=true), never because CURRENT_LIVE_* is set.
+            systemProperty("current.liveTests", providers.gradleProperty("current.liveTests").getOrElse("false"))
+        }
+    }
 
     js {
         browser()

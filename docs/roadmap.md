@@ -77,7 +77,7 @@ Then:
         Quick Connect, keyboard use and Back over the browser's history, light and dark. Checked in Chrome against the real core and a
         local stand-in, and by the owner's hand against a live server (docs/platform-notes.md, "Web shell against the real core");
   - [x] routing through the core's History API router; npm in CI with a licence check
-- [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only when `CURRENT_LIVE_*` environment variables are set, never
+- [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only with `-Pcurrent.liveTests=true` and `CURRENT_LIVE_*` environment variables set, never
       in CI; read-only apart from a sign-in they end again. Password and Quick Connect sign-in, restore and sign-out passed against a live 12.2 server
 
 Done when: sign in and out of Jellyfin on Windows and in the browser, and the app restarts signed in.
