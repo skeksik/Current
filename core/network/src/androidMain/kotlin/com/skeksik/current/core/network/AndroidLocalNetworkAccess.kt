@@ -35,6 +35,8 @@ class AndroidLocalNetworkAccess(
 
     override fun status() = state.status(apiSupported(), granted())
 
+    override fun deniedBefore() = state.deniedBefore(apiSupported(), granted())
+
     override suspend fun request() = state.request(apiSupported(), granted(), requester)
 
     override fun openSettings() {

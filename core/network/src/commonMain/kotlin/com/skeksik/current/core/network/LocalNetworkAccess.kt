@@ -25,6 +25,13 @@ interface LocalNetworkAccess {
     fun status(): LocalNetworkPermission
 
     /**
+     * Whether the user has said no since the last grant, on any screen (kept in the machine-local store, ADR 0017). Then no screen shows
+     * the dialog on its own: each says what the denial means and asks again only when the user presses "Ask again" (ADR 0020). False
+     * while granted, and where the platform does not ask.
+     */
+    fun deniedBefore(): Boolean
+
+    /**
      * Emits when [status] may have changed: a dialog was answered, or the app came back to the foreground (a grant in the settings
      * comes no other way). It may emit with nothing changed, so read [status] then. Platforms that never ask emit nothing.
      */
@@ -43,6 +50,8 @@ interface LocalNetworkAccess {
     /** For platforms that do not ask: desktop, web, and Apple until its prompt is handled. */
     object NotNeeded : LocalNetworkAccess {
         override fun status() = LocalNetworkPermission.NotNeeded
+
+        override fun deniedBefore() = false
 
         override val changes: Flow<Unit> = emptyFlow()
 
@@ -179,6 +188,11 @@ internal class LocalNetworkPermissionState(private val store: KeyValueStore) {
         store.get(BLOCKED) != null -> LocalNetworkPermission.Blocked
         else -> LocalNetworkPermission.CanAsk
     }
+
+    /** A denial recorded since the last grant: once, counted, or final. */
+    fun deniedBefore(apiSupported: Boolean, granted: Boolean): Boolean =
+        status(apiSupported, granted).let { it == LocalNetworkPermission.CanAsk || it == LocalNetworkPermission.Blocked } &&
+            listOf(DENIED_ONCE, DENIALS, BLOCKED).any { store.get(it) != null }
 
     /** Asks even when Blocked: Android then answers at once without a dialog, unless it has reset its denials since. */
     suspend fun request(apiSupported: Boolean, granted: Boolean, requester: LocalNetworkRequester): LocalNetworkPermission {

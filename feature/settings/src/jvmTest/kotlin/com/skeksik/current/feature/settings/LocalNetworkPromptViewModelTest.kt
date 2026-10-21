@@ -12,19 +12,29 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LocalNetworkPromptViewModelTest {
-    /** [answers] are what each request returns, in turn; [status] is what the settings page would show. */
-    private class FakeAccess(var status: LocalNetworkPermission, vararg answers: LocalNetworkPermission) : LocalNetworkAccess {
+    /**
+     * [answers] are what each request returns, in turn; [status] is what the settings page would show. [denied] is the stored denial,
+     * set by an answer that is not a grant (or by another screen), and read only while not granted, as the real store is.
+     */
+    private class FakeAccess(
+        var status: LocalNetworkPermission,
+        vararg answers: LocalNetworkPermission,
+        var denied: Boolean = false,
+    ) : LocalNetworkAccess {
         private val answers = answers.toMutableList()
         var requests = 0
         var settingsOpened = 0
 
         override fun status() = status
 
+        override fun deniedBefore() =
+            denied && (status == LocalNetworkPermission.CanAsk || status == LocalNetworkPermission.Blocked)
         override val changes = emptyFlow<Unit>()
 
         override suspend fun request(): LocalNetworkPermission {
             requests++
             status = answers.removeAt(0)
+            denied = status != LocalNetworkPermission.Granted
             return status
         }
 
@@ -62,6 +72,21 @@ class LocalNetworkPromptViewModelTest {
     }
 
     @Test
+    fun aDenialOnAnotherScreenChecksWithoutAsking() {
+        // "Don't allow" on Home, then Add server: no dialog on its own, only "Ask again".
+        val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.Granted, denied = true)
+        val viewModel = viewModel(access)
+        assertEquals(LocalNetworkPromptState.Ask(denied = true), viewModel.state.value)
+        var checked = 0
+        viewModel.beforeCheck { checked++ }
+        assertEquals(1, checked)
+        assertEquals(0, access.requests)
+        viewModel.allow()
+        assertEquals(1, access.requests)
+        assertEquals(LocalNetworkPromptState.Hidden, viewModel.state.value)
+    }
+
+    @Test
     fun aDenialIsShownAndLaterChecksDoNotAskAgain() {
         val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.CanAsk)
         val viewModel = viewModel(access)
@@ -95,6 +120,7 @@ class LocalNetworkPromptViewModelTest {
         val access = object : LocalNetworkAccess {
             var requests = 0
             override fun status() = LocalNetworkPermission.CanAsk
+            override fun deniedBefore() = false
             override val changes = emptyFlow<Unit>()
             override suspend fun request(): LocalNetworkPermission {
                 requests++
