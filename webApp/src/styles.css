@@ -522,3 +522,10 @@ pre {
   border: 1px solid var(--outline);
   border-radius: var(--radius-s);
 }
+
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-m);
+}

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PlaybackSupportPage, PlaybackSupportView } from 'current-core';
+import { copyText, type CopyResult } from '../clipboard';
 import { Page, Progress } from '../components';
 import { useObservable, usePage } from '../hooks';
 import { useCore } from '../nav';
@@ -9,10 +10,7 @@ export function PlaybackSupport() {
   const core = useCore();
   const page = usePage(() => core.playbackSupportPage(), [core]);
   return (
-    <Page
-      title={webStrings.playbackSupportTitle}
-      subtitle="What this browser plays itself, from its probes. The server remuxes or transcodes the rest."
-    >
+    <Page title={webStrings.playbackSupportTitle} subtitle={webStrings.playbackSupportSubtitle}>
       {page && <PlaybackSupportReport page={page} />}
     </Page>
   );
@@ -20,14 +18,21 @@ export function PlaybackSupport() {
 
 function PlaybackSupportReport({ page }: { page: PlaybackSupportPage }) {
   const state = useObservable(page.state);
-  if (state.probing) return <Progress>Probing…</Progress>;
+  const answers = useRef<HTMLPreElement>(null);
+  if (state.probing) return <Progress>{webStrings.playbackSupportProbing}</Progress>;
   return (
     <>
       <section>
-        <h2>Direct play</h2>
-        {state.direct.length === 0 ? <p className="muted">No container plays directly.</p> : (
+        <h2>{webStrings.playbackSupportDirect}</h2>
+        {state.direct.length === 0 ? <p className="muted">{webStrings.playbackSupportNoDirect}</p> : (
           <table>
-            <thead><tr><th>Container</th><th>Video</th><th>Audio</th></tr></thead>
+            <thead>
+              <tr>
+                <th>{webStrings.playbackSupportContainer}</th>
+                <th>{webStrings.playbackSupportVideo}</th>
+                <th>{webStrings.playbackSupportAudio}</th>
+              </tr>
+            </thead>
             <tbody>
               {state.direct.map((c) => (
                 <tr key={c.container}><td>{c.container}</td><td>{list(c.video)}</td><td>{list(c.audio)}</td></tr>
@@ -37,9 +42,9 @@ function PlaybackSupportReport({ page }: { page: PlaybackSupportPage }) {
         )}
       </section>
       <section>
-        <h2>Video</h2>
+        <h2>{webStrings.playbackSupportVideo}</h2>
         <table>
-          <thead><tr><th>Codec</th><th>Dynamic ranges</th></tr></thead>
+          <thead><tr><th>{webStrings.playbackSupportCodec}</th><th>{webStrings.playbackSupportRanges}</th></tr></thead>
           <tbody>
             {state.ranges.map((r) => <tr key={r.codec}><td>{r.codec}</td><td>{list(r.ranges)}</td></tr>)}
           </tbody>
@@ -47,32 +52,58 @@ function PlaybackSupportReport({ page }: { page: PlaybackSupportPage }) {
         <Facts state={state} />
       </section>
       <details>
-        <summary>Probe answers</summary>
-        <p className="muted">In the format of <code>docs/web-probes/</code>, to record this browser as a test fixture.</p>
-        <CopyButton text={state.answersJson} />
-        <pre>{state.answersJson}</pre>
+        <summary>{webStrings.playbackSupportAnswers}</summary>
+        <p className="muted">{webStrings.playbackSupportAnswersHelp}</p>
+        <CopyButton text={state.answersJson} fallback={answers} />
+        <pre ref={answers}>{state.answersJson}</pre>
       </details>
     </>
   );
 }
 
 function Facts({ state }: { state: PlaybackSupportView }) {
+  const hlsThrough = state.mse
+    ? webStrings.playbackSupportHlsMse
+    : state.nativeHls ? webStrings.playbackSupportHlsNative : webStrings.playbackSupportHlsNone;
   return (
     <dl>
-      <dt>HDR display</dt><dd>{state.hdrDisplay ? 'yes' : 'no'}</dd>
-      <dt>10-bit</dt><dd>{list(state.tenBit)}</dd>
-      <dt>2160p</dt><dd>{list(state.uhd)}</dd>
-      <dt>Audio channels</dt><dd>{state.maxAudioChannels}</dd>
-      <dt>Server HLS, copied</dt><dd>video {list(state.hlsVideo)}; audio {list(state.hlsAudio)}</dd>
-      <dt>HLS through</dt><dd>{state.mse ? 'Media Source Extensions' : state.nativeHls ? 'the browser' : 'nothing'}</dd>
+      <dt>{webStrings.playbackSupportHdrDisplay}</dt>
+      <dd>{state.hdrDisplay ? webStrings.playbackSupportYes : webStrings.playbackSupportNo}</dd>
+      <dt>{webStrings.playbackSupportTenBit}</dt><dd>{list(state.tenBit)}</dd>
+      <dt>{webStrings.playbackSupportUhd}</dt><dd>{list(state.uhd)}</dd>
+      <dt>{webStrings.playbackSupportChannels}</dt><dd>{state.maxAudioChannels}</dd>
+      <dt>{webStrings.playbackSupportHlsCopy}</dt>
+      <dd>{webStrings.playbackSupportHlsCopyLists(list(state.hlsVideo), list(state.hlsAudio))}</dd>
+      <dt>{webStrings.playbackSupportHlsThrough}</dt><dd>{hlsThrough}</dd>
     </dl>
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => navigator.clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false));
-  return <button type="button" className="button outlined" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>;
+const copyMessages: Record<CopyResult, string> = {
+  copied: webStrings.copyDone,
+  selected: webStrings.copySelected,
+  failed: webStrings.copyFailed,
+};
+
+/** Copies [text], or selects it in [fallback] where the clipboard is unavailable; the outcome is announced in a status line. */
+function CopyButton({ text, fallback }: { text: string; fallback: { current: HTMLElement | null } }) {
+  const [result, setResult] = useState<CopyResult | null>(null);
+  // "Copied" fades after a while; the other results stay, since the user still has something to do.
+  useEffect(() => {
+    if (result !== 'copied') return;
+    const timer = setTimeout(() => setResult(null), 4000);
+    return () => clearTimeout(timer);
+  }, [result]);
+  const copy = () => {
+    setResult(null);
+    copyText(text, fallback.current).then(setResult);
+  };
+  return (
+    <div className="copy">
+      <button type="button" className="button outlined" onClick={copy}>{webStrings.copy}</button>
+      <span className="muted" role="status">{result && copyMessages[result]}</span>
+    </div>
+  );
 }
 
-const list = (items: string[]) => (items.length ? items.join(', ') : 'none');
+const list = (items: string[]) => (items.length ? items.join(', ') : webStrings.playbackSupportNone);
