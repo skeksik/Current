@@ -83,9 +83,18 @@ function AddServerForm({ page }: { page: AddServerPage }) {
             <p>{state.address}</p>
             <Notice kind="info">{state.local ? strings.addServerLocal : strings.addServerInternet}</Notice>
           </Panel>
-          {state.plainHttpOnInternet && <Notice kind="warning">{strings.addServerPlainHttp}</Notice>}
+          {state.plainHttpOnInternet && <Notice kind="warning" id="plain-http">{strings.addServerPlainHttp}</Notice>}
           <div className="buttons">
-            <button ref={confirm} type="button" className="button" onClick={() => page.confirm()}>{strings.addServerConfirm}</button>
+            {/* Focus lands here once the server is found, so a screen reader reads the plain-HTTP warning with the button. */}
+            <button
+              ref={confirm}
+              type="button"
+              className="button"
+              aria-describedby={state.plainHttpOnInternet ? 'plain-http' : undefined}
+              onClick={() => page.confirm()}
+            >
+              {strings.addServerConfirm}
+            </button>
             <button type="button" className="button outlined" onClick={() => field.current?.focus()}>{strings.addServerChange}</button>
           </div>
         </>
