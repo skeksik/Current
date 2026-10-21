@@ -15,6 +15,7 @@ import com.skeksik.current.ui.home.homeUiModule
 import com.skeksik.current.ui.navigation.ShellDestination
 import com.skeksik.current.ui.navigation.ShellGraph
 import com.skeksik.current.ui.settings.settingsUiModule
+import com.skeksik.current.ui.shell.BackInput
 import com.skeksik.current.ui.shell.Shell
 import org.koin.compose.KoinApplication
 import org.koin.compose.getKoin
@@ -25,7 +26,7 @@ import org.koin.dsl.koinConfiguration
  * Every module the Compose app includes, and so the only place that names every feature (ADR 0014): each `*UiModule` adds its pages
  * and sidebar entry to the shell. To leave a feature out, leave out its modules.
  */
-private val appModules: List<Module> = listOf(
+internal val appModules: List<Module> = listOf(
     databaseModule,
     networkModule,
     jellyfinModule,
@@ -49,18 +50,28 @@ fun CurrentKoin(content: @Composable () -> Unit) {
     KoinApplication(configuration = koinConfiguration { modules(platformModules + appModules) }) { content() }
 }
 
-/** What the main window feeds its content from outside the composition. */
+/**
+ * What the main window feeds its content from outside the composition. [escapeIsWindowBack]: the window's own back events come only
+ * from Esc, as on desktop (Compose turns an Esc nothing handled into one), so the shell never goes back on them ([BackInput]).
+ */
 @Stable
-class MainWindowInput {
+class MainWindowInput(escapeIsWindowBack: Boolean = false) {
     internal val focusVisibility = FocusVisibility()
+    internal val back = BackInput(windowBackIsEscape = escapeIsWindowBack)
 
     /**
-     * For every key the window gets, even when nothing has focus (after a click or tap on empty space), so the first Tab then shows the
-     * focus ring: desktop's `Window(onPreviewKeyEvent = ...)`, Android's `Activity.dispatchKeyEvent`. Never consumes the event.
+     * For every key the window gets, even when nothing has focus (after a click or tap on empty space): desktop's
+     * `Window(onPreviewKeyEvent = ...)`, Android's `Activity.dispatchKeyEvent`. Feeds focus visibility, so the first Tab then shows the
+     * focus ring, and handles Alt+Left, the Back key: true when it went back, and the window then consumes the key.
      */
     fun onPreviewKeyEvent(event: KeyEvent): Boolean {
         focusVisibility.onKeyEvent(event)
-        return false
+        return back.onKeyEvent(event)
+    }
+
+    /** Desktop: the mouse back button was pressed anywhere in the window. */
+    fun onBackButton() {
+        back.onBackButton()
     }
 
     /**
@@ -78,7 +89,7 @@ fun AppContent(input: MainWindowInput = remember { MainWindowInput() }) {
     val koin = getKoin()
     val graph = remember(koin) { ShellGraph(koin.getAll<ShellDestination>()) }
     CompositionLocalProvider(LocalFocusVisibility provides input.focusVisibility) {
-        CurrentTheme { Shell(graph) }
+        CurrentTheme { Shell(graph, input.back) }
     }
 }
 

@@ -5,7 +5,7 @@ import org.koin.core.scope.Scope
 
 internal actual fun Scope.platformKeyValueStore(): KeyValueStore = SharedPreferencesKeyValueStore(get<Context>())
 
-/** A separate file, `current-local`. Excluding it from backups, so a restored phone gets a new device id, comes with M4. */
+/** A separate file, `current-local`, kept out of backups (`data_extraction_rules.xml`): a restored phone gets a new device id. */
 internal actual fun Scope.platformLocalStore(): KeyValueStore = SharedPreferencesKeyValueStore(get<Context>(), "current-local")
 
 /** Memory until M4 brings a Keystore-backed store. */

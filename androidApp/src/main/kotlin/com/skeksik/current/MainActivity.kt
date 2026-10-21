@@ -53,11 +53,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    // Every key, before Compose: the first key after a tap, with nothing focused, still tells the focus rings.
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        input.onPreviewKeyEvent(ComposeKeyEvent(event))
-        return super.dispatchKeyEvent(event)
-    }
+    // Every key, before Compose: the first key after a tap, with nothing focused, still tells the focus rings, and Alt+Left goes back.
+    // The system or remote Back is not a key here: the activity's back dispatcher delivers it to the shell.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        input.onPreviewKeyEvent(ComposeKeyEvent(event)) || super.dispatchKeyEvent(event)
 }
 
 @Preview
