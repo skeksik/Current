@@ -1888,14 +1888,15 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **DevTools "Offline" is not a real change.** In Chrome and Edge it fires `connection.change` (downlink 0) and `offline`, and fetches fail
   at once. Turning it off fires `connection.change` and `online`. In Firefox it fires `offline` and `online`, but the page's fetches went
   through while it was on. After `online`, the check re-proved the local address in 1.03 s (Firefox).
-- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`), an unresolvable name, and a
+- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`, in fact a port browsers block:
+  see the correction in "Roaming in browsers, final"), an unresolvable name, and a
   connection that drops all fail with a plain `Error("Fail to fetch")`, caused by the browser's `TypeError: Failed to fetch`, in Chrome,
   Edge and Firefox. `serviceExceptionFor` does not map it, so `ServerClient.request` rethrows it as a bug. There is no `Unreachable` and no
   `reportUnreachable`. A request timeout is still `HttpRequestTimeoutException`, which is mapped.
 - **That error ends roaming.** `RoamingServerAddress` catches only `ServiceException` from a probe. A probe that fails fast throws out of
   the check, and `run` ends: `current` stays null, and every later request fails as `Unreachable` within 1 ms, even after `online`.
-  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a refused address listed above a working
-  one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
+  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a "refused" (blocked) address listed
+  above a working one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
   `Unreachable`, and a loop that a bug ends starts again (ADR 0019).
 - Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
   and all of them in Firefox. What is left is the periodic check and failed requests, which PR 23 now maps and reports.
@@ -1905,7 +1906,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   hook (not committed) in the `web` facade. Unlike the first run, the hook started the app's own Koin modules (`databaseModule`,
   `networkModule`, `jellyfinModule`). So the source was `RoamingAddressSources`' own, with `JellyfinServerProbe`, default `RoamingTiming`
   and the browser `NetworkChanges`. The saved server had three addresses, in this order:
-  - a refused one (`http://127.0.0.1:9`);
+  - a refused one (`http://127.0.0.1:9`) (a blocked port, see the correction below);
   - the LAN address (`http://192.168.1.10:8096`);
   - the internet address (`https://media.example.com`).
 
@@ -1918,7 +1919,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   The owner made the changes by hand. Windows' NetworkProfile log gave the time each network was lost or joined.
 - **No raw error, and no run that a bug ended.** Every failed request was a `ServiceException` (`Unreachable`, or `Timeout` at the 30 s
   request timeout). `reachable` was never unknown again after start, which a replaced source would show. The tabs stayed open 7-10 min.
-- **A refused address listed first: pass (Chrome, Edge, Firefox).** Every check asked all three at once. The refused address failed in
+- **A refused address listed first (a blocked port, see the correction below): pass (Chrome, Edge, Firefox).** Every check asked all
+  three at once. The refused address failed in
   2-28 ms, and the LAN address was in use 12-23 ms after the server was saved and 115-123 ms after a reload (first run: the loop ended in
   13 ms). Every later check ran, including the periodic ones.
   - Correction (2026-10-21): port 9 is a "bad port" in the Fetch standard (https://fetch.spec.whatwg.org/#bad-port, 9 "discard"), which
@@ -1936,9 +1938,9 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **A switch to a phone hotspot: pass in all three, through failed requests, in 27-28 s.** The PC joined the hotspot on Wi-Fi, then wired
   Ethernet was turned off. No `online` or `offline` fired in any browser, nor `connection.change` in Edge. What happened next:
   - The request sent around the switch hung for 21.1-24.4 s, failed as `Unreachable`, and started a check.
-  - In that check, the refused address failed at once and the internet address answered in 131-448 ms. The LAN address was still the
-    address in use, so it was used until its own probe timed out at 5.0 s: "a healthy address is never swapped for a lower one
-    mid-check".
+  - In that check, the refused address (a blocked port, see the correction above) failed at once and the internet address answered
+    in 131-448 ms. The LAN address was still the address in use, so it was used until its own probe timed out at 5.0 s: "a healthy
+    address is never swapped for a lower one mid-check".
   - The internet address was in use 28.1 s (Edge), 27.3 s (Chrome) and 27.5 s (Firefox) after the LAN was lost (first run: never, in
     2 of 3 runs).
   - Three requests failed in each browser, all of them sent to the LAN address before the switch to the internet one. In Chrome and Edge
