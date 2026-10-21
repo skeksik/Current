@@ -13,7 +13,6 @@ import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.WRITE
 import java.nio.file.attribute.PosixFilePermissions
@@ -176,8 +175,14 @@ internal class FileLockSingleInstance(
         try {
             val pid = ProcessHandle.current().pid()
             Files.writeString(temp, "protocol=$PROTOCOL\nport=$port\ntoken=$token\npid=$pid\n")
-            // A reader sees the old file or the whole new one, never half of it.
-            Files.move(temp, portFile, ATOMIC_MOVE, REPLACE_EXISTING)
+            // A reader sees no file or a whole one, never half of it. Whether an atomic move replaces an existing file is implementation
+            // specific (Files.move), so a stale one is deleted first if it does not; only the lock holder writes this file.
+            try {
+                Files.move(temp, portFile, ATOMIC_MOVE)
+            } catch (e: IOException) {
+                Files.deleteIfExists(portFile)
+                Files.move(temp, portFile, ATOMIC_MOVE)
+            }
         } finally {
             Files.deleteIfExists(temp)
         }
@@ -206,7 +211,7 @@ internal class FileLockSingleInstance(
         const val MAX_LINE = 256
         const val RETRY_PAUSE_MILLIS = 100L
 
-        /** 127.0.0.1 itself: no name lookup, and never another interface. */
+        /** 127.0.0.1 itself, never another interface; built from its bytes, so nothing is looked up. */
         val LOOPBACK: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
 
         fun newToken(): String {
