@@ -39,7 +39,8 @@ private fun storageRemove(key: String): Unit = js("(function () { try { window.l
 
 /**
  * Secrets in `localStorage` under `current.secret.` (ADR 0017): they survive a restart, which the web app needs to stay signed in, and
- * any script running on the origin can read them. A strict Content-Security-Policy keeps foreign scripts out.
+ * any script running on the origin can read them. A strict Content-Security-Policy that keeps foreign scripts out is still to come with
+ * the deploy work: until then, serve the web app on an origin of its own.
  */
 class LocalStorageSecretStore : SecretStore {
     private val store = LocalStorageKeyValueStore("current.secret.")
