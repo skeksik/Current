@@ -113,6 +113,7 @@ private fun SignInForm(form: SignInUiState.Form, viewModel: SignInViewModel) {
             }
         }
     }
+    // Even after a tap (Shell's form exception): the user name is what this page is for, so the soft keyboard may open with it.
     LaunchedEffect(Unit) { username.requestFocus() }
     // Fields are disabled while signing in, which drops focus; after a failure it goes back to the password.
     LaunchedEffect(form.problem) { if (form.problem != null) password.requestFocus() }

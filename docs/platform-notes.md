@@ -399,6 +399,31 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   while the app ran, dark to light and back, turned the frame and the app's colours with it within the next capture (about 4 s).
 - Not verified: value 20 (or the undocumented 19) on Windows 10; that the JBR API returns null on another JDK.
 
+## Esc on desktop, and Back keys (read 2026-10-21 in the compose-multiplatform-core source at tag `v1.12.1` and the navigation-compose 2.10.0-rc01 sources jar; not yet run by hand)
+- Where desktop's Esc-goes-back came from: `compose/ui/ui/src/desktopMain/.../scene/ComposeSceneMediator.desktop.kt`, `onKeyEvent`. A key
+  goes through four steps in order: the window's `onPreviewKeyEvent`, the scene (the focused element), the window's `onKeyEvent`, and
+  `navigationEventInput.onKeyEvent`. The first that returns true consumes it.
+- `navigationEventInput` is a `BackNavigationEventInput` (`compose/ui/ui/src/skikoMain/.../navigationevent/BackNavigationEventInput.kt`),
+  added to the window's `NavigationEventDispatcher`. On an Esc `KeyDown` it calls `dispatchOnBackCompleted()`. NavHost's own handler
+  (`rememberNavHostEventHandler` in navigation-compose, registered once per NavHost and enabled while the back stack has more than one
+  entry) then pops the back stack. No app code was involved.
+- Compose `Dialog` and `Popup` on desktop (`Dialog.skiko.kt`, `Popup.skiko.kt`) close on Esc through the same dispatcher: while shown, each
+  adds a handler (`dismissOnBackPress`, "back button on Android or escape key on desktop"). So swallowing Esc in the window's
+  `onKeyEvent` would also stop it from closing dialogs.
+- `NavigationEventDispatcher.addHandler`: "All `PRIORITY_OVERLAY` handlers are called before any `PRIORITY_DEFAULT` handlers. Within each
+  priority group, handlers are invoked in a Last-In, First-Out (LIFO) order". Dialogs, popups and NavHost all use the default priority.
+- What the app does (`BackInput`, `ShellBackHandler`):
+  - Esc: on desktop the shell adds its own handler right after NavHost, so it is newer than NavHost's. It ignores back events that come
+    from Esc. A dialog or menu opens later, so it is newer still and closes on Esc as before.
+  - Alt+Left and X1: the window feeds them to its own `NavigationEventInput`, so they work with nothing focused, and an open dialog or
+    menu takes them first.
+  - Android: the shell adds no handler. NavHost keeps the system and remote Back, predictive back included.
+  - The API is `org.jetbrains.androidx.navigationevent:navigationevent-compose` 1.1.0. Before this change, navigation-compose-desktop
+    2.10.0-rc01 already pulled it in at that version, at runtime only.
+- The mouse back button: AWT button 4 maps to `PointerButton.Back` (`composePointerButton` in the same mediator file: `PointerButton(button - 1)`).
+  Not verified: that Windows reports X1 as button 4 and Linux as the same button, and that Android provides a
+  `LocalNavigationEventDispatcherOwner` (without one, Alt+Left does nothing there).
+
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
   configuration under `settings.gradle.kts`. All 52 Maven alerts on 2026-10-20 were build tooling: Netty from the Android Gradle

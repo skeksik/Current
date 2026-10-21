@@ -34,6 +34,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             api(libs.navigation.compose)
+            implementation(libs.navigationevent.compose)
             api(libs.koin.compose)
             implementation(libs.coil.compose)
             implementation(libs.coil.networkKtor)
