@@ -2408,6 +2408,17 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   button or page title. NVDA was not run (not installed; Access Bridge not enabled). The bundled runtime has the Access Bridge DLLs but
   no `jabswitch.exe`; the toolchain JDK's works.
 
+Re-run (2026-10-21, same machine, PR 45 at 629e4ce), only what CI can't see: the title bar icon and an upgrade over real app data. No
+earlier build was installed; the existing `local.json` and `settings.json` were backed up first.
+- Build and install 0.1.0, pass: `packageMsi` wrote `Current-0.1.0.msi` (75,190,713 bytes); `msiexec /i ... /qn` exit 0 with no
+  elevation, files in `%LOCALAPPDATA%\Current App` (about 139 MiB), and `%LOCALAPPDATA%\Current` still holds only `local.json`.
+- Launch from the Start menu, pass: the owner confirmed by eye that the title bar and the taskbar both show the Current icon.
+- Device id, pass: the SHA-256 of `local.json` matched the backup after the install and the launch.
+- Upgrade to 0.1.1 (`-Pcurrent.version=0.1.1`, 75,186,617 bytes) over 0.1.0 with `/qn`, pass: exit 0, one entry, Current 0.1.1. The
+  owner saw About "0.1.1", the saved servers and sign-ins still there, and both icons still right. The `local.json` hash was unchanged
+  after the upgrade and after the launch.
+- 0.1.1 left installed at the owner's choice; uninstall not re-run here (CI covers it).
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
