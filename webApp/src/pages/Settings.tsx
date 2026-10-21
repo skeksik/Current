@@ -4,7 +4,7 @@ import { Notice, Page, Panel } from '../components';
 import { Icon } from '../icons';
 import { useObservable, usePage } from '../hooks';
 import { focusSoon, Link, useCore } from '../nav';
-import { strings, webStrings } from '../strings';
+import { strings, textFor, webStrings } from '../strings';
 
 /** Settings: servers (add, sign in, sign out, remove), where sign-ins are kept, what this browser plays, and about. */
 export function Settings() {
@@ -56,7 +56,8 @@ function SettingsContent({ page }: { page: SettingsPage }) {
           ))}
         </ul>
       )}
-      <Notice kind="info">{strings.settingsSecrets[state.secretStorage] ?? ''}</Notice>
+      {/* An unknown store says nothing rather than something wrong. */}
+      <Notice kind="info">{textFor(strings.settingsSecrets, state.secretStorage, '')}</Notice>
       {state.fileOffered && (
         <button type="button" className="button outlined" onClick={() => page.keepSecretsInFile()}>{strings.settingsSecretsKeepInFile}</button>
       )}
@@ -123,9 +124,12 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
  */
 function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: () => void; dismiss: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const shown = dialog.current;
     shown?.showModal();
+    // Explicitly, not by button order: showModal() focuses the first focusable element, and React's autoFocus runs before it.
+    cancelButton.current?.focus();
     return () => shown?.close();
   }, []);
   // The page behind a modal dialog is inert, so the dialog closes before focus moves there.
@@ -149,7 +153,7 @@ function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: 
       <h2 id="remove-title">{strings.settingsRemoveTitle(row.name)}</h2>
       <p id="remove-message">{strings.settingsRemoveMessage}</p>
       <div className="dialog-buttons">
-        <button type="button" className="text-button" autoFocus onClick={cancel}>{strings.settingsCancel}</button>
+        <button ref={cancelButton} type="button" className="text-button" onClick={cancel}>{strings.settingsCancel}</button>
         <button
           type="button"
           className="text-button danger"

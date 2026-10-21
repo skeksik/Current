@@ -2358,6 +2358,37 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   button or page title. NVDA was not run (not installed; Access Bridge not enabled). The bundled runtime has the Access Bridge DLLs but
   no `jabswitch.exe`; the toolchain JDK's works.
 
+## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
+- What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
+  served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
+  committed, CORS open) answered `/System/Info/Public`, `/Users/AuthenticateByName`, `/Users/Me` (the restore check) and
+  `/Sessions/Logout`. A Playwright script (not committed) drove the page, listening to the console and `securitypolicyviolation`.
+- 1. The real core under the CSP: pass. No policy violation in the console or as an event while loading, adding the server, signing
+  in, reloading (still signed in, after `GET /Users/Me`), opening Settings, opening Playback support (the probes ran and filled the
+  tables) and signing out (`POST /Sessions/Logout` sent). No page errors, no 4xx or failed requests.
+- 2. Injected inline code: pass. A `<script>` added by the DOM and an `onerror` attribute both stay unrun, and the console shows
+  "Executing inline script violates ... 'script-src 'self''" (and the same for the inline event handler).
+- 3. Escape and Back: pass. Escape in Add server's field with text keeps the text and the page. With the Remove dialog open, Escape
+  closes it (the server stays) and focus returns to Remove; Cancel had focus while it was open. Escape on Playback support does
+  nothing. The browser's Back and the in-app Back button both return to Settings.
+- 4. Copy from a non-secure origin: pass. Opened by the machine's LAN address over http (an address such as
+  `http://192.168.1.10:4173`), `isSecureContext` is false and `navigator.clipboard` undefined. Copy selects the whole probe answers
+  text (all but the `<pre>`'s trailing newline), and the status line says "The text is selected: press Ctrl+C, or ⌘C on a Mac, to
+  copy it." No policy violations there either.
+- 5. Icons and manifest: pass. `favicon.svg`, `apple-touch-icon.png`, `manifest.webmanifest` and its three PNG icons answer 200 with
+  the right types; no 404 in any step. In a normal (non-incognito) profile, Chrome's `Page.getInstallabilityErrors` is empty and the
+  manifest parses without errors. An incognito context reports only `in-incognito`, which is expected.
+- 6. A forced error shows the reload message: pass, two ways. A core that fails to start (`history.replaceState` made to throw before
+  load) shows "Something went wrong" with Reload instead of a blank page, through `main.tsx`; a render that throws (on the way to
+  Settings) shows the same, through the error boundary. Blocking `localStorage` does not force an error: the core's storage calls
+  catch it, and the app runs without keeping anything.
+- The scripted cases ran at both commits with the same results. The hand check below ran on the e3a365e build only.
+- Hand check by the owner, in their own Edge against their own Jellyfin server: add it, sign in, reload (still signed in), no policy
+  violation from the app in the console: pass. The only console errors came from a browser extension's own background script.
+- Also seen, not failures of this PR: with `localStorage` blocked, Settings still says "Sign-ins are kept in this browser." although
+  nothing is kept. Headless Chrome fetches `favicon.svg` again on most in-app navigations.
+- Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
+
 ## Not verified (research before depending on it)
 - Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
   window icon and the new install folder by hand, the Installed-apps icon in Settings, the DEB.

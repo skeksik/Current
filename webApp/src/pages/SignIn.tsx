@@ -3,7 +3,7 @@ import type { SignInPage } from 'current-core';
 import { Notice, Page, Panel, Progress } from '../components';
 import { useObservable, usePage, useRerender } from '../hooks';
 import { Link, useCore, useNav } from '../nav';
-import { strings } from '../strings';
+import { strings, textFor, webStrings } from '../strings';
 
 /** Sign in to a saved Jellyfin server with a password or Quick Connect; goes back to where it was opened from once signed in. */
 export function SignIn({ path }: { path: string }) {
@@ -13,7 +13,7 @@ export function SignIn({ path }: { path: string }) {
   if (!page) return null;
   if (page.serverName == null) {
     return (
-      <Page title={strings.signInTitle('')}>
+      <Page title={webStrings.signInServerMissingTitle}>
         <Notice>{strings.signInProblems.ServerNotSaved}</Notice>
         <p><Link path="/settings">{strings.navSettings}</Link></p>
       </Page>
@@ -92,7 +92,7 @@ function SignInForm({ page }: { page: SignInPage }) {
           }}
         />
       </label>
-      {form.problem && <Notice>{strings.signInProblems[form.problem]}</Notice>}
+      {form.problem && <Notice>{textFor(strings.signInProblems, form.problem, webStrings.problemFallback)}</Notice>}
       {form.working ? (
         <Progress>{strings.signInWorking}</Progress>
       ) : (
