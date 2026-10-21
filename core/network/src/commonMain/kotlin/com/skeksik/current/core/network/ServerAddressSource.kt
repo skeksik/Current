@@ -19,6 +19,13 @@ interface ServerAddressSource {
     suspend fun awaitCurrent(): ServerUrl? = current.value
 
     /**
+     * The address in use if it is proved right now, else null: [current] can still show the last address while the source checks
+     * again after a network change or a return from the background. Never suspends and never starts a check, so a caller can read it
+     * before its first suspension; one that gets null and still needs an address calls [awaitCurrent].
+     */
+    fun provedNow(): ServerUrl? = current.value
+
+    /**
      * A request to [address] could not connect or timed out. The source may switch to another address; the failed request is not
      * retried. A report for an address that is no longer in use is stale and should be ignored.
      */

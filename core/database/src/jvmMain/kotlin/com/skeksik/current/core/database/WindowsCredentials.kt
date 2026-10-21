@@ -104,7 +104,7 @@ internal class WindowsCredentials private constructor(
         /** [value] as a credential's blob. Too long a value is a store failure, so the caller falls back to memory like for any other. */
         internal fun blobOf(value: String): ByteArray {
             val bytes = value.encodeToByteArray()
-            if (bytes.size > MAX_BLOB_SIZE) throw SecretBackendException("A credential holds at most $MAX_BLOB_SIZE bytes")
+            if (bytes.size > MAX_BLOB_SIZE) throw SecretBackendException("A credential holds at most $MAX_BLOB_SIZE bytes", retryable = false)
             return bytes
         }
 

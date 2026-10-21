@@ -1,5 +1,6 @@
 package com.skeksik.current.feature.settings
 
+import com.skeksik.current.core.database.InMemoryKeyValueStore
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
@@ -9,10 +10,9 @@ import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerAddressSource
 import com.skeksik.current.core.network.ServerAddressSources
-import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
+import com.skeksik.current.core.network.StoredServerRepository
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -30,21 +30,6 @@ class ServerAddressesViewModelTest {
     private val plainInternet = ServerAddress("http://media.example.com", AddressScope.Internet)
     private val home = SavedServer(ref, "0123456789abcdef0123456789abcdef", "Home", listOf(ip, lan, internet))
 
-    /** Keeps the order servers were added in, as the real repository does. */
-    private class FakeServers(initial: List<SavedServer>) : ServerRepository {
-        private val state = MutableStateFlow(initial)
-        override val servers: StateFlow<List<SavedServer>> = state
-
-        override fun save(server: SavedServer) {
-            state.value = if (state.value.any { it.ref == server.ref }) state.value.map { if (it.ref == server.ref) server else it }
-            else state.value + server
-        }
-
-        override fun remove(ref: ServerRef) {
-            state.value = state.value.filterNot { it.ref == ref }
-        }
-    }
-
     /** One address source whose address in use the test sets. */
     private class FakeSource : ServerAddressSource {
         override val current = MutableStateFlow<ServerUrl?>(null)
@@ -52,9 +37,9 @@ class ServerAddressesViewModelTest {
         override fun reportUnreachable(address: ServerUrl) = Unit
     }
 
-    private val servers = FakeServers(listOf(home))
-    private val source = FakeSource()
     private val capabilities = MutableCapabilitiesState()
+    private val servers = StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { save(home) }
+    private val source = FakeSource()
     private fun TestScope.viewModel() = ServerAddressesViewModel(ref, servers, ServerAddressSources { source }, capabilities, backgroundScope)
 
     /** The state once every change so far has reached it. */

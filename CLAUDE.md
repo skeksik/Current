@@ -53,7 +53,9 @@ Research notes with sources and the list of still-unverified claims: docs/platfo
 ./gradlew :desktopApp:packageMsi                       # Windows installer (packageDeb on Linux); version from current.version
 npm --prefix webApp run dev                            # run web app (npm ci first; builds the Kotlin library, then Vite)
 ./gradlew :androidApp:installDebug                     # install on device/emulator
-./gradlew jvmTest :web:jsNodeTest                      # JVM tests in every module, and the web facade's tests (no JVM target)
+./gradlew jvmTest                                      # JVM tests in every module
+./gradlew jsNodeTest                                   # commonTest of every pure-Kotlin module on Node (and the web facade's tests)
+./gradlew macosArm64Test                               # commonTest of every pure-Kotlin module on macOS (macOS host only)
 npm --prefix webApp run build                          # production web bundle (webApp/build/vite)
 npm --prefix webApp run licences                       # licences of shipped npm packages (ADR 0009)
 npm --prefix webApp run contrast                       # WCAG AA for the web colour tokens, dark and light (ContrastTest on Compose)

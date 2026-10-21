@@ -21,7 +21,8 @@ import kotlin.time.Duration.Companion.minutes
  * the desktop unlocks at sign-in). Users see them as "Current: <key>" in their passwords app.
  *
  * A call can wait on the user: the keyring daemon may ask to unlock or create a keyring. Calls run on one worker thread and give up
- * after [timeout]; the caller then keeps values in memory ([DesktopSecretStore]) and stops calling, since the worker may stay blocked.
+ * after [timeout], with a failure that is not to be retried; the caller then keeps values in memory ([DesktopSecretStore]) and stops
+ * calling, since the worker may stay blocked.
  */
 internal class LibSecret private constructor(
     private val secret: LibSecretApi,
@@ -44,7 +45,7 @@ internal class LibSecret private constructor(
             return call.get(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
         } catch (e: TimeoutException) {
             call.cancel(true)
-            throw SecretBackendException("The Secret Service did not answer within $timeout")
+            throw SecretBackendException("The Secret Service did not answer within $timeout", retryable = false)
         } catch (e: ExecutionException) {
             throw e.cause as? SecretBackendException ?: SecretBackendException("The Secret Service failed: ${e.cause}")
         }

@@ -13,6 +13,9 @@ import com.skeksik.current.core.model.ServerStatus
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.FirstAddressSources
 import com.skeksik.current.core.network.MutableCapabilitiesState
+import com.skeksik.current.core.network.ServerAddressSource
+import com.skeksik.current.core.network.ServerAddressSources
+import com.skeksik.current.core.network.ServerUrl
 import com.skeksik.current.core.network.ServerClients
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
@@ -37,11 +40,17 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -65,9 +74,12 @@ class JellyfinAccountsTest {
     private val routes = mutableMapOf<String, suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>()
 
     /** On the test's scheduler, so request timeouts, polling and the Quick Connect limit run in virtual time. */
-    private fun TestScope.accounts(quickConnectFor: Duration = 10.minutes) = StoredJellyfinAccounts(
+    private fun TestScope.accounts(
+        quickConnectFor: Duration = 10.minutes,
+        addresses: ServerAddressSources = FirstAddressSources(),
+    ) = StoredJellyfinAccounts(
         servers = servers,
-        addresses = FirstAddressSources(),
+        addresses = addresses,
         clients = ServerClients(createHttpClient(MockEngine(MockEngineConfig().apply {
             dispatcher = StandardTestDispatcher(testScheduler)
             addHandler { request ->
@@ -198,7 +210,7 @@ class JellyfinAccountsTest {
     @Test
     fun quickConnectKeepsWaitingThroughNetworkAndServerFailures() = runTest {
         val answers = mutableListOf<suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>(
-            { throw java.net.ConnectException("offline") },
+            { throw kotlinx.io.IOException("offline") },
             status(HttpStatusCode.ServiceUnavailable),
             status(HttpStatusCode.BadGateway),
             json("""{"Authenticated":true}"""),
@@ -240,7 +252,7 @@ class JellyfinAccountsTest {
         assertFalse(status.signedIn)
 
         accounts.signIn(home.ref, "alex", "pw")
-        routes["/Sessions/Logout"] = { throw java.net.ConnectException("offline") }
+        routes["/Sessions/Logout"] = { throw kotlinx.io.IOException("offline") }
         accounts.signOut(home.ref)
         runCurrent()
         assertNull(secrets.get("jellyfin/home/token"))
@@ -267,6 +279,67 @@ class JellyfinAccountsTest {
         assertNull(accounts.authorizedClient(home.ref))
         assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
         answered.complete(Unit)
+    }
+
+    /** Shows [shown] as in use, as a roaming source does while it checks again, and proves [proved] once it is set. */
+    private class CheckingAgain(val shown: ServerUrl) : ServerAddressSource {
+        val proved = MutableStateFlow<ServerUrl?>(null)
+        override val current: StateFlow<ServerUrl?> = MutableStateFlow(shown)
+
+        override suspend fun awaitCurrent(): ServerUrl? = proved.filterNotNull().first()
+
+        override fun provedNow(): ServerUrl? = proved.value
+
+        override fun reportUnreachable(address: ServerUrl) = Unit
+    }
+
+    private fun signedInWith(source: ServerAddressSource) = ServerAddressSources { if (it.ref == home.ref) source else error("no") }
+
+    @Test
+    fun signingOutWhileTheAddressIsCheckedAgainWaitsForAProvedOne() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult()
+        routes["/Sessions/Logout"] = status(HttpStatusCode.NoContent)
+        val source = CheckingAgain(ServerUrl.parse("http://192.168.1.10:8096")!!)
+        source.proved.value = source.shown
+        val accounts = accounts(addresses = signedInWith(source))
+        accounts.signIn(home.ref, "alex", "pw")
+        source.proved.value = null
+        requests.clear()
+
+        accounts.signOut(home.ref)
+        runCurrent()
+        assertFalse(status.signedIn)
+        assertNull(secrets.get("jellyfin/home/token"))
+        // The address shown is not proved since the network changed: the token does not go there.
+        assertTrue(requests.isEmpty())
+
+        advanceTimeBy(2.seconds)
+        source.proved.value = ServerUrl.parse("https://media.example.com")!!
+        runCurrent()
+        val logout = requestTo("/Sessions/Logout")
+        assertEquals("media.example.com", logout.url.host)
+        assertTrue("Token=\"token1\"" in logout.headers[HttpHeaders.Authorization]!!)
+    }
+
+    @Test
+    fun withoutAProvedAddressSoonTheServerLogoutIsSkipped() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult()
+        routes["/Sessions/Logout"] = status(HttpStatusCode.NoContent)
+        val source = CheckingAgain(ServerUrl.parse("http://192.168.1.10:8096")!!)
+        source.proved.value = source.shown
+        val accounts = accounts(addresses = signedInWith(source))
+        accounts.signIn(home.ref, "alex", "pw")
+        source.proved.value = null
+        requests.clear()
+
+        accounts.signOut(home.ref)
+        advanceTimeBy(5.seconds + 1.milliseconds)
+        assertNull(secrets.get("jellyfin/home/token"))
+        assertFalse(status.signedIn)
+        // Proved too late: the wait is over and nothing is sent.
+        source.proved.value = source.shown
+        runCurrent()
+        assertTrue(requests.isEmpty())
     }
 
     @Test
@@ -314,7 +387,7 @@ class JellyfinAccountsTest {
     fun anOfflineServerStaysSignedInButUnreachable() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         accounts().signIn(home.ref, "alex", "pw")
-        routes["/Users/Me"] = { throw java.net.ConnectException("offline") }
+        routes["/Users/Me"] = { throw kotlinx.io.IOException("offline") }
         accounts().restore()
         runCurrent()
         assertEquals(false, status.reachable)
