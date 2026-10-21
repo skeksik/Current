@@ -5,6 +5,20 @@ import com.skeksik.current.core.model.AddressScope
 /** Whether this address is on a local or private network (ADR 0016). Decided from the host alone; nothing is resolved. */
 val ServerUrl.scope: AddressScope get() = addressScopeOf(url.host)
 
+/**
+ * Whether reaching this address presumably needs local network access (ADR 0020): a [AddressScope.Local] address, except an overlay
+ * VPN (Tailscale's `100.64.0.0/10` and `.ts.net`), which the permission most likely does not cover. Not verified on a device.
+ */
+internal val ServerUrl.needsLocalNetworkAccess: Boolean
+    get() = scope == AddressScope.Local && !isOverlayVpn(url.host)
+
+private fun isOverlayVpn(host: String): Boolean {
+    val name = host.lowercase().removeSuffix(".")
+    if (name.endsWith(".ts.net")) return true
+    val octets = ipv4(name) ?: return false
+    return octets[0] == 100 && octets[1] in 64..127
+}
+
 private val localSuffixes = listOf(".local", ".lan", ".home.arpa", ".localhost", ".internal", ".ts.net")
 
 internal fun addressScopeOf(host: String): AddressScope {
