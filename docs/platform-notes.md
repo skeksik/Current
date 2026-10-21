@@ -2327,6 +2327,60 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Also seen, not from this PR and already noted above: the sidebar takes about half the width at phone size, and the "No credential
   store was found" note shows on Android.
 
+## Compose navigation: Windows and Android Emulator run (checked 2026-10-21 on Windows 11 Pro build 26200.9711 with Azul Zulu 21, and on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05, Pixel 8 profile 1080x2400 at 420 dpi with a hardware keyboard; PR 46 at dc86173)
+- What ran: `:desktopApp:run` with `APPDATA` and `LOCALAPPDATA` pointed at a throwaway folder, driven by mouse and keyboard through
+  desktop automation; and the debug build on a fresh AVD, driven by `adb shell input` and, for Alt+Left, the host keyboard in the
+  emulator window, read with `uiautomator dump` and screenshots. A throwaway stand-in for `System/Info/Public` on a loopback port (not
+  committed) let the desktop save a server; it was then stopped, so that server did not answer. Signed out throughout.
+- Desktop:
+  - 1, Esc never goes back: **pass.** On Add server, Esc in the field and Esc after a click on empty space left the page and the
+    typed text. A click on empty space does not clear focus, though: typed letters still landed in the field. So "nothing focused"
+    was checked on Settings, which has no field: Esc after a click on empty space stayed on Settings.
+  - 2, Esc closes transient UI: **pass.** Esc closed the Remove dialog and the page stayed on Settings. The app has no dropdown or menu
+    of its own. The text field's right-click menu (Paste, Select all) closed on Esc, with the page and the text kept.
+  - 3, Alt+Left: **pass.** It went back one page with the field focused (Add server to Settings) and with nothing focused (Settings
+    to Home). With the Remove dialog open it closed the dialog and stayed on Settings. With the field's right-click menu open, it closed
+    the menu and stayed.
+  - 4, mouse back button: **pass on a page, fail with a dialog open.** The physical button was not pressed: X1 was sent as XBUTTON1
+    with Win32 `mouse_event`. On Addresses, after a click on empty space, X1 went back to Settings (twice). With the Remove dialog
+    open, X1 over the dialog and over its scrim did nothing: the dialog stayed open and the page stayed. A likely cause, not checked
+    in the source: the X1 listener is a `pointerInput` on the main window's content, and a dialog's pointer events go to the dialog's
+    own layer. Esc and Alt+Left do close the dialog.
+  - 5, long history: **pass.** 56 pages were opened as 14 rounds of Home (sidebar), Settings (sidebar), Addresses, Add address. 49
+    Alt+Left presses showed Add address, Addresses, Settings and Home in turn, newest first, with no early Home. They ended on
+    Addresses, the 7th page opened and the oldest of the 50 kept. Two more presses stayed there.
+  - 6, Retry focus: **not run as written: no page shows Retry.** `ErrorState` has no caller in this build. Its buttons use the same
+    rule as Home's empty states (`StateButtons`), so the rule was checked there, with the saved server not answering:
+    - The sidebar holds focus: Tab to the sidebar's Home entry, Enter. Home turns into "You are signed out" with Sign in, and focus and
+      its ring stay on the sidebar entry. Tab to Settings, Enter, then Alt+Left back to Home: focus stays on the Settings entry. Pass.
+    - Nothing holds focus after keyboard input: Tab to Sign in, Enter, then Alt+Left back to Home. Sign in takes focus with its ring.
+      Pass.
+    - Add server's Check by Tab and Enter, with nothing answering: "No server answered. Check the address, the port and that the
+      server is running." shows and focus goes back to the address field, with no ring on Check. That is the form's own rule.
+- Android:
+  - 7, system Back: **pass.** From Add server with text typed, the first Back closed the soft keyboard (page and text kept). The next
+    went to Settings, then Home, then the launcher. A slow edge swipe held partway showed the back arrow with Settings crossfading into
+    Home; releasing it went to Home.
+  - 8, Alt+Left from the host keyboard: **pass.** Add server to Settings to Home, one page each. On Home the app went to the background,
+    as with system Back. Alt+Left on a sub-page of the system Settings app did nothing, so the steps came from the app's own handler,
+    which needs a `LocalNavigationEventDispatcherOwner`: Android has one.
+  - 9, rotation and recreation: **pass** for all three. Home, Settings, Add server, then:
+    - Rotation to landscape: the manifest sets no `configChanges`, so the activity was recreated. Add server came back with its text.
+    - "Don't keep activities" (`always_finish_activities` 1): the Home key destroyed the activity (`wm_on_destroy_called` in the
+      events log), and the launcher icon brought back Add server.
+    - `am kill com.skeksik.current` after the Home key: the process was gone, and the launcher icon started a new one on Add server.
+    - Each time Back went to Settings, then Home. Where the soft keyboard was up, one Back first closed it.
+  - 10, backup rules: **pass.** `bmgr enable true`, the local transport (`com.android.localtransport/.LocalTransport`), then
+    `bmgr backupnow com.skeksik.current`: Success. `dumpsys backup` names the package but lists no files, so the transport's archive
+    was read as root: `tar -tvf` of `/data/user/0/com.android.localtransport/files/1/_full/com.skeksik.current` lists `_manifest`,
+    `f/profileInstalled` and `sp/current.xml` only.
+    - Left out: `current-local.xml`, which the app writes at start, and `current-secrets.xml`.
+    - No server was saved on the emulator, so `current.xml` and `current-secrets.xml` were written with `run-as` for this check.
+    - The first `backupnow` after `am force-stop` gave "Backup is not allowed" (a stopped package). After one launch it passed.
+    - Not run: device-transfer rules and a restore.
+- Also seen, already noted above: the sidebar takes about half the width at phone size, and the "No credential store was found" note
+  shows on Android.
+
 ## Not verified (research before depending on it)
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
