@@ -1,0 +1,103 @@
+// The app's texts. Mirrors composeUi/src/commonMain/composeResources/values/strings.xml, so desktop and web say the same thing:
+// change both together. Keys are the Compose names in camel case; `%1$s` arguments become function parameters.
+
+export const strings = {
+  appName: 'Current',
+
+  navHome: 'Home',
+  navSettings: 'Settings',
+  navBack: 'Back',
+
+  homeNoServerTitle: 'Add a server to start',
+  homeNoServerMessage: 'Current plays your own media from a Jellyfin server. Add its address to sign in.',
+  homeAddServer: 'Add a server',
+  homeSignedOutTitle: 'You are signed out',
+  homeSignedOutMessage: (server: string) => `Sign in to ${server} to see your libraries.`,
+  homeSignIn: 'Sign in',
+  homeSignedInTitle: (server: string) => `Signed in to ${server}`,
+  homeSignedInAs: (user: string, server: string) => `Signed in as ${user} on ${server}. Your libraries will appear here.`,
+  homeSignedInMessage: 'Your libraries will appear here.',
+  homeOpenSettings: 'Open settings',
+
+  settingsTitle: 'Settings',
+  settingsServers: 'Servers',
+  settingsAddServer: 'Add server',
+  settingsNoServers: 'No servers yet. Add a Jellyfin server by its address.',
+  settingsSignedInAs: (user: string) => `Signed in as ${user}`,
+  settingsSignedOut: 'Signed out',
+  settingsOffline: 'Offline',
+  settingsSignIn: 'Sign in',
+  settingsSignOut: 'Sign out',
+  settingsRemove: 'Remove',
+  settingsRemoveTitle: (server: string) => `Remove ${server}?`,
+  settingsRemoveMessage: 'You are signed out and the server is forgotten on this device. You can add it again later.',
+  settingsCancel: 'Cancel',
+  settingsSecrets: {
+    CredentialManager: 'Sign-ins are kept in Windows Credential Manager.',
+    SecretService: "Sign-ins are kept in your desktop's keyring, through the Secret Service.",
+    Browser: 'Sign-ins are kept in this browser.',
+    File: 'Sign-ins are kept in a file only your user account can read.',
+    Memory: 'No credential store was found, so you are signed out when the app quits.',
+  } as Record<string, string>,
+  settingsSecretsKeepInFile: 'Keep sign-ins in a file',
+  settingsAbout: 'About',
+  settingsVersion: (version: string) => `Version ${version}`,
+
+  addServerTitle: 'Add a server',
+  addServerSubtitle: 'Enter the address of your Jellyfin server, such as media.example.com or 192.168.1.10:8096.',
+  addServerAddress: 'Server address',
+  addServerCheck: 'Check',
+  addServerChecking: 'Looking for the server…',
+  addServerFound: (server: string) => `Found ${server}`,
+  addServerVersion: (version: string) => `Jellyfin ${version}`,
+  addServerLocal: 'On your local network',
+  addServerInternet: 'On the internet',
+  addServerPlainHttp:
+    'This address is not encrypted (http on the internet). Your password and media would cross the internet readable by others. Use https if the server offers it.',
+  addServerConfirm: 'Add this server',
+  addServerChange: 'Change address',
+  addServerProblems: {
+    InvalidAddress: 'That is not a server address.',
+    Unreachable: 'No server answered. Check the address, the port and that the server is running.',
+    TimedOut: 'The server took too long to answer.',
+    Redirected: 'The address redirects elsewhere. If the server runs under a path, include it (for example /jellyfin), or use https.',
+    NotThisService: 'Something answered, but it is not a Jellyfin server.',
+    Refused: 'The server refused the request.',
+    AlreadyAdded: 'This server is already added.',
+    DifferentServer: 'Another server answers at this address.',
+  } as Record<string, string>,
+
+  signInTitle: (server: string) => `Sign in to ${server}`,
+  signInSubtitle: 'Use your Jellyfin account.',
+  signInUsername: 'Username',
+  signInPassword: 'Password',
+  signInSubmit: 'Sign in',
+  signInWorking: 'Signing in…',
+  signInQuickConnect: 'Use Quick Connect',
+  signInQuickConnectTitle: 'Quick Connect code',
+  signInQuickConnectMessage:
+    'In another Jellyfin app where you are signed in, open Quick Connect and enter this code. This page continues by itself once you approve it.',
+  signInQuickConnectWaiting: 'Waiting for approval…',
+  signInQuickConnectCancel: 'Use a password instead',
+  signInProblems: {
+    WrongCredentials: 'Wrong username or password.',
+    Unreachable: 'The server cannot be reached.',
+    TimedOut: 'The server took too long to answer.',
+    Refused: 'The server refused the sign-in.',
+    DifferentServer: 'Another server answers at this address now, so nothing was sent to it.',
+    QuickConnectDisabled: 'Quick Connect is turned off on this server.',
+    QuickConnectExpired: 'The code expired. Try again.',
+    ServerNotSaved: 'This server is no longer saved.',
+  } as Record<string, string>,
+};
+
+// Web only: no desktop counterpart yet.
+export const webStrings = {
+  settingsPlayback: 'Playback',
+  settingsPlaybackSupport: 'What this browser plays',
+  playbackSupportTitle: 'Playback support',
+  notFoundTitle: 'Not found',
+  notFoundMessage: 'There is no page at this address.',
+  notFoundHome: 'Go home',
+  skipToContent: 'Skip to content',
+};

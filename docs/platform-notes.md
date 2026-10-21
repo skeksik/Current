@@ -2207,6 +2207,43 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Also seen, not from this PR: the sidebar title "Current" is drawn under the status bar (no inset), and the "No credential store was
   found" note shows on Android.
 
+## Web shell against the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1; PR 37 at 2a59c54)
+- What ran: `npm --prefix webApp run dev`, so the real `web` facade and core rather than the JS mock, and a throwaway Jellyfin
+  stand-in on a loopback port (not committed) with CORS open. It answered `GET /System/Info/Public`, `POST /Users/AuthenticateByName`
+  (one right password, else 401), `GET /QuickConnect/Enabled`, `POST /QuickConnect/Initiate`, `GET /QuickConnect/Connect` (approved
+  on the third poll), `POST /Users/AuthenticateWithQuickConnect`, `POST /Sessions/Logout` and `GET /Users/Me` (the restore check),
+  the last two checking the token. A Playwright script (not committed) drove the page, by keyboard where the PR's list says so.
+  `:web:jsNodeTest` (14 tests: 8 route, 6 page; the PR says 13) and `npm --prefix webApp run build` passed first.
+- 49 of 49 checks pass:
+  - Home's three states (no server, signed out with Sign in, signed in as the user): pass.
+  - Add server by keyboard: pass. Tab reaches "Add a server" with a visible focus ring, and Enter opens it with focus in the field. An
+    unreachable address (`127.0.0.1:1`) shows "No server answered" with focus back in the field, and typing mid-field keeps the caret.
+    The found server takes focus on "Add this server", and Enter puts Sign in in Add server's place (`history.length` unchanged).
+  - Sign in: pass. A wrong password shows "Wrong username or password." with focus on the password; the right one goes back past Add
+    server to Home, signed in.
+  - **Reload stays signed in**: pass. The restore sent `GET /Users/Me` with the token.
+  - Settings shows the server signed in, its address, "Sign-ins are kept in this browser." and the version: pass.
+  - Sign out: pass. It sent `POST /Sessions/Logout` with the token, and focus stays on the server's session control, now Sign in.
+  - **Reload stays signed out**, in Settings and on Home: pass.
+  - Quick Connect: pass. A six-digit code shows with "Use a password instead" focused, and approval signs in and goes back to Settings.
+  - Esc and Back: pass. Esc and the Back button on Sign in return to Settings with focus on Sign in; Esc on Add server, with focus in
+    its field, returns with focus on Add server.
+  - Browser Back and Forward walk the history, Back focusing Add server and then the Settings entry: pass.
+  - Remove: pass. Cancel has focus, and Escape cancels with focus back on Remove. Confirming forgets the server, with focus on Add
+    server; the session is ended on the server, and the token and user leave `localStorage` and stay gone after a reload.
+  - A page opened by URL: pass. `?query#fragment` is kept, and Back shows its parent with `history.length` unchanged. A reload on Sign
+    in keeps the server's name, and signing in there goes back to Settings. A Stash sign-in path and an unknown path show Not found.
+  - Light and dark follow the system with the desktop tokens (page background `#0E1113` and `#EBEFF2`): pass. At phone width, Left and
+    Right move in the sidebar, with no horizontal scroll.
+  - No console errors from the app: pass. Chrome logs each failed fetch itself, all expected: the unreachable address (port 1, which
+    Chrome blocks as unsafe), the https candidate tried first against the plain-http stand-in, and the 401 for the wrong password. A
+    404 for `/favicon.ico` on every load: `webApp` has no icon, on main too.
+- Hand check by the owner, in their own browser against their own Jellyfin server: add it, sign in, reload (signed in), sign out,
+  reload (signed out): pass.
+- Also seen, not failures: a sign-in page opened by URL for a server no longer saved is titled "Sign in to " with no name, above "This
+  server is no longer saved." Sign in asks `GET /QuickConnect/Enabled` once for its button and again when Quick Connect starts.
+- Not run: Firefox, Safari, Edge; Chrome's local network access prompt (the dev page is on loopback).
+
 ## Not verified (research before depending on it)
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
