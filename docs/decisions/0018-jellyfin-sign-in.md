@@ -38,3 +38,8 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
   sign-in, the restored-session check and sign-out against a live 12.2 server on 2026-10-20.
 - The user's avatar is not loaded yet (`PrimaryImageTag`), and Quick Connect approval of another device's code (`/QuickConnect/Authorize`)
   is left for Seerr sign-in (M3).
+
+## Addendum (2026-10-21): sign-out sends the token only to a proved address
+- The address in use is captured only if it is proved at that moment (`ServerAddressSource.provedNow`). Right after a network change or
+  a return from the background it may not be (ADR 0019): the logout then waits up to 5 s for the source to prove one, and is skipped if
+  none is proved by then or the server was removed meanwhile. The sign-out here is done at once either way.
