@@ -55,9 +55,10 @@ HTTP: Android" and "Local network permission on Android: the API" have the docum
 - A denied probe ends at the probe's request timeout (5 s for Jellyfin). The Android engine lowers its connect timeout to that same
   value (docs/platform-notes.md, "Request timeouts on blocking engines"), so it may end as `Timeout` or as `Unreachable`; roaming counts
   any probe that failed after its whole timeout as timed out. Not verified on a device for an internet name that resolves locally.
-- `100.64.0.0/10` (Tailscale) counts as `Local` (ADR 0016), but the permission excludes VPN connections, so a user whose only local
-  address is a Tailscale one is asked for a permission that address presumably does not need. Not verified on a device. For the same
-  reason roaming does not skip Tailscale addresses (`100.64.0.0/10`, `.ts.net`) while access is denied (ADR 0019).
+- Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`, `.ts.net`) count as `Local` (ADR 0016), but the permission excludes
+  VPN connections, so they presumably do not need it. Not verified on a device. One rule, computed from the URL
+  (`needsLocalNetworkAccess`), decides both: a user whose only local addresses are Tailscale ones is never asked, and roaming does not
+  skip those addresses while access is denied (ADR 0019).
 - The machine-local store is not yet kept out of Android backups (ADR 0017, M4); until then a restored phone may carry a `Blocked` state,
   which `status()` corrects as soon as the permission is granted, and "Try again" works around.
 - Whether Media3 and Coil honour the cleartext setting is not verified (docs/platform-notes.md).

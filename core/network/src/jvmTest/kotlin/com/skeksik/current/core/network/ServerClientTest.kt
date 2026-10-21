@@ -41,8 +41,13 @@ class ServerClientTest {
     private class SwitchableAddress(initial: ServerUrl?) : ServerAddressSource {
         override val current = MutableStateFlow(initial)
         val reported = mutableListOf<ServerUrl>()
+        val answered = mutableListOf<ServerUrl>()
         override fun reportUnreachable(address: ServerUrl) {
             reported += address
+        }
+
+        override fun reportReachable(address: ServerUrl) {
+            answered += address
         }
     }
 
@@ -64,6 +69,20 @@ class ServerClientTest {
 
     private suspend fun ServerClient.failure(block: suspend io.ktor.client.HttpClient.() -> Unit): ServiceException =
         assertFailsWith<ServiceException> { request(block) }
+
+    @Test
+    fun aRequestThatSucceedsReportsTheAddressReachableAndAFailureDoesNot() = runBlocking {
+        val recorder = Recorder()
+        val address = SwitchableAddress(local)
+        client(recorder, address).use { client ->
+            client.request { get("System/Info/Public") }
+            assertEquals(listOf(local), address.answered)
+            recorder.answer = { respond("", HttpStatusCode.InternalServerError) }
+            client.failure { get("Items") }
+            assertEquals(listOf(local), address.answered)
+            assertTrue(address.reported.isEmpty(), "an answer is not a connection failure")
+        }
+    }
 
     @Test
     fun pathsResolveBelowTheAddressWithOrWithoutALeadingSlash() = runBlocking {

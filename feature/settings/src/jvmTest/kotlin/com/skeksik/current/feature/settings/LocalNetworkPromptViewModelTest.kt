@@ -53,7 +53,7 @@ class LocalNetworkPromptViewModelTest {
             val viewModel = viewModel(access)
             assertEquals(LocalNetworkPromptState.Hidden, viewModel.state.value)
             var checked = 0
-            viewModel.beforeCheck { checked++ }
+            viewModel.beforeCheck("192.168.1.10") { checked++ }
             assertEquals(1, checked)
             assertEquals(0, access.requests)
         }
@@ -65,10 +65,23 @@ class LocalNetworkPromptViewModelTest {
         val viewModel = viewModel(access)
         assertEquals(LocalNetworkPromptState.Ask(), viewModel.state.value)
         var checked = 0
-        viewModel.beforeCheck { checked++ }
+        viewModel.beforeCheck("192.168.1.10") { checked++ }
         assertEquals(1, access.requests)
         assertEquals(1, checked)
         assertEquals(LocalNetworkPromptState.Hidden, viewModel.state.value)
+    }
+
+    @Test
+    fun aBlankAddressChecksWithoutAsking() {
+        // Enter or Go in an empty field: no "Nearby devices" dialog for no address, and a denial there would count towards Blocked.
+        val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.Granted)
+        val viewModel = viewModel(access)
+        var checked = 0
+        viewModel.beforeCheck("") { checked++ }
+        viewModel.beforeCheck("   ") { checked++ }
+        assertEquals(2, checked)
+        assertEquals(0, access.requests)
+        assertEquals(LocalNetworkPromptState.Ask(), viewModel.state.value)
     }
 
     @Test
@@ -78,7 +91,7 @@ class LocalNetworkPromptViewModelTest {
         val viewModel = viewModel(access)
         assertEquals(LocalNetworkPromptState.Ask(denied = true), viewModel.state.value)
         var checked = 0
-        viewModel.beforeCheck { checked++ }
+        viewModel.beforeCheck("192.168.1.10") { checked++ }
         assertEquals(1, checked)
         assertEquals(0, access.requests)
         viewModel.allow()
@@ -91,9 +104,9 @@ class LocalNetworkPromptViewModelTest {
         val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.CanAsk)
         val viewModel = viewModel(access)
         var checked = 0
-        viewModel.beforeCheck { checked++ }
+        viewModel.beforeCheck("192.168.1.10") { checked++ }
         assertEquals(LocalNetworkPromptState.Ask(denied = true), viewModel.state.value)
-        viewModel.beforeCheck { checked++ }
+        viewModel.beforeCheck("192.168.1.10") { checked++ }
         assertEquals(2, checked)
         assertEquals(1, access.requests)
         // Still denied after coming back to the page.
@@ -132,7 +145,7 @@ class LocalNetworkPromptViewModelTest {
         viewModel.allow()
         assertEquals(LocalNetworkPromptState.Asking, viewModel.state.value)
         var checked = 0
-        viewModel.beforeCheck { checked++ }
+        viewModel.beforeCheck("192.168.1.10") { checked++ }
         viewModel.allow()
         viewModel.refresh()
         assertEquals(LocalNetworkPromptState.Asking, viewModel.state.value)

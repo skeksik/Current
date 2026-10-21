@@ -23,6 +23,12 @@ interface ServerAddressSource {
      * retried. A report for an address that is no longer in use is stale and should be ignored.
      */
     fun reportUnreachable(address: ServerUrl)
+
+    /**
+     * A request to [address] succeeded, so the server is reachable there. Only clears an offline state for the address in use; it never
+     * proves an address (credentials still go only where the source sent them). A report for another address is ignored.
+     */
+    fun reportReachable(address: ServerUrl) = Unit
 }
 
 /** A server with one address that never changes. */

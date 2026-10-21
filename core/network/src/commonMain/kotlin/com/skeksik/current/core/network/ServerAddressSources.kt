@@ -41,8 +41,8 @@ class FirstAddressSources : ServerAddressSources {
 /**
  * One roaming address per saved server, started for every saved server, shared by every client of that server and running in [scope]
  * until the server is removed (ADR 0019). A service with a [ServerProbe] gets a [RoamingServerAddress]. A service in [unidentifiable],
- * which cannot prove who it is without credentials, gets an [OrderedServerAddress]. Any other server, and one that is not saved, gets
- * no address, so requests to it fail as unreachable.
+ * which cannot prove who it is without credentials, gets an [OrderedServerAddress]. Any other saved server gets no address, so requests
+ * to it fail as unreachable and it is reported unreachable; one that is not saved gets no address either.
  */
 class RoamingAddressSources internal constructor(
     private val servers: ServerRepository,
@@ -86,12 +86,18 @@ class RoamingAddressSources internal constructor(
     private fun make(server: SavedServer): ManagedServerAddress? = when {
         server.ref.service in probes ->
             RoamingServerAddress(server, probes.getValue(server.ref.service), capabilities, timing, time, localAccess)
-        server.ref.service in unidentifiable -> OrderedServerAddress(server, localAccess)
+        server.ref.service in unidentifiable -> OrderedServerAddress(server, capabilities, localAccess)
         else -> null
     }
 
     private fun start(server: SavedServer): ServerAddressSource {
-        val source = StableAddress(make(server) ?: return NoAddress)
+        val managed = make(server)
+        if (managed == null) {
+            // Every request to it fails as unreachable, so it shows as offline rather than unknown.
+            capabilities.update(server.ref) { it.copy(reachable = false) }
+            return NoAddress
+        }
+        val source = StableAddress(managed)
         val made = runLater(source, wait = Duration.ZERO)
         // Two callers may race to start the same server's source: one wins, the other's never started job is dropped.
         val winner = running.updateAndGet { if (server.ref in it) it else it + (server.ref to made) }.getValue(server.ref)
@@ -188,6 +194,8 @@ class RoamingAddressSources internal constructor(
         override suspend fun awaitCurrent(): ServerUrl? = inner.value.awaitCurrent()
 
         override fun reportUnreachable(address: ServerUrl) = inner.value.reportUnreachable(address)
+
+        override fun reportReachable(address: ServerUrl) = inner.value.reportReachable(address)
 
         fun update(server: SavedServer) = inner.value.update(server)
 

@@ -137,6 +137,12 @@ private data class StoredServer(
 
 @Serializable
 private data class StoredAddress(val url: String, val scope: String) {
-    /** An unknown scope (written by a newer version) counts as internet, the stricter one. */
-    fun toAddress() = ServerAddress(url, AddressScope.entries.firstOrNull { it.name == scope } ?: AddressScope.Internet)
+    /**
+     * The scope is computed from the URL again, so an address saved under older rules gets today's ([ServerUrl.scope]). It is still
+     * written for older versions. Only a URL that no longer parses keeps the stored one; an unknown one counts as internet, the stricter.
+     */
+    fun toAddress() = ServerAddress(
+        url,
+        ServerUrl.parse(url)?.scope ?: AddressScope.entries.firstOrNull { it.name == scope } ?: AddressScope.Internet,
+    )
 }
