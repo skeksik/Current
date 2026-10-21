@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -70,6 +71,17 @@ class RoamingAddressSourcesTest {
     private fun TestScope.sources() = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource)
 
     private fun url(address: ServerAddress) = ServerUrl.parse(address.url)!!
+
+    /**
+     * An app scope on the test's clock that records the bugs reaching its handler. It is cancelled when the test ends, however it ends,
+     * so a source it keeps restarting never outlives the test.
+     */
+    private fun TestScope.appScope(bugs: MutableList<Throwable> = mutableListOf()): CoroutineScope {
+        val handler = CoroutineExceptionHandler { _, e -> bugs += e }
+        val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob() + handler)
+        backgroundScope.coroutineContext.job.invokeOnCompletion { scope.cancel() }
+        return scope
+    }
 
     @Test
     fun everySavedServerIsCheckedFromTheStart() = runTest {
@@ -146,7 +158,7 @@ class RoamingAddressSourcesTest {
     @Test
     fun aSourceWhoseLoopABugEndedStartsAgainAndTheBugSurfaces() = runTest {
         val bugs = mutableListOf<Throwable>()
-        val appScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob() + CoroutineExceptionHandler { _, e -> bugs += e })
+        val appScope = appScope(bugs)
         var buggy = true
         val probe = object : ServerProbe {
             override val service = ServiceType.jellyfin
@@ -170,7 +182,71 @@ class RoamingAddressSourcesTest {
         runCurrent()
         assertEquals(url(local), source.current.value, "the same source runs again")
         assertSame(source, sources.forServer(home))
-        appScope.cancel()
+    }
+
+    @Test
+    fun aSourceRestartedAfterABugNeverUsesAnAddressItHasNotProvedSince() = runTest {
+        val bugs = mutableListOf<Throwable>()
+        val appScope = appScope(bugs)
+        val lan = ServerAddress("http://media.lan:8096", AddressScope.Local)
+        // The first two addresses prove themselves, and their results are queued, when a bug in the third ends the run.
+        val answers = mutableMapOf(lan.url to homeId, local.url to homeId, internet.url to "bug")
+        val probe = object : ServerProbe {
+            override val service = ServiceType.jellyfin
+            override val defaultPort = 8096
+
+            override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+                val answer = answers.getValue(address.toString())
+                if (answer == "bug") throw IllegalStateException("a bug in a probe")
+                return ServerIdentity(answer, "Home", null)
+            }
+        }
+        val home = SavedServer(newServerRef(ServiceType.jellyfin), homeId, "Home", listOf(lan, local, internet)).also(repository::save)
+        val sources = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, appScope, time = testTimeSource)
+        val source = sources.forServer(home)
+        runCurrent()
+        assertEquals(1, bugs.size)
+        val published = mutableListOf<ServerUrl?>()
+        backgroundScope.launch { source.current.collect { published += it } }
+        // In the gap, another server answers at both local addresses, and the user adds an address.
+        answers += mapOf(lan.url to otherId, local.url to otherId, internet.url to homeId)
+        val other = ServerAddress("https://other.example.com", AddressScope.Internet)
+        answers[other.url] = otherId
+        repository.save(home.withAddress(other))
+        runCurrent()
+        assertNull(source.awaitCurrent(), "requests in the gap wait and get nothing")
+        advanceTimeBy(15.seconds)
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        assertTrue(published.none { it == url(lan) || it == url(local) }, "no unproved address was ever published: $published")
+    }
+
+    @Test
+    fun aRecurringBugRestartsTheSourceLessAndLessOften() = runTest {
+        val appScope = appScope()
+        var runs = 0
+        val probe = object : ServerProbe {
+            override val service = ServiceType.jellyfin
+            override val defaultPort = 8096
+
+            override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+                runs++
+                throw IllegalStateException("a bug in a probe")
+            }
+        }
+        server().also(repository::save)
+        RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, appScope, time = testTimeSource)
+        runCurrent()
+        assertEquals(1, runs)
+        advanceTimeBy(15.seconds)
+        runCurrent()
+        assertEquals(2, runs, "the first restart after 15 s")
+        advanceTimeBy(29.seconds)
+        runCurrent()
+        assertEquals(2, runs)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(3, runs, "the next after 30 s")
     }
 
     /** A real client on a mock engine that runs on the test's clock, recording where each request went. */

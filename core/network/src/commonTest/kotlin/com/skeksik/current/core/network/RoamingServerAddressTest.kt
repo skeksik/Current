@@ -76,8 +76,8 @@ class RoamingServerAddressTest {
     private val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(ref)) }
 
     /** Runs the source in the background, so it stops with the test, and lets its first check run as far as it can. */
-    private fun TestScope.roaming(server: SavedServer = saved): RoamingServerAddress {
-        val source = RoamingServerAddress(server, probe, capabilities, RoamingTiming(), testTimeSource)
+    private fun TestScope.roaming(server: SavedServer = saved, timing: RoamingTiming = RoamingTiming()): RoamingServerAddress {
+        val source = RoamingServerAddress(server, probe, capabilities, timing, testTimeSource)
         backgroundScope.launch { source.run(changes) }
         runCurrent()
         return source
@@ -389,10 +389,11 @@ class RoamingServerAddressTest {
     @Test
     fun aWaitThatSpansAResumedNetworkStartsAgainInsteadOfFailing() = runTest {
         probe.answers += mapOf(local to "hang", internet to "hang")
-        val source = roaming()
+        // A bound shorter than the check's 10 s deadline, so the wait ends while the check still runs.
+        val source = roaming(timing = RoamingTiming(requestWaitsAtMost = 4.seconds))
         val request = async { source.awaitCurrent() }
-        // The app comes back to the foreground just before the request's 11 s bound.
-        advance(10.seconds)
+        // The app comes back to the foreground just before the request's bound.
+        advance(3.seconds)
         changes.emit(NetworkChange.Resumed)
         advance(1.5.seconds)
         assertFalse(request.isCompleted, "the wait started again")
@@ -405,19 +406,43 @@ class RoamingServerAddressTest {
     @Test
     fun resumedNetworksRestartAWaitAtMostUpToTwiceTheBound() = runTest {
         probe.answers += mapOf(local to "hang", internet to "hang")
-        val source = roaming()
+        val source = roaming(timing = RoamingTiming(requestWaitsAtMost = 4.seconds))
         val request = async { source.awaitCurrent() }
-        // Each resumed network comes just before the wait would end; the bound is 11 s, so the cap is 22 s.
-        advance(10.seconds)
+        // Each resumed network comes just before the wait would end; the bound is 4 s, so the cap is 8 s.
+        advance(3.seconds)
         changes.emit(NetworkChange.Resumed)
-        advance(10.seconds)
+        advance(4.seconds)
         changes.emit(NetworkChange.Resumed)
-        advance(1.9.seconds)
+        advance(0.9.seconds)
         assertFalse(request.isCompleted, "the restarted wait still runs")
         changes.emit(NetworkChange.Resumed)
         advance(0.2.seconds)
         assertTrue(request.isCompleted, "no wait goes beyond twice the bound")
         assertNull(request.await())
+    }
+
+    @Test
+    fun aCheckWhoseProbesNeverAnswerEndsAfterTwiceTheProbeTimeout() = runTest {
+        probe.answers += mapOf(local to "hang", internet to "hang")
+        roaming()
+        advance(9.seconds)
+        assertEquals(null, reachable, "still checking")
+        advance(1.seconds)
+        assertEquals(false, reachable, "a miss")
+        probe.asked.clear()
+        advance(15.seconds)
+        assertEquals(2, probe.asked.size, "the retry waits go on")
+    }
+
+    @Test
+    fun aCheckPastItsDeadlineEndsWithTheBestAddressProvedSoFar() = runTest {
+        probe.answers += mapOf(local to "hang", internet to homeId)
+        val source = roaming()
+        assertEquals(url(internet), source.current.value)
+        advance(10.seconds)
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(local, internet), probe.asked, "the periodic check of the address in use and the one above it")
     }
 
     @Test

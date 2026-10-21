@@ -60,7 +60,11 @@ class ServiceException(
  * The [ServiceException] for a failed request to [server], or null when [error] is not a request failure: cancellation, or a bug
  * in the calling code, which must surface unchanged.
  */
-internal fun serviceExceptionFor(server: ServerRef, error: Throwable): ServiceException? {
+internal fun serviceExceptionFor(
+    server: ServerRef,
+    error: Throwable,
+    platformUnreachable: (Throwable) -> Boolean = ::isPlatformUnreachable,
+): ServiceException? {
     val detail = error::class.simpleName
     return when (error) {
         is ServiceException -> error
@@ -76,7 +80,7 @@ internal fun serviceExceptionFor(server: ServerRef, error: Throwable): ServiceEx
         // A connection failure the platform reports outside IOException: Android refusing network access to the app, a browser's
         // failed fetch. The server cannot be reached, which must not end a roaming loop as an unexpected exception would. Other errors
         // of the same classes (a file without a grant, any other Error) stay bugs.
-        else -> if (isPlatformUnreachable(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
+        else -> if (platformUnreachable(error)) ServiceException(server, ServiceErrorKind.Unreachable, detail = detail) else null
     }
 }
 

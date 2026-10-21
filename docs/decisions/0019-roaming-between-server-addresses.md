@@ -25,14 +25,17 @@ is on, so a signal can only mean "something may have changed".
   that proves itself is used at once and the check moves up to each higher one that answers, so requests never wait for a higher
   address that hangs until its probe times out (5 s for Jellyfin). An address already in use is only replaced mid-check by a higher
   one; a lower one takes over only when the check ends without it answering. The check ends when the highest proved address has no
-  higher one still being asked. An address that answers with another id, a redirect or anything else is never used. In a browser, a
-  local `http` address from an `https` page fails as mixed content and simply does not answer.
+  higher one still being asked, or once it has run for twice the probe's timeout (10 s for Jellyfin), with the best
+  address it proved by then, since a probe can fail to answer at all. An address that answers with another id, a redirect or
+  anything else is never used. In a browser, a local `http` address from an `https` page fails as mixed content and simply does
+  not answer.
 - **What the check proves:** the id comes from a public endpoint (`/System/Info/Public`), so it stops credentials going to *another*
   server that happens to answer at an address (a different network, a reused IP or name). It does not stop impersonation: anyone who can
   answer on a plain `http` local address can copy the id. HTTPS addresses are protected by TLS as usual.
 - **Requests wait for the first proved address** at start and after a network change: a request made while that check runs waits
   until some address proves itself (at most the 1 s settle window plus twice the probe's timeout, 11 s for Jellyfin) instead of going
-  to an unproved address, and fails as unreachable if nothing is proved. On a new network the old address is dropped at once, since
+  to an unproved address, and fails as unreachable if nothing is proved. A network change holds requests from the moment it is
+  reported, before the loop has handled it. On a new network the old address is dropped at once, since
   whatever answers there may be another server. For the other triggers the address in use stays until a check finds another.
 - **A miss keeps the last proved address.** When nothing answers and the network has not changed, the address in use stays in use and
   the server is marked unreachable; the check is retried with the waits below. Only a network change, or an edit that removes it,
@@ -67,8 +70,11 @@ is on, so a signal can only mean "something may have changed".
   loop: Android's `SecurityException` for a missing `INTERNET` permission (logged once, so a shell without the permission does not pass
   for a server that is down), and Ktor's browser `Error("Fail to fetch")` for any failed fetch. Only those exact shapes count; any other
   `SecurityException` or `Error` stays a bug.
-- **A loop that a bug ends starts again** after 15 s with the same source, so clients holding it get an address again; the bug still
-  reaches the app scope's exception handler.
+- **A source whose run a bug ends is replaced**, a stray `CancellationException` included. Clients hold a stable wrapper; behind it
+  a fresh source, with its own queue, ids and state, starts cold (holding requests and checking) from the saved server as it is then,
+  so the dead run's queued events and probe results are never handled. It starts after 15 s, doubling while the bug recurs up to
+  5 minutes, back to 15 s after a run of 5 minutes. The bug reaches the app scope's exception handler, which logs its class name only
+  (ADR 0015), so it does not end the app on Android and Apple.
 - **A service that cannot identify itself without credentials** (Stash, later; an explicit list) gets its addresses in priority order,
   moves to the next on a reported failure and back to the first on a network change. Every saved address is one the user typed or
   confirmed (ADR 0016). Any other service without a probe gets no address.
@@ -95,7 +101,9 @@ is on, so a signal can only mean "something may have changed".
 - A network change no signal reports leaves requests on the old address until one fails or times out, or until the next periodic
   check (up to 5 minutes): if another device answers there on the new network, it receives them, credentials included. Known cases: on
   desktop, a move to another network that keeps the same interface addresses (same subnet and lease); on Apple, whatever the path
-  monitor does not report; on the web, most real switches: the owner's run in Chrome, Edge and Firefox fired no `online` or `offline`
+  monitor does not report, such as a move between two Wi-Fi networks whose gateways have the same address, made without a moment in
+  which the path is unsatisfied (the path's status, interfaces and gateways then look the same); on the web, most real switches:
+  the owner's run in Chrome, Edge and Firefox fired no `online` or `offline`
   for switches between networks, and `navigator.connection` `change` follows the speed estimate, not the network
   (docs/platform-notes.md, "Roaming in browsers"). There the periodic check and failed requests, now mapped to `Unreachable`, are what
   notices a new network.

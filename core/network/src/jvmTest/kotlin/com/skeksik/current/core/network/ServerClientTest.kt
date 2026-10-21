@@ -195,6 +195,19 @@ class ServerClientTest {
     }
 
     @Test
+    fun aPlatformsConnectionFailureOutsideExceptionIsUnreachableAndReported() = runBlocking {
+        // As the browser engine does: a failed fetch is a kotlin.Error, not an Exception.
+        class FetchFailure : Error("Fail to fetch")
+        val recorder = Recorder().apply { answer = { throw FetchFailure() } }
+        val address = SwitchableAddress(internet)
+        val engine = MockEngine(recorder.handler)
+        val clients = ServerClients(createHttpClient(engine), NetworkLogger.None, 200.milliseconds) { it is FetchFailure }
+        val failure = clients.create(server, address).use { it.failure { get("Items") } }
+        assertEquals(ServiceErrorKind.Unreachable, failure.kind)
+        assertEquals(listOf(internet), address.reported)
+    }
+
+    @Test
     fun aRefusedConnectionIsUnreachableAndReported() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val closed = ServerUrl.parse("http://127.0.0.1:$port")!!

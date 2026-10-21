@@ -22,6 +22,7 @@ class ServerClient internal constructor(
     private val address: ServerAddressSource,
     private val http: HttpClient,
     private val onUnauthorized: (() -> Unit)?,
+    private val platformUnreachable: (Throwable) -> Boolean,
 ) : AutoCloseable {
     /** Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. */
     suspend fun <T> request(block: suspend HttpClient.() -> T): T {
@@ -31,8 +32,9 @@ class ServerClient internal constructor(
             return withContext(ChosenAddress(address, used)) { http.block() }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            val failure = serviceExceptionFor(server, e) ?: throw e
+        } catch (e: Throwable) {
+            // Throwable, not Exception: the browser engine reports a failed fetch as a kotlin.Error.
+            val failure = serviceExceptionFor(server, e, platformUnreachable) ?: throw e
             // A timeout counts too: a dead address often hangs instead of refusing, and no network signal catches every change.
             val noAnswer = failure.kind == ServiceErrorKind.Unreachable || failure.kind == ServiceErrorKind.Timeout
             if (noAnswer) address.reportUnreachable(used)
@@ -54,11 +56,19 @@ internal class ChosenAddress(val source: ServerAddressSource, val url: ServerUrl
 }
 
 /** Makes a [ServerClient] per configured server, all sharing the app's one [HttpClient] and its engine. */
-class ServerClients(
+class ServerClients internal constructor(
     private val base: HttpClient,
-    private val logger: NetworkLogger = NetworkLogger.None,
-    private val requestTimeout: Duration = 30.seconds,
+    private val logger: NetworkLogger,
+    private val requestTimeout: Duration,
+    /** Which failures outside `IOException` are connection failures ([isPlatformUnreachable]); tests pass their own. */
+    private val platformUnreachable: (Throwable) -> Boolean,
 ) {
+    constructor(
+        base: HttpClient,
+        logger: NetworkLogger = NetworkLogger.None,
+        requestTimeout: Duration = 30.seconds,
+    ) : this(base, logger, requestTimeout, ::isPlatformUnreachable)
+
     /** [onUnauthorized] runs whenever the server answers 401, so the data layer can sign that server out (a revoked token). */
     fun create(
         server: ServerRef,
@@ -80,6 +90,6 @@ class ServerClients(
                 this.logger = this@ServerClients.logger
             }
         }
-        return ServerClient(server, address, http, onUnauthorized)
+        return ServerClient(server, address, http, onUnauthorized, platformUnreachable)
     }
 }

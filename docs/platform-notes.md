@@ -1475,6 +1475,9 @@ research agent reading the same files.
     - That a dotted non-`.local` name such as `media.lan` is blocked by ATS under `NSAllowsLocalNetworking` (read from the key's text, not tried).
     - Whether `NWPathMonitor` reports the current path at start and fires for a Wi-Fi to Wi-Fi switch on iOS and tvOS (it does on
       macOS 26.6.2), and for a move between access points of one network.
+    - Whether `UIApplicationWillEnterForegroundNotification`, which the Apple `NetworkChanges` observes by that string name, is the name
+      UIKit posts, and whether it is posted under the SwiftUI scene lifecycle the app uses. Neither was checked in Apple's documentation
+      or on a device; the owner's device run decides it.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Whether a broadcast discovery needs a `MulticastLock`; Media3's and Coil's handling of the cleartext policy.

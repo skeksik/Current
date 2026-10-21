@@ -1,5 +1,6 @@
 package com.skeksik.current.core.network
 
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,9 +17,19 @@ import org.koin.dsl.module
  */
 val AppScope = named("appScope")
 
+/**
+ * A bug that ends background work is logged by class name only, since its message may quote a URL or a body (ADR 0015). Without a
+ * handler it would end the app on Android and Apple; with it, a roaming source starts again ([RoamingAddressSources]).
+ */
+private val logBackgroundBug = CoroutineExceptionHandler { _, error ->
+    println("Background work ended by a bug: ${error::class.simpleName}")
+}
+
 /** Koin definitions of `core:network`. Needs `core:database`'s `databaseModule` for the saved servers. */
 val networkModule = module {
-    single<CoroutineScope>(AppScope) { CoroutineScope(SupervisorJob() + Dispatchers.Default) } withOptions { onClose { it?.cancel() } }
+    single<CoroutineScope>(AppScope) {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default + logBackgroundBug)
+    } withOptions { onClose { it?.cancel() } }
     single { createHttpClient() } withOptions { onClose { it?.close() } }
     single { MutableCapabilitiesState() } bind CapabilitiesState::class
     single { NetworkLogger.None }

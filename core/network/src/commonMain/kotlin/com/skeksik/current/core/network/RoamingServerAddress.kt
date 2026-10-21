@@ -44,7 +44,10 @@ internal interface ManagedServerAddress : ServerAddressSource {
     /** The saved server changed: addresses added, removed or reordered. */
     fun update(server: SavedServer)
 
-    /** Chooses addresses until cancelled; afterwards the source has no address. */
+    /**
+     * Chooses addresses until cancelled; afterwards the source has no address. Runs once: a run that ends leaves its queue and state
+     * behind, so a source is replaced, not run again ([RoamingAddressSources]).
+     */
     suspend fun run(networkChanges: Flow<NetworkChange>)
 }
 
@@ -64,8 +67,11 @@ internal class RoamingServerAddress(
     /** Measures the request window and timers' due times; tests pass their virtual clock. */
     private val time: TimeSource = TimeSource.Monotonic,
 ) : ManagedServerAddress {
-    /** What requests see. [holding]: requests wait (start, network change). [resumes] counts resumed networks, so a wait can restart. */
-    private data class View(val address: ServerUrl?, val holding: Boolean, val resumes: Int)
+    /**
+     * What requests see. [holding]: requests wait (start, network change). [resumes] counts resumed networks, so a wait can restart.
+     * [changes] counts the network changes the loop has handled.
+     */
+    private data class View(val address: ServerUrl?, val holding: Boolean, val resumes: Int, val changes: Int)
 
     private sealed interface Event {
         data class Edited(val server: SavedServer) : Event
@@ -82,6 +88,9 @@ internal class RoamingServerAddress(
         data class TimerFired(val token: Int, val full: Boolean, val requested: Boolean) : Event
 
         data class ProbeResult(val check: Int, val index: Int, val proved: Boolean) : Event
+
+        /** A check ran past its deadline: some probe never answered, so it ends with what it has. */
+        data class CheckExpired(val check: Int) : Event
     }
 
     private val events = Channel<Event>(Channel.UNLIMITED)
@@ -92,7 +101,10 @@ internal class RoamingServerAddress(
      */
     private val requestQueued = MutableStateFlow(false)
     private val resumeQueued = MutableStateFlow(false)
-    private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0))
+    private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0, changes = 0))
+
+    /** The network changes reported so far, counted as they arrive: requests hold until the loop has handled each one. */
+    private val changesSeen = MutableStateFlow(0)
     private val published = MutableStateFlow<ServerUrl?>(null)
 
     /** The address list as last edited, written at once: a removed address gets nothing, not even before the loop has run. */
@@ -108,7 +120,7 @@ internal class RoamingServerAddress(
             val resumes = view.value.resumes
             // At most twice the bound in all, however many resumed networks come.
             val left = minOf(requestWaitsAtMost, requestWaitsAtMost * 2 - started.elapsedNow())
-            val seen = withTimeoutOrNull(left) { view.first { !it.holding } }
+            val seen = withTimeoutOrNull(left) { view.first { !it.holding && it.changes >= changesSeen.value } }
             // The app was suspended, or the network was blocked, while this request waited: wait again rather than fail.
             // Once per resumed network, and only while time is left.
             if (seen == null && view.value.resumes != resumes && started.elapsedNow() < requestWaitsAtMost * 2) continue
@@ -138,7 +150,10 @@ internal class RoamingServerAddress(
                 launch {
                     networkChanges.collect { change ->
                         when (change) {
-                            NetworkChange.Changed -> events.send(Event.Changed)
+                            NetworkChange.Changed -> {
+                                changesSeen.update { it + 1 }
+                                events.send(Event.Changed)
+                            }
                             NetworkChange.Resumed -> if (resumeQueued.compareAndSet(expect = false, update = true)) events.send(Event.Resumed)
                         }
                     }
@@ -146,7 +161,8 @@ internal class RoamingServerAddress(
                 Loop(this).run()
             }
         } finally {
-            view.update { it.copy(address = null, holding = false) }
+            // No request waits on a stopped source, not even for a change the loop never handled.
+            view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE) }
             published.value = null
         }
     }
@@ -163,6 +179,7 @@ internal class RoamingServerAddress(
         private var address: ServerUrl? = null
         private var holding = true
         private var resumes = view.value.resumes
+        private var changes = view.value.changes
         private var settlePending = false
         private var settleToken = 0
         private var settleJob: Job? = null
@@ -204,6 +221,9 @@ internal class RoamingServerAddress(
                     startCheck(full = event.full, woken = event.requested)
                 }
                 is Event.ProbeResult -> probed(event)
+                is Event.CheckExpired -> check?.takeIf { it.id == event.check }?.let { expired ->
+                    finish(expired, expired.best?.let(expired.candidates::get))
+                }
             }
         }
 
@@ -219,6 +239,7 @@ internal class RoamingServerAddress(
 
         /** The old address may now be another server's: drop it, hold requests, and check once updates have settled. */
         private fun changed() {
+            changes++
             address = null
             holding = true
             again = false
@@ -270,6 +291,11 @@ internal class RoamingServerAddress(
             val started = Check(++checks, candidates, full = !partial, woken = woken)
             val asked = server
             started.job = scope.launch {
+                // A probe that never posts (cancelled inside, or an engine that ignores cancellation) must not hold the check forever.
+                launch {
+                    delay(probe.timeout * 2)
+                    events.send(Event.CheckExpired(started.id))
+                }
                 candidates.forEachIndexed { index, url ->
                     launch { events.send(Event.ProbeResult(started.id, index, isSavedServer(asked, url))) }
                 }
@@ -347,6 +373,7 @@ internal class RoamingServerAddress(
         }
 
         private fun cancelTimer() {
+            timerToken++
             timerJob?.cancel()
             timerJob = null
             timerDue = null
@@ -358,7 +385,7 @@ internal class RoamingServerAddress(
         }
 
         private fun publish() {
-            view.value = View(address, holding, resumes)
+            view.value = View(address, holding, resumes, changes)
         }
     }
 
