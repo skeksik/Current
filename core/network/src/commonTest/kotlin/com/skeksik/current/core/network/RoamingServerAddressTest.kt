@@ -1273,4 +1273,141 @@ class RoamingServerAddressTest {
         advance(15.seconds)
         assertEquals(url(internet), source.current.value, "found by the retry, not only after a resume or network change")
     }
+
+    /** Collects [source]'s switches from now on. */
+    private fun TestScope.switchesOf(source: ServerAddressSource): List<ServerUrl> {
+        val seen = mutableListOf<ServerUrl>()
+        backgroundScope.launch { source.switches.collect { seen += it } }
+        runCurrent()
+        return seen
+    }
+
+    @Test
+    fun checkingIsTrueWhileACheckRuns() = runTest {
+        probe.answers += mapOf(local to "slow", internet to homeId)
+        val source = roaming()
+        assertEquals(url(internet), source.current.value)
+        assertTrue(source.checking.value, "the local address is still being asked")
+        advance(5.seconds)
+        assertFalse(source.checking.value)
+    }
+
+    @Test
+    fun checkingIsTrueWhileANetworkChangeSettles() = runTest {
+        probe.answers += mapOf(local to homeId)
+        val source = roaming()
+        assertFalse(source.checking.value)
+        changes.emit(NetworkChange.Changed)
+        runCurrent()
+        assertTrue(source.checking.value)
+        advance(1.seconds)
+        assertFalse(source.checking.value, "the check after the settle proved the local address at once")
+    }
+
+    @Test
+    fun refreshStartsAFullCheck() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.asked.clear()
+        source.refresh()
+        runCurrent()
+        assertEquals(listOf(local, internet), probe.asked)
+        assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun refreshIsIgnoredWhileAFullCheckRuns() = runTest {
+        probe.answers += mapOf(local to "slow", internet to homeId)
+        val source = roaming()
+        probe.asked.clear()
+        source.refresh()
+        source.refresh()
+        runCurrent()
+        assertEquals(emptyList(), probe.asked)
+        advance(5.seconds)
+        assertEquals(emptyList(), probe.asked, "no check follows the one that answered it")
+    }
+
+    @Test
+    fun refreshIsIgnoredWhileANetworkChangeSettles() = runTest {
+        probe.answers += mapOf(local to homeId)
+        val source = roaming()
+        changes.emit(NetworkChange.Changed)
+        runCurrent()
+        probe.asked.clear()
+        source.refresh()
+        runCurrent()
+        assertEquals(emptyList(), probe.asked)
+        advance(1.seconds)
+        assertEquals(listOf(local, internet), probe.asked, "only the check after the settle")
+    }
+
+    @Test
+    fun refreshReplacesAPeriodicCheckWithAFullOne() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers[local] = "late"
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(local), probe.asked, "the periodic check asks the address in use and those above it")
+        source.refresh()
+        runCurrent()
+        assertEquals(listOf(local, local, internet), probe.asked)
+        advance(3.seconds)
+        assertEquals(url(local), source.current.value)
+        assertFalse(source.checking.value)
+    }
+
+    @Test
+    fun noAddressDuringTheFirstCheckIsASwitch() = runTest {
+        probe.answers += mapOf(local to "soon", internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        assertEquals(url(internet), source.current.value)
+        advance(1.seconds)
+        assertEquals(url(local), source.current.value, "moved up within the first check")
+        assertEquals(emptyList(), switches)
+    }
+
+    @Test
+    fun anotherAddressAfterANetworkChangeIsASwitch() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        probe.answers -= local
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertEquals(url(internet), source.current.value)
+        assertEquals(listOf(url(internet)), switches)
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertEquals(listOf(url(internet)), switches, "the same address again is not a switch")
+    }
+
+    @Test
+    fun anotherAddressAfterAFailedRequestIsASwitch() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        waitOutTheRequestLimit()
+        probe.answers -= local
+        source.reportUnreachable(url(local))
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        assertEquals(listOf(url(internet)), switches)
+    }
+
+    @Test
+    fun anEditIsNeverASwitch() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        source.update(saved.copy(addresses = saved.addresses.reversed()))
+        runCurrent()
+        assertEquals(url(internet), source.current.value, "moved to the new first address")
+        source.update(saved.copy(addresses = saved.addresses.take(1)))
+        runCurrent()
+        assertEquals(url(local), source.current.value, "the address in use was removed")
+        assertEquals(emptyList(), switches)
+    }
 }

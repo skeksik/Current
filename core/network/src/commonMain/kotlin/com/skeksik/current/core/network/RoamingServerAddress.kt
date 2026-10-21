@@ -8,12 +8,16 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -107,6 +111,9 @@ internal class RoamingServerAddress(
 
         /** A check ran past its deadline: some probe never answered, so it ends with what it has. */
         data class CheckExpired(val check: Int) : Event
+
+        /** The user asked for a check ([refresh]). */
+        data object Refreshed : Event
     }
 
     private val events = Channel<Event>(Channel.UNLIMITED)
@@ -118,6 +125,7 @@ internal class RoamingServerAddress(
     private val requestQueued = MutableStateFlow(false)
     private val resumeQueued = MutableStateFlow(false)
     private val accessQueued = MutableStateFlow(false)
+    private val refreshQueued = MutableStateFlow(false)
 
     /** The same for a [Event.Failed]: the address it reports, while one is queued. */
     private val failureQueued = MutableStateFlow<ServerUrl?>(null)
@@ -133,6 +141,14 @@ internal class RoamingServerAddress(
     private val latest = MutableStateFlow(server)
 
     override val current: StateFlow<ServerUrl?> = published.asStateFlow()
+
+    private val checkingNow = MutableStateFlow(false)
+
+    override val checking: StateFlow<Boolean> = checkingNow.asStateFlow()
+
+    private val switched = MutableSharedFlow<ServerUrl>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    override val switches: SharedFlow<ServerUrl> = switched.asSharedFlow()
 
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
@@ -187,6 +203,10 @@ internal class RoamingServerAddress(
         events.trySend(Event.Edited(server))
     }
 
+    override fun refresh() {
+        if (refreshQueued.compareAndSet(expect = false, update = true)) events.trySend(Event.Refreshed)
+    }
+
     override suspend fun run(networkChanges: Flow<NetworkChange>) {
         try {
             coroutineScope {
@@ -232,6 +252,7 @@ internal class RoamingServerAddress(
     private fun stop() {
         view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE, suspended = false) }
         published.value = null
+        checkingNow.value = false
     }
 
     private inner class Check(
@@ -241,6 +262,8 @@ internal class RoamingServerAddress(
         val woken: Boolean,
         /** Whether names marked as resolving locally were asked too; the full check after a partial miss does the same. */
         val askedMarked: Boolean,
+        /** Started by an edit of the addresses: the address it moves to is not a roaming switch. */
+        val edit: Boolean,
     ) {
         lateinit var job: Job
         val done = BooleanArray(candidates.size)
@@ -271,6 +294,13 @@ internal class RoamingServerAddress(
         private var retry = timing.retryFirst
         private var lastCheckEnded: TimeMark? = null
 
+        /**
+         * The last address in use, kept across a network change that clears it: a different one proved next is a switch. Null until
+         * the first check has ended, so the addresses that check moves through are not switches.
+         */
+        private var lastUsed: ServerUrl? = null
+        private var firstCheckEnded = false
+
         /** The app is in the background: no check runs, and requests wait for the return. */
         private var suspended = false
 
@@ -296,7 +326,11 @@ internal class RoamingServerAddress(
 
         suspend fun run(): Nothing {
             startCheck(full = true, woken = false)
-            for (event in events) handle(event)
+            showChecking()
+            for (event in events) {
+                handle(event)
+                showChecking()
+            }
             error("The event queue is never closed")
         }
 
@@ -333,7 +367,25 @@ internal class RoamingServerAddress(
                 is Event.CheckExpired -> check?.takeIf { it.id == event.check }?.let { expired ->
                     finish(expired, expired.best?.let(expired.candidates::get))
                 }
+                Event.Refreshed -> {
+                    refreshQueued.value = false
+                    refreshed()
+                }
             }
+        }
+
+        private fun showChecking() {
+            checkingNow.value = check != null || settlePending
+        }
+
+        /**
+         * The user asked where the server is now: a full check, asking marked names too, with the retry waits started over. One that
+         * is running, a pending settle or a suspension answers it instead; a partial check is replaced by a full one.
+         */
+        private fun refreshed() {
+            if (settlePending || suspended || check?.full == true) return
+            retry = timing.retryFirst
+            startCheck(full = true, woken = true, askMarked = true)
         }
 
         private fun edited(edit: SavedServer) {
@@ -349,7 +401,7 @@ internal class RoamingServerAddress(
             }
             publish()
             // A pending settle starts the next check; otherwise the edit does, at once.
-            if (!settlePending) startCheck(full = true, woken = true)
+            if (!settlePending) startCheck(full = true, woken = true, edit = true)
         }
 
         /** The old address may now be another server's: drop it, hold requests, and check once updates have settled. */
@@ -487,7 +539,7 @@ internal class RoamingServerAddress(
             requested()
         }
 
-        private fun startCheck(full: Boolean, woken: Boolean, askMarked: Boolean = false) {
+        private fun startCheck(full: Boolean, woken: Boolean, askMarked: Boolean = false, edit: Boolean = false) {
             // A failure the replaced check had not answered yet carries over to this one.
             failed = (failed ?: check?.suspect)?.takeIf { it == address }
             cancelCheck()
@@ -509,7 +561,7 @@ internal class RoamingServerAddress(
             val asksMarked = askMarked || !full || inUse < 0
             val unmarked = if (asksMarked) reachable else reachable.filterNot { it in deniedNames }
             val candidates = unmarked.ifEmpty { reachable }
-            val started = Check(++checks, candidates, full = !partial, woken = woken, askedMarked = asksMarked)
+            val started = Check(++checks, candidates, full = !partial, woken = woken, askedMarked = asksMarked, edit = edit)
             started.suspect = suspect
             val asked = server
             started.job = scope.launch {
@@ -558,12 +610,13 @@ internal class RoamingServerAddress(
             address = proved
             unproved = false
             holding = false
-            publish()
+            publish(edit = running.edit)
             capabilities.update(server.ref) { it.copy(reachable = true) }
         }
 
         private fun finish(done: Check, found: ServerUrl?) {
             check = null
+            firstCheckEnded = true
             done.job.cancel()
             lastCheckEnded = time.markNow()
             // A miss keeps the last proved address: only a network change, or an edit that removes it, clears it. One kept across a
@@ -572,11 +625,11 @@ internal class RoamingServerAddress(
             unproved = false
             // A resumed network that came during this check, with nothing proved, keeps requests waiting for the check it asked for.
             holding = again && address == null
-            publish()
+            publish(edit = done.edit)
             if (found == null && !done.full) {
                 // A failure reported during the partial check still applies to the full one.
                 failed = done.suspect
-                startCheck(full = true, woken = done.woken, askMarked = done.askedMarked)
+                startCheck(full = true, woken = done.woken, askMarked = done.askedMarked, edit = done.edit)
                 return
             }
             capabilities.update(server.ref) { it.copy(reachable = found != null) }
@@ -620,8 +673,12 @@ internal class RoamingServerAddress(
             check = null
         }
 
-        private fun publish() {
+        /** [edit]: the address in use changed because the user edited the addresses, so a change is not a switch. */
+        private fun publish(edit: Boolean = false) {
             view.value = View(address, holding, resumes, changes, suspended)
+            val now = address ?: return
+            if (lastUsed != null && now != lastUsed && !edit) switched.tryEmit(now)
+            if (firstCheckEnded) lastUsed = now
         }
     }
 
@@ -694,6 +751,9 @@ internal class OrderedServerAddress(
     override fun update(server: SavedServer) = state.update { now ->
         if (server.urls() == now.addresses) now else ordered(server.urls())
     }
+
+    /** Back to the first address, as after a network change: requests are the only check this source has. */
+    override fun refresh() = state.update { ordered(it.addresses) }
 
     override suspend fun run(networkChanges: Flow<NetworkChange>) {
         try {

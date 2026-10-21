@@ -1,8 +1,10 @@
 package com.skeksik.current.core.network
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Where requests to one server go right now. A server can have several addresses (local and internet) and the app moves between them
@@ -29,7 +31,22 @@ interface ServerAddressSource {
      * proves an address (credentials still go only where the source sent them). A report for another address is ignored.
      */
     fun reportReachable(address: ServerUrl) = Unit
+
+    /** Whether the source is asking its addresses where the server is now (a check, or the wait for a network to settle). For display. */
+    val checking: StateFlow<Boolean> get() = NotChecking
+
+    /**
+     * Each address roaming switched to from another address it used before: after a network change, a resumed network, a failed
+     * request, a timer or a refresh, never because the user edited the addresses. Neither the first address after start nor any the
+     * first check moves through is a switch. For a brief notice; a collector that falls behind may miss some.
+     */
+    val switches: Flow<ServerUrl> get() = emptyFlow()
+
+    /** The user asked where the server is now: a source that checks starts a full check, unless one is running or about to. */
+    fun refresh() = Unit
 }
+
+private val NotChecking: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 
 /** A server with one address that never changes. */
 class FixedServerAddress(address: ServerUrl) : ServerAddressSource {
