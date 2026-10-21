@@ -1181,6 +1181,40 @@ research agent reading the same files.
 - Not run here: steps 1 and 4 to 6, the dismissed dialog, keyboard and D-pad. Still seen, as on the device: at phone width the sidebar
   takes about half the screen and the page draws under the status bar.
 
+## Android polish: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12.0, Android 17, API 37; PR 36 debug build)
+- Build: `fix/android-polish` at 510db5f, no local change, `./gradlew :androidApp:installDebug`; `./scripts/check-android-apk.sh` on
+  that APK passed ("The APK contains every module's Compose strings."). AVD: `system-images;android-37.0;google_apis;x86_64` (r06),
+  build CE2A.260420.019, security patch 2026-05-05, portrait 1080x2400. Driven with `adb shell input`, `screencap` and
+  `uiautomator dump`; the permission was read from `dumpsys package`.
+- Server: a throwaway stand-in on the host answering `GET /System/Info/Public`. The local address was the emulator's host alias
+  (`http://10.0.2.2:<port>`, "On your local network"). The internet address was a public wildcard-DNS name that resolves to 10.0.2.2
+  (written here as `http://media.example.com:<port>`, "On the internet" with the plain `http` warning).
+- Saving a server needs a check, and Add server asks before the first check whatever the address (ADR 0020), so in cases 1 and 2 the
+  server was saved with **Allow**, then `pm revoke` and `pm clear-permission-flags ... user-set user-fixed` and a relaunch made the
+  permission undecided again (flags back to `USER_SENSITIVE_*` only). Case 2 started from `pm clear`.
+1. Internet-only servers: **pass.** One internet server saved, permission undecided: Home showed no notice and no dialog at start, after
+   Home key and return, and after Settings, then Home in the sidebar. `dumpsys` still showed no `USER_SET`.
+2. A saved local server: **pass.** Home showed "To reach a server on your home network, Current needs the permission Android calls
+   "Nearby devices"." with **Continue**, and no dialog. **Continue** opened the system dialog.
+3. Shared denial: **pass.** **Don't allow** (`USER_SET`): Home showed the denied line with **Ask again**. Settings, Add server: the same
+   denied note with **Ask again**, no dialog on opening; a **Check** of the local address showed no dialog, no request reached the
+   stand-in, and it ended in "The server took too long to answer." with the "Nearby devices" hint. Home again from the sidebar: still
+   the denied line with **Ask again**. **Ask again** opened the dialog; a second **Don't allow** (`USER_SET|USER_FIXED`) gave the
+   Blocked notice with **Open settings** and **Try again**.
+4. Grant in settings: **pass.** `am start -a android.settings.APPLICATION_DETAILS_SETTINGS`, Permissions, Nearby devices, **Allow**
+   (`granted=true`), Back to the app: the notice was gone.
+5. Focus ring: **pass.** After a tap on empty sidebar space (`mInTouchMode=true`), the first `KEYCODE_TAB` showed the ring on Home in
+   the sidebar. A tap removed it; `KEYCODE_DPAD_DOWN` as the first key showed it on Home again. Also: `KEYCODE_ENTER` as the first key
+   after a tap showed it, and a second Tab moved it to Settings. `uiautomator`'s `focused` flag does not follow Compose focus, so the
+   ring was judged from screenshots.
+6. Phone landscape: **pass.** `user_rotation 1` with auto-rotate off and the Blocked notice on Home: at font scale 1.0 the notice,
+   both buttons and Sign in fit without scrolling. At font scale 1.5 the page scrolled and Sign in was reachable. Add server is not
+   shown in this state (the Blocked notice needs a saved local server). Rotation and font scale were restored afterwards.
+- Seen, not new: the page draws under the status bar, so scrolled text passes under the status icons (portrait and landscape). At the
+  first launch the emulator was out of touch mode (`mInTouchMode=false`, left by earlier key input), and the focused **Add a server**
+  button showed its ring until the first tap, as expected outside touch mode.
+- Not run here: the dismissed dialog, **Try again** and **Open settings** from the Blocked notice, the Blocked notice on Add server.
+
 ## Focus ring after a tap on Android (read 2026-10-21 in AOSP `ViewRootImpl.java` on `main`; not yet run on a device or emulator)
 - Source: `frameworks/base/core/java/android/view/ViewRootImpl.java` (android.googlesource.com, `refs/heads/main`).
 - Why the first Tab after a tap showed no ring (section "Local network permission on Android: run on a device"): any pointer down
