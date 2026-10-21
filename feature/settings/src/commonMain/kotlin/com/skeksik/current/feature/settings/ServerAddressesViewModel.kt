@@ -32,7 +32,24 @@ data class ServerAddressesUiState(
     val saved: Boolean = true,
     /** Null until checked; false while the server answers at none of its addresses, so no row is in use. */
     val reachable: Boolean? = null,
+    /** The "Currently using" block: whether the server can be reached now. */
+    val status: AddressesStatus = AddressesStatus.Checking,
+    /** The address requests go to now, with its network kind; null while there is none. */
+    val inUse: InUseAddress? = null,
+    /** A check is running: the UI disables Refresh and shows progress. */
+    val checking: Boolean = false,
 )
+
+enum class AddressesStatus {
+    /** Not known yet: never checked, or a check runs with no address in use (at start, after a network change). */
+    Checking,
+    Reachable,
+
+    /** The server answers at none of its addresses. */
+    Offline,
+}
+
+data class InUseAddress(val url: String, val scope: AddressScope)
 
 data class AddressRow(
     val url: String,
@@ -48,7 +65,7 @@ data class AddressRow(
 class ServerAddressesViewModel internal constructor(
     private val server: ServerRef,
     private val servers: ServerRepository,
-    sources: ServerAddressSources,
+    private val sources: ServerAddressSources,
     capabilities: CapabilitiesState,
     /** For tests, which have no main dispatcher; otherwise `viewModelScope`. */
     scope: CoroutineScope?,
@@ -65,16 +82,25 @@ class ServerAddressesViewModel internal constructor(
         .flatMapLatest { saved ->
             if (saved == null) flowOf(ServerAddressesUiState(saved = false))
             else {
+                val source = sources.forServer(saved)
                 val reachable = capabilities.capabilities.map { it.status(server)?.reachable }.distinctUntilChanged()
-                combine(sources.forServer(saved).current, reachable) { inUse, isReachable -> stateFor(saved, inUse, isReachable) }
+                combine(source.current, reachable, source.checking) { inUse, isReachable, checking ->
+                    stateFor(saved, inUse, isReachable, checking)
+                }
             }
         }
         .stateIn(
             this.scope,
             SharingStarted.Eagerly,
-            servers.server(server)?.let { stateFor(it, null, capabilities.capabilities.value.status(server)?.reachable) }
+            servers.server(server)?.let { stateFor(it, null, capabilities.capabilities.value.status(server)?.reachable, checking = false) }
                 ?: ServerAddressesUiState(saved = false),
         )
+
+    /** Asks every address where the server is now; ignored while a check runs. */
+    fun refresh() {
+        if (state.value.checking) return
+        servers.server(server)?.let { sources.forServer(it).refresh() }
+    }
 
     /** Removes [url], unless it is the server's last address. */
     fun remove(url: String) = edit { saved -> if (saved.canRemoveAddress(url)) saved.withoutAddress(url) else null }
@@ -97,9 +123,17 @@ class ServerAddressesViewModel internal constructor(
 
     private fun SavedServer.indexOf(url: String): Int? = addresses.indexOfFirst { it.url == url }.takeIf { it >= 0 }
 
-    private fun stateFor(saved: SavedServer, inUse: ServerUrl?, reachable: Boolean?) = ServerAddressesUiState(
+    private fun stateFor(saved: SavedServer, inUse: ServerUrl?, reachable: Boolean?, checking: Boolean) = ServerAddressesUiState(
         name = saved.name,
         reachable = reachable,
+        status = when {
+            reachable == null || (checking && inUse == null) -> AddressesStatus.Checking
+            reachable -> AddressesStatus.Reachable
+            else -> AddressesStatus.Offline
+        },
+        inUse = saved.addresses.firstOrNull { ServerUrl.parse(it.url).let { url -> url != null && url == inUse } }
+            ?.let { InUseAddress(it.url, it.scope) },
+        checking = checking,
         addresses = saved.addresses.map { address ->
             val url = ServerUrl.parse(address.url)
             AddressRow(

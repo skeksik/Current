@@ -48,8 +48,14 @@ class ServerAddressesViewModelTest {
     /** One address source whose address in use the test sets. */
     private class FakeSource : ServerAddressSource {
         override val current = MutableStateFlow<ServerUrl?>(null)
+        override val checking = MutableStateFlow(false)
+        var refreshes = 0
 
         override fun reportUnreachable(address: ServerUrl) = Unit
+
+        override fun refresh() {
+            refreshes++
+        }
     }
 
     private val servers = FakeServers(listOf(home))
@@ -150,5 +156,59 @@ class ServerAddressesViewModelTest {
         val shown = shown(viewModel)
         assertEquals(true, shown.reachable)
         assertEquals(listOf(false, true, false), shown.addresses.map { it.inUse })
+    }
+
+    @Test
+    fun theStatusIsCheckingUntilTheServerHasBeenChecked() = runTest {
+        capabilities.put(ServerStatus(ref))
+        val viewModel = viewModel()
+        source.checking.value = true
+        assertEquals(AddressesStatus.Checking, shown(viewModel).status)
+        assertNull(shown(viewModel).inUse)
+        source.current.value = ServerUrl.parse(internet.url)
+        capabilities.update(ref) { it.copy(reachable = true) }
+        source.checking.value = false
+        val shown = shown(viewModel)
+        assertEquals(AddressesStatus.Reachable, shown.status)
+        assertEquals(InUseAddress(internet.url, AddressScope.Internet), shown.inUse)
+        assertFalse(shown.checking)
+    }
+
+    @Test
+    fun aCheckWithAnAddressInUseKeepsTheStatusShown() = runTest {
+        capabilities.put(ServerStatus(ref, reachable = true))
+        source.current.value = ServerUrl.parse(ip.url)
+        val viewModel = viewModel()
+        source.checking.value = true
+        val shown = shown(viewModel)
+        assertEquals(AddressesStatus.Reachable, shown.status, "a periodic check does not make the status flicker")
+        assertTrue(shown.checking)
+        assertEquals(InUseAddress(ip.url, AddressScope.Local), shown.inUse)
+    }
+
+    @Test
+    fun theServerIsOfflineWhenNoAddressAnswers() = runTest {
+        capabilities.put(ServerStatus(ref, reachable = false))
+        val viewModel = viewModel()
+        assertEquals(AddressesStatus.Offline, shown(viewModel).status)
+        source.checking.value = true
+        assertEquals(AddressesStatus.Checking, shown(viewModel).status, "a check with no address in use may find one")
+    }
+
+    @Test
+    fun refreshAsksTheSourceUnlessACheckRuns() = runTest {
+        val viewModel = viewModel()
+        runCurrent()
+        viewModel.refresh()
+        assertEquals(1, source.refreshes)
+        source.checking.value = true
+        runCurrent()
+        viewModel.refresh()
+        assertEquals(1, source.refreshes)
+        servers.remove(ref)
+        source.checking.value = false
+        runCurrent()
+        viewModel.refresh()
+        assertEquals(1, source.refreshes, "a removed server is not checked")
     }
 }
