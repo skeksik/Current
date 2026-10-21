@@ -1,17 +1,16 @@
 package com.skeksik.current.ui.shell
 
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.navigationevent.NavigationEventDispatcher
 import androidx.navigationevent.NavigationEventHandler
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.NavigationEventInput
-import java.awt.event.InputEvent
-import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import java.awt.event.KeyEvent as AwtKeyEvent
 
 /** A handler like NavHost's or a dialog's: counts the back events it gets. */
 private class Counting : NavigationEventHandler<NavigationEventInfo>(NavigationEventInfo.None, isBackEnabled = true) {
@@ -86,15 +85,12 @@ class BackInputTest {
 
     @Test
     fun altLeftAloneIsTheBackKey() {
-        assertTrue(isBackKey(key(AwtKeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK)))
-        assertFalse(isBackKey(key(AwtKeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK, AwtKeyEvent.KEY_RELEASED)))
-        assertFalse(isBackKey(key(AwtKeyEvent.VK_LEFT, 0)))
-        assertFalse(isBackKey(key(AwtKeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK)))
-        assertFalse(isBackKey(key(AwtKeyEvent.VK_ESCAPE, 0)))
+        assertTrue(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown, isAltPressed = true)))
+        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyUp, isAltPressed = true)))
+        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown)))
+        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown, isAltPressed = true, isShiftPressed = true)))
+        assertFalse(isBackKey(KeyEvent(Key.Escape, KeyEventType.KeyDown)))
     }
-
-    private fun key(code: Int, modifiers: Int, id: Int = AwtKeyEvent.KEY_PRESSED) =
-        KeyEvent(AwtKeyEvent(JPanel(), id, 0L, modifiers, code, AwtKeyEvent.CHAR_UNDEFINED, AwtKeyEvent.KEY_LOCATION_STANDARD))
 
     private fun desktopShell(back: () -> Unit): BackInput {
         val input = BackInput(windowBackIsEscape = true).also { it.attach(dispatcher) }

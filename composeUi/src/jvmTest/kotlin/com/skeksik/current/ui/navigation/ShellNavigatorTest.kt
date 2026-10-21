@@ -16,14 +16,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+// Not private: navigation finds a route's serializer by reflection, which a private class refuses.
 @Serializable
-private data object Start
+internal data object Start
 
 @Serializable
-private data class Page(val n: Int)
+internal data class Page(val n: Int)
 
 @Serializable
-private data class Detail(val n: Int, val name: String)
+internal data class Detail(val n: Int, val name: String)
 
 private val routes = listOf(Start::class, Page::class, Detail::class)
 
