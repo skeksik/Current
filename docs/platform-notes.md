@@ -2062,6 +2062,41 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     the saved server id. A 30x, an HTML page or another `Id` would mean the proxy answers that path differently. A TLS error would
     mean the certificate does not cover the name on the LAN IP.
 
+## Server addresses page: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, Pixel 8 profile 1080x2400 at 420 dpi; PR 35 at 46d4875)
+- What ran: the debug build, driven by `adb shell input` (Tab, Shift+Tab, arrows, Enter, Esc, Back, text, taps, an edge swipe for the
+  Back gesture) and read with `uiautomator dump` (focused node) and screenshots. The server was a throwaway stand-in for
+  `System/Info/Public` on the host, reached as 10.0.2.2: three ports with one server id, a fourth with another id. Signed out
+  throughout (the stand-in has no sign-in). The local network permission was allowed at the first probe.
+- **At phone width the content column is about 115 dp.** The sidebar is a fixed 232 dp (`Size.sidebarWidth`, on main) with no compact
+  layout, which leaves the page about 180 dp of the 411 dp width, about 115 dp inside its padding. Then:
+  - `Page`'s header is a `Row` whose title column takes what the actions button leaves. On Addresses the title, subtitle and Add address
+    button share that column, so the title and the subtitle render one letter per line, a screen and a half tall. The Settings header
+    ("Servers" and Add server) does the same.
+  - The `Row` of scope and In use in each address panel squeezes In use to one letter per line.
+  - On the found card of Add an address (and Add a server), the `Row` of the confirm button and Change pushes Change past the right
+    edge: it is laid out 48 dp wide, partly off screen and not readable.
+  - At 240 dpi (about 490 dp of content) the same page lays out as intended: title, subtitle and button side by side, scope and In use
+    on one line, the three buttons in a row.
+- 1, server panel buttons at phone width: **pass for wrapping, fail for reading.** Sign in, Addresses and Remove wrap one per line
+  and none is clipped, but the narrow column breaks their labels mid-word ("Addr / esse / s").
+- 2, Addresses opened by keyboard: **pass** for focus (Add address, ring visible) and each row's URL and scope (Local network).
+  In use shows on the address in use, squeezed as above. The plain-http warning on an http internet address: **not run**, as no
+  stand-in answers at media.example.com.
+- 3, Add address: **pass.** Back on the page with focus on Add address, the new address last. The port with another id gives
+  "Another server answers at this address."; the saved address again gives "This address is already added."
+- 4, reorder with keys (three addresses): **pass.** Move up on the last row kept focus on that row's Move up, then Up and Down still
+  moved between rows (the must-fix). Moving the row to the top put focus on its Move down, and to the bottom on its Move up; arrows
+  worked after each. An arrow lands on a row's first enabled button.
+- 5, Remove: **pass.** Cancel is focused and Esc returns focus to Remove. Confirming the middle row's removal focused the row that
+  took its place (its Move up). With one address left the row has no buttons and reads "A server keeps at least one address, so this
+  one cannot be removed."; focus went to Add address.
+- 6, Back: **pass.** System Back leaves the page. After keyboard input, Back puts focus on the server's Addresses button with its ring.
+  After a tap on Addresses and the Back gesture, no ring shows. Esc does not leave the page on Android (not asked for; noted only).
+- 7, light and dark: **pass.** Text is readable and the rings are visible in both, the Remove dialog included. Under the dialog's
+  scrim the Remove button that opened it keeps its ring (cosmetic).
+- Also seen, not from this PR: the sidebar title "Current" is drawn under the status bar (no inset), and the "No credential store was
+  found" note shows on Android.
+
 ## Not verified (research before depending on it)
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
