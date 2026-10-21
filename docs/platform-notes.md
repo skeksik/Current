@@ -2260,7 +2260,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   `linux { packageName, debMaintainer, appCategory, menuGroup, shortcut }` in `LinuxPlatformSettings`. MSI versions are
   `MAJOR.MINOR.BUILD` (255, 255, 65535 at most); a DEB version must start with a digit (docs page above).
 - jpackage needs JDK 17 or newer, taken from `JAVA_HOME` or `javaHome` (docs page above); the plugin falls back to the `java.home` of the
-  JVM running Gradle (`JvmApplicationData.kt`). The desktop app sets `javaHome` from a Temurin 21 Gradle toolchain (cross-cutting review A7).
+  JVM running Gradle (`JvmApplicationData.kt`). The desktop app sets `javaHome` from a Java 21 Gradle toolchain, any vendor (cross-cutting review A7).
 - WiX: on Windows the plugin downloads WiX 3.11 binaries from the wixtoolset GitHub releases (`downloadWix`, `unzipWix`) unless `WIX_PATH` is
   set or `compose.desktop.application.downloadWix=false` (`internal/wixToolset.kt`).
 - The modules the app needs beyond the defaults: `java.net.http` (ktor-client-java uses the JDK's `HttpClient`) and `jdk.accessibility`.

@@ -23,10 +23,10 @@ dependencies {
 val appVersion = providers.gradleProperty("current.version").get()
 
 // The JDK that jpackage runs from and copies into the installer, so the bundled runtime does not depend on the JDK that runs Gradle.
-// Same major version as CI; the foojay resolver (settings.gradle.kts) downloads it when no matching JDK is installed.
+// Same major version as CI (Temurin there). No vendor pin: this resolves while desktopApp is configured, for every build, and any
+// installed JDK 21 then matches without a download; the foojay resolver (settings.gradle.kts) fetches one only when none is installed.
 val packagingJdk = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
-    vendor = JvmVendorSpec.ADOPTIUM
 }
 
 compose.desktop {
