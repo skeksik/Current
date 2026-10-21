@@ -1872,6 +1872,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **A refused address listed first: pass (Chrome, Edge, Firefox).** Every check asked all three at once. The refused address failed in
   2-28 ms, and the LAN address was in use 12-23 ms after the server was saved and 115-123 ms after a reload (first run: the loop ended in
   13 ms). Every later check ran, including the periodic ones.
+  - Correction (2026-10-21): port 9 is a "bad port" in the Fetch standard (https://fetch.spec.whatwg.org/#bad-port, 9 "discard"), which
+    browsers block before any connection is made. So this case tested a blocked address that fails at once, not a refused connection.
 - **DevTools "Offline": pass (Chrome, Edge); not testable in Firefox, as before.**
   - Chrome and Edge: `offline` and `connection.change` came together and made one check 1.02 s later, in which every probe failed in
     3-5 ms. A request made at the event waited for that check and failed as `Unreachable` after 1.02 s; the later ones failed as
