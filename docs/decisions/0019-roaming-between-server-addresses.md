@@ -55,6 +55,13 @@ is on, so a signal can only mean "something may have changed".
     foreground. The check starts at once, the address in use stays, and the retry waits start over. A request that was waiting across
     it starts its wait again instead of failing, once per resumed network and never beyond twice the bound in all. The macOS
     wake is not a signal yet (a follow-up);
+  - on iOS and tvOS, going to the background (`NetworkChange.Suspended`) stops every check and timer and holds requests from that
+    moment, since nothing runs while the app is suspended and the network may change meanwhile. The address in use is kept but no
+    longer counts as proved: at the return (`Resumed`) a check starts at once, requests are released by the first address it proves,
+    the kept one included, and the kept one is dropped if nothing answers. A request whose wait ran out during the suspension (its
+    timeout fires at the return, before the loop has seen it) waits up to one more bound for the return and starts again; time spent
+    suspended does not count against the twice-the-bound limit. The owner's iOS run (docs/platform-notes.md, "Roaming on iOS,
+    final") found both a request failing at the return and requests reaching the old address in the few ms before the path update;
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
     when a request finds no address at all. Never while a check runs, which answers it, and at most once per 15 s after the last
     check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every

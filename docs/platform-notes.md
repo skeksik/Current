@@ -1403,6 +1403,10 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   and returning to the foreground is signalled. Still open: a request whose wait runs out during a suspension of 11-22 s fails at the
   return (above); any request waiting across a longer suspension fails by rule; a request made in the few ms between the return and its
   path update gets the old address.
+- Changed after this run (PR 23, not yet run on a device): `UIApplicationDidEnterBackgroundNotification`, observed by name, is
+  `NetworkChange.Suspended`. From it requests wait, and checks and timers stop; at the return the check runs at once and the address in
+  use counts again only once proved. A wait that runs out while suspended waits for the return and starts again, and time suspended
+  does not count against the limit. This is meant to fix the 16 s failure, the longer suspensions and the few-ms window above.
 
 ## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
 - What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
@@ -1704,6 +1708,9 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     - Whether `UIApplicationWillEnterForegroundNotification`, which the Apple `NetworkChanges` observes by that string name, is posted
       under the SwiftUI scene lifecycle on tvOS. On iOS 27.0.1 it is, at every return and every cold launch (section "Roaming on iOS,
       final"); not checked in Apple's documentation.
+    - Whether `UIApplicationDidEnterBackgroundNotification`, observed by that string name, is posted under the SwiftUI scene lifecycle on
+      iOS and tvOS, and early enough for the loop to handle it before the app is suspended. Not checked in Apple's documentation or on a
+      device.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16 or 17, see

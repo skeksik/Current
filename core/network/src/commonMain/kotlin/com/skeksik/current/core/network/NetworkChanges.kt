@@ -24,10 +24,16 @@ enum class NetworkChange {
     Changed,
 
     /**
-     * The same network became usable again after the system blocked the app's access to it (Android, in the background). Checks made
-     * while blocked found nothing, so the addresses are asked again, but the address in use is still proved.
+     * The network became usable again: the system stopped blocking the app's access to it (Android, in the background), or the app
+     * came back to the foreground (iOS and tvOS, after [Suspended]). The addresses are asked again at once.
      */
     Resumed,
+
+    /**
+     * The app is going to the background, where the system may suspend it (iOS and tvOS). Nothing runs while suspended, and the network
+     * may change meanwhile, so the address in use is proved again before requests use it after [Resumed].
+     */
+    Suspended,
 }
 
 /** This platform's [NetworkChanges]. */

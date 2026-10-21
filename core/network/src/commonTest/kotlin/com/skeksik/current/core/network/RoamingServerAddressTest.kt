@@ -446,6 +446,69 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aRequestWhoseWaitRunsOutWhileSuspendedSucceedsOnTheReturn() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        assertEquals(url(local), source.current.value)
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        val request = async { source.awaitCurrent() }
+        // The 11 s wait runs out during a 16 s suspension; on a device its timeout fires at the return, before the loop sees it.
+        advance(16.seconds)
+        assertFalse(request.isCompleted, "it waits for the return instead of failing")
+        changes.emit(NetworkChange.Resumed)
+        runCurrent()
+        assertEquals(url(local), request.await())
+    }
+
+    @Test
+    fun afterASuspensionNoRequestGoesToTheKeptAddressUntilItIsProvedAgain() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        assertEquals(url(local), source.current.value)
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        val early = async { source.awaitCurrent() }
+        runCurrent()
+        assertFalse(early.isCompleted, "a request made in the background waits")
+        // Meanwhile the device moved: another server answers at the local address, and the internet one is home.
+        probe.answers[local] = otherId
+        probe.answers[internet] = homeId
+        probe.asked.clear()
+        changes.emit(NetworkChange.Resumed)
+        val late = async { source.awaitCurrent() }
+        runCurrent()
+        assertEquals(listOf(local, internet), probe.asked, "checked at once on the return")
+        assertEquals(url(internet), early.await())
+        assertEquals(url(internet), late.await())
+    }
+
+    @Test
+    fun aKeptAddressThatNothingProvesAfterASuspensionIsDropped() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        probe.answers.clear()
+        changes.emit(NetworkChange.Resumed)
+        runCurrent()
+        assertNull(source.awaitCurrent(), "the network may have changed while suspended")
+        assertNull(source.current.value)
+    }
+
+    @Test
+    fun nothingIsCheckedWhileSuspended() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        probe.asked.clear()
+        source.reportUnreachable(url(local))
+        advance(10.minutes)
+        assertTrue(probe.asked.isEmpty(), "no timer, request or change checks in the background")
+    }
+
+    @Test
     fun aResumedNetworkStartsTheRetryWaitsOver() = runTest {
         roaming()
         // Misses at 0, 15 and 45 s; the next wait would be 60 s.

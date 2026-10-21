@@ -26,8 +26,8 @@ import platform.posix.free
 /**
  * Network framework's path monitor (`NWPathMonitor` in Swift). A path update is a change only when the path differs from the last one
  * in its status, interfaces (names and types) or gateways: the monitor reports the current path at start, and on cellular repeats
- * unchanged paths every few seconds (docs/platform-notes.md). Coming back to the foreground on iOS and tvOS is [NetworkChange.Resumed],
- * observed by the notification's name, which macOS never posts.
+ * unchanged paths every few seconds (docs/platform-notes.md). Going to the background on iOS and tvOS is [NetworkChange.Suspended] and
+ * coming back to the foreground is [NetworkChange.Resumed], both observed by the notification's name, which macOS never posts.
  */
 internal actual fun Scope.platformNetworkChanges(): NetworkChanges = NetworkChanges {
     callbackFlow {
@@ -41,15 +41,18 @@ internal actual fun Scope.platformNetworkChanges(): NetworkChanges = NetworkChan
         nw_path_monitor_set_queue(monitor, dispatch_queue_create("com.skeksik.current.network-changes", null))
         nw_path_monitor_start(monitor)
         val center = NSNotificationCenter.defaultCenter
+        val background = center.addObserverForName(BACKGROUND, null, null) { _ -> trySend(NetworkChange.Suspended) }
         val foreground = center.addObserverForName(FOREGROUND, null, null) { _ -> trySend(NetworkChange.Resumed) }
         awaitClose {
             nw_path_monitor_cancel(monitor)
+            center.removeObserver(background)
             center.removeObserver(foreground)
         }
     }
 }
 
-/** `UIApplicationWillEnterForegroundNotification`, by name, so this source set needs no UIKit. */
+/** UIKit's background and foreground notifications, by name, so this source set needs no UIKit. */
+private const val BACKGROUND = "UIApplicationDidEnterBackgroundNotification"
 private const val FOREGROUND = "UIApplicationWillEnterForegroundNotification"
 
 /** What tells two paths apart: status, then each interface's name and type, then each gateway's address. */

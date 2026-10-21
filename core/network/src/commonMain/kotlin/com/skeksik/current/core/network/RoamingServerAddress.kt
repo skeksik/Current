@@ -69,9 +69,15 @@ internal class RoamingServerAddress(
 ) : ManagedServerAddress {
     /**
      * What requests see. [holding]: requests wait (start, network change). [resumes] counts resumed networks, so a wait can restart.
-     * [changes] counts the network changes the loop has handled.
+     * [changes] counts the network changes and suspensions the loop has handled. [suspended]: the app is in the background.
      */
-    private data class View(val address: ServerUrl?, val holding: Boolean, val resumes: Int, val changes: Int)
+    private data class View(
+        val address: ServerUrl?,
+        val holding: Boolean,
+        val resumes: Int,
+        val changes: Int,
+        val suspended: Boolean = false,
+    )
 
     private sealed interface Event {
         data class Edited(val server: SavedServer) : Event
@@ -79,6 +85,8 @@ internal class RoamingServerAddress(
         data object Changed : Event
 
         data object Resumed : Event
+
+        data object Suspended : Event
 
         data class Settled(val token: Int) : Event
 
@@ -103,7 +111,9 @@ internal class RoamingServerAddress(
     private val resumeQueued = MutableStateFlow(false)
     private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0, changes = 0))
 
-    /** The network changes reported so far, counted as they arrive: requests hold until the loop has handled each one. */
+    /**
+     * The network changes and suspensions reported so far, counted as they arrive: requests hold until the loop has handled each one.
+     */
     private val changesSeen = MutableStateFlow(0)
     private val published = MutableStateFlow<ServerUrl?>(null)
 
@@ -115,18 +125,27 @@ internal class RoamingServerAddress(
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
     override suspend fun awaitCurrent(): ServerUrl? {
-        val started = time.markNow()
+        // At most twice the bound in all, however many resumed networks come; time spent suspended does not count.
+        var left = requestWaitsAtMost * 2
         while (true) {
             val resumes = view.value.resumes
-            // At most twice the bound in all, however many resumed networks come.
-            val left = minOf(requestWaitsAtMost, requestWaitsAtMost * 2 - started.elapsedNow())
-            val seen = withTimeoutOrNull(left) { view.first { !it.holding && it.changes >= changesSeen.value } }
+            val wait = minOf(requestWaitsAtMost, left)
+            val seen = withTimeoutOrNull(wait) { view.first { !it.holding && it.changes >= changesSeen.value } }
+            if (seen != null) {
+                val address = seen.address?.takeIf { it in latest.value.urls() }
+                if (address == null) request()
+                return address
+            }
+            left -= wait
+            // A wait that ran out while the app was suspended fires on its return, before the loop has seen it: give the loop a bound
+            // to handle the return.
+            if (view.value.suspended) withTimeoutOrNull(requestWaitsAtMost) { view.first { !it.suspended } }
             // The app was suspended, or the network was blocked, while this request waited: wait again rather than fail.
             // Once per resumed network, and only while time is left.
-            if (seen == null && view.value.resumes != resumes && started.elapsedNow() < requestWaitsAtMost * 2) continue
-            val address = seen?.address?.takeIf { it in latest.value.urls() }
-            if (address == null) request()
-            return address
+            if (view.value.resumes == resumes || view.value.suspended || left <= Duration.ZERO) {
+                request()
+                return null
+            }
         }
     }
 
@@ -156,6 +175,10 @@ internal class RoamingServerAddress(
                             }
                             NetworkChange.Resumed ->
                                 if (resumeQueued.compareAndSet(expect = false, update = true)) events.send(Event.Resumed)
+                            NetworkChange.Suspended -> {
+                                changesSeen.update { it + 1 }
+                                events.send(Event.Suspended)
+                            }
                         }
                     }
                     // A source that no longer hears of network changes must not go on blind.
@@ -175,7 +198,7 @@ internal class RoamingServerAddress(
 
     /** No request waits on a stopped source, not even for a change the loop never handled. */
     private fun stop() {
-        view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE) }
+        view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE, suspended = false) }
         published.value = null
     }
 
@@ -206,6 +229,12 @@ internal class RoamingServerAddress(
         private var retry = timing.retryFirst
         private var lastCheckEnded: TimeMark? = null
 
+        /** The app is in the background: no check runs, and requests wait for the return. */
+        private var suspended = false
+
+        /** The address in use was kept across a suspension and is not proved since: requests wait, and any proved address replaces it. */
+        private var unproved = false
+
         suspend fun run(): Nothing {
             startCheck(full = true, woken = false)
             for (event in events) handle(event)
@@ -216,6 +245,7 @@ internal class RoamingServerAddress(
             when (event) {
                 is Event.Edited -> edited(event.server)
                 Event.Changed -> changed()
+                Event.Suspended -> suspended()
                 Event.Resumed -> {
                     resumeQueued.value = false
                     resumed()
@@ -243,7 +273,10 @@ internal class RoamingServerAddress(
             val reordered = edit.addresses != server.addresses
             server = edit
             if (!reordered) return
-            if (address != null && address !in edit.urls()) address = null
+            if (address != null && address !in edit.urls()) {
+                address = null
+                unproved = false
+            }
             publish()
             // A pending settle starts the next check; otherwise the edit does, at once.
             if (!settlePending) startCheck(full = true, woken = true)
@@ -253,6 +286,7 @@ internal class RoamingServerAddress(
         private fun changed() {
             changes++
             address = null
+            unproved = false
             holding = true
             again = false
             retry = timing.retryFirst
@@ -268,10 +302,34 @@ internal class RoamingServerAddress(
             publish()
         }
 
+        /**
+         * The app is going to the background. Nothing runs while it is suspended, and the network may change meanwhile, so requests
+         * wait from now until a check after the return proves an address; the address in use is kept as the first to try.
+         */
+        private fun suspended() {
+            changes++
+            suspended = true
+            holding = true
+            unproved = address != null
+            again = false
+            cancelCheck()
+            cancelTimer()
+            settlePending = false
+            settleJob?.cancel()
+            publish()
+        }
+
         /** The same network is usable again: ask again at once, keep the address, and start the retry waits over. */
         private fun resumed() {
             resumes++
             retry = timing.retryFirst
+            if (suspended) {
+                // Back from the background: whatever happened meanwhile, check at once; requests wait for it.
+                suspended = false
+                publish()
+                startCheck(full = true, woken = true)
+                return
+            }
             publish()
             when {
                 settlePending -> Unit
@@ -285,7 +343,7 @@ internal class RoamingServerAddress(
          * [RoamingTiming.retryFirst] after the last check ended. One that comes sooner gets a check when that window ends.
          */
         private fun requested() {
-            if (check != null || settlePending) return
+            if (check != null || settlePending || suspended) return
             val ended = lastCheckEnded ?: return
             val left = timing.retryFirst - ended.elapsedNow()
             if (left <= Duration.ZERO) startCheck(full = true, woken = true)
@@ -295,6 +353,8 @@ internal class RoamingServerAddress(
         private fun startCheck(full: Boolean, woken: Boolean) {
             cancelCheck()
             cancelTimer()
+            // The return from the background starts the next one.
+            if (suspended) return
             val urls = server.urls()
             val inUse = address?.let(urls::indexOf) ?: -1
             // The periodic check asks the address in use and those above it; all of them only when none of those answers.
@@ -331,13 +391,15 @@ internal class RoamingServerAddress(
 
         /**
          * An address proved while higher ones are still being asked: used when none is in use, or when it ranks above the one in use,
-         * so a healthy address is never swapped for a lower one mid-check.
+         * so a healthy address is never swapped for a lower one mid-check. One kept across a suspension is not proved, so it counts as
+         * none.
          */
         private fun useMeanwhile(proved: ServerUrl) {
             val urls = server.urls()
-            val inUse = address?.let(urls::indexOf)?.takeIf { it >= 0 }
+            val inUse = address?.takeUnless { unproved }?.let(urls::indexOf)?.takeIf { it >= 0 }
             if (inUse != null && urls.indexOf(proved) >= inUse) return
             address = proved
+            unproved = false
             holding = false
             publish()
             capabilities.update(server.ref) { it.copy(reachable = true) }
@@ -347,8 +409,10 @@ internal class RoamingServerAddress(
             check = null
             done.job.cancel()
             lastCheckEnded = time.markNow()
-            // A miss keeps the last proved address: only a network change, or an edit that removes it, clears it.
-            if (found != null) address = found
+            // A miss keeps the last proved address: only a network change, or an edit that removes it, clears it. One kept across a
+            // suspension and not proved since is cleared too, since the network may have changed meanwhile.
+            if (found != null) address = found else if (unproved) address = null
+            unproved = false
             holding = false
             publish()
             if (found == null && !done.full) {
@@ -397,7 +461,7 @@ internal class RoamingServerAddress(
         }
 
         private fun publish() {
-            view.value = View(address, holding, resumes, changes)
+            view.value = View(address, holding, resumes, changes, suspended)
         }
     }
 
