@@ -6,7 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Actions are pinned by commit SHA, with the tag they were taken from in a comment.
 permissions:
   contents: read
 
@@ -15,6 +14,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Actions are pinned by commit SHA, with the tag they were taken from in a comment.
 jobs:
   linux:
     name: Tests, web, Android (Linux)
