@@ -1103,10 +1103,47 @@ research agent reading the same files.
 - Versus `java.net` on the JVM: java.net is enough there and adds nothing. ktor-network would give one Kotlin API for jvm, Android, iOS,
   macOS and tvOS; the web still needs an interface with a "not available" implementation. Choosing is a design decision (ADR), not made here.
 
+## Request timeouts on blocking engines (checked 2026-10-21 in the Ktor 3.6.0 source jars and the Android reference; one JVM test)
+- Seen on an Android 17 phone (PR 23's roaming run): over a VPN, 5 s probes of an internet host name ended after 6.0 s and once 11.0 s,
+  and requests held for 11 s.
+- **Ktor's request timeout does not end a call that is blocked in the engine.** In `ktor-client-core` 3.6.0:
+  - `plugins/HttpTimeout.kt`, `applyRequestTimeout`: after the timeout, a launched job calls `executionContext.cancel(...)` on the
+    request's job. Nothing cancels the caller's coroutine.
+  - `engine/HttpClientEngine.kt`, `executeWithinCallContext`: the engine runs as `async(callContext) { execute(requestData) }.await()`.
+    The call job is `Job(requestData.executionContext)`, and the execution context is a `SupervisorJob` without a parent
+    (`request/HttpRequest.kt`; `plugins/HttpRequestLifecycle.kt` wraps it in another one). A cancelled `async` completes only when its
+    body returns, so the caller stays in `await()` until the engine's blocking call returns.
+  - `engine/Utils.kt`, `attachToUserJob`: a cancellation of the caller's own job is passed on to the call job, and the caller's
+    `await()` is cancellable. So a coroutine timeout around the request (`withTimeout`) does return on time, and it does not wait for
+    the blocked call, which is not its child.
+- The Android engine (`ktor-client-android` 3.6.0, `AndroidClientEngine.kt`, `AndroidURLConnectionUtils.kt`) makes blocking
+  `HttpURLConnection` calls on the engine's dispatcher (Dispatchers.IO). On cancellation it only calls `disconnect()`
+  (`disconnectOnCancellation`). `setupRequestTimeoutAttributes` lowers `connectTimeout` to the request timeout when that is shorter;
+  `readTimeout` is the socket timeout.
+- Android reference, `URLConnection.setConnectTimeout`, https://developer.android.com/reference/java/net/URLConnection: the timeout is
+  "used when opening a communications link". "If the hostname resolves to multiple IP addresses, Android's default implementation of
+  HttpURLConnection will try each in RFC 3484 order. If connecting to each of these addresses fails, multiple timeouts will elapse
+  before the connect attempt throws an exception. Host names that support both IPv6 and IPv4 always have at least 2 IP addresses."
+- Android reference, `InetAddress`, https://developer.android.com/reference/java/net/InetAddress: name lookups take no timeout; "The
+  result of unsuccessful host name resolution is cached for a very short period of time (10 seconds)".
+- So on Android the connect timeout applies per address, and the DNS lookup is outside every timeout. **Inference, not confirmed on the
+  device:** 11.0 s is about 1 s of DNS plus two 5 s connects to a dual-stack name, and 6.0 s is about 1 s of DNS plus one connect.
+  Not verified: whether `disconnect()` from another thread ends a lookup or a connect in progress.
+- JVM test (a throwaway test, not committed; a fake engine that blocks its thread for 2 s): with `HttpTimeout` alone and a 300 ms
+  request timeout, the call returned after 2.05 s with the engine's own exception; with `withTimeout(300)` around it, after 304 ms.
+  `core:network`'s `RequestDeadlineTest` keeps the same kind of engine to check the fix.
+- Fix: `ServerClients` installs `RequestDeadline` (`core:network`). It runs `proceed` in `withTimeoutOrNull` for the request's
+  request timeout and throws `HttpRequestTimeoutException`, which maps to `ServiceErrorKind.Timeout`. The blocked thread finishes later
+  on its own. It does not cover reading a body after the headers; the read timeout does.
+- Option not taken: the OkHttp engine (`ktor-client-okhttp`; OkHttp and Okio are Apache-2.0). OkHttp's call timeout spans the whole
+  call ("resolving DNS, connecting, writing the request body, server processing, and reading the response body", `OkHttpClient.kt`,
+  okhttp 5.3.2 source jar). It is a new dependency (approval, ADR 0009); its size on Android was not checked.
+
 ## Not verified (research before depending on it)
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
-- Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines.
+- Whether `HttpTimeout`'s request timeout works the same on the Darwin and JS engines; on a blocking engine it does not end the call
+  (section "Request timeouts on blocking engines"). That `RequestDeadline` returns on time on an Android device.
 - Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
   private network access) for local addresses (roadmap, M1 spike).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
