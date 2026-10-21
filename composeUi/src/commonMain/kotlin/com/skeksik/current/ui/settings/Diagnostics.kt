@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,8 @@ import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.settings_copy_diagnostics
 import com.skeksik.current.ui.resources.settings_diagnostics_copied
 import com.skeksik.current.ui.resources.settings_diagnostics_hint
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
@@ -33,10 +36,18 @@ internal fun CopyDiagnostics() {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
+    // Cleared after a while, and at the next click, so a second copy is confirmed again.
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(COPIED_SHOWN_FOR)
+            copied = false
+        }
+    }
     Text(stringResource(Res.string.settings_diagnostics_hint), style = MaterialTheme.typography.bodyMedium)
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(
             onClick = {
+                copied = false
                 scope.launch {
                     clipboard.setClipEntry(plainTextClip(viewModel.diagnostics()))
                     copied = true
@@ -49,6 +60,8 @@ internal fun CopyDiagnostics() {
         if (copied) Text(stringResource(Res.string.settings_diagnostics_copied), style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+private val COPIED_SHOWN_FOR = 3.seconds
 
 /** A clipboard entry holding [text]; each platform builds it from its own clipboard type. */
 internal expect fun plainTextClip(text: String): ClipEntry

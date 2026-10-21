@@ -101,7 +101,14 @@ function Diagnostics() {
     field.current?.focus();
     field.current?.select();
   }, [byHand]);
+  // Cleared after a while, and at the next click, so a second copy is confirmed again.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   const copy = async () => {
+    setCopied(false);
     const text = core.diagnostics();
     const done = await copyText(text);
     setCopied(done);

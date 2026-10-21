@@ -44,3 +44,6 @@ URL, Quick Connect secrets in the query. Logs and problem reports must never car
 - Printing as it happens is off by default: logcat (tag `CurrentNet`) in an Android build that is debuggable, stderr on desktop with
   `-Dcurrent.log=debug` or `CURRENT_LOG=debug`, `console.debug` on the web with `localStorage['current.log'] = 'debug'` (then reload).
   Apple prints nothing yet; the unified log comes with the Apple app.
+- Paths are kept as they are, apart from secret query values. Once the data layer requests paths with user and item ids (M2, such as
+  `Users/{userId}/Items/{itemId}`), pasted diagnostics would carry those ids. They are not secrets, but masking id-like path segments
+  should be considered before that data layer lands.
