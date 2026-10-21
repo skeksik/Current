@@ -80,7 +80,8 @@ back through it, so Home → Settings → Add server → Home → Settings goes 
 always opens its feature's first page; the highlighted entry is the feature owning the page shown (Settings while Add server is shown).
 The history keeps the newest 50 pages; past that, the oldest is dropped (the shell rebuilds the back stack, so the pages it keeps lose
 their saved state). The web shell has its own router (ADR 0011) with the same rules over the browser's history: every page opened is
-a history entry and any Back (the page's Back button, Esc, the browser's Back or Alt+Left) goes one entry back. Each entry records its
+a history entry and any Back (the page's Back button, the browser's Back or Alt+Left) goes one entry back. Escape follows the
+platform: it closes dialogs and never navigates, so it cannot throw away a half-filled form. Each entry records its
 step, so Back from the first page a tab opened (a link, a bookmark, a reload) shows that page's parent (Settings for Add server and Sign
 in) in its place rather than leaving the app; Back on Home or Settings opened first leaves the history to the browser. Paths name pages
 and their arguments (`/settings/servers/<service>/<key>/sign-in`), so a reload shows the same page.

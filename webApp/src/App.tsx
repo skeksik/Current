@@ -1,9 +1,9 @@
-import { useEffect, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { CurrentWeb, RouteView } from 'current-core';
 import { Page } from './components';
 import { useObservable } from './hooks';
 import { Icon, type IconName } from './icons';
-import { Link, NavProvider, useNav } from './nav';
+import { Link, NavProvider } from './nav';
 import { AddServer } from './pages/AddServer';
 import { Home } from './pages/Home';
 import { PlaybackSupport } from './pages/PlaybackSupport';
@@ -28,17 +28,6 @@ export function App({ core }: { core: CurrentWeb }) {
 }
 
 function Shell({ route }: { route: RouteView }) {
-  const nav = useNav();
-  // Escape goes back on every page, as on desktop; Alt+Left and the browser's Back are the browser's own.
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return;
-      nav.back();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [nav]);
-
   let page: ReactNode;
   switch (route.kind) {
     case 'home': page = <Home />; break;
