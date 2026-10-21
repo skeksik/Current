@@ -1031,12 +1031,10 @@ research agent reading the same files.
   - Not verified: whether AVPlayer's loads of a local `http` URL follow `NSAllowsLocalNetworking`.
 
 ## Device name and the local network keys: Apple (checked 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com; nothing run for this section)
-- Launch watchdog kill, from the owner's iPhone run (iOS 27, first launch after install): `platformDeviceName()` read
-  `NSProcessInfo.processInfo.hostName` while Koin built `DeviceIdentity`. That lookup raised the Local Network prompt and blocked until it was
-  answered (up to about 35 s); on the main thread the watchdog killed the app (SIGKILL, in `-[NSHost blockingResolveUntil:]`). The
-  `hostName` page says only "The name of the host computer on which the process is executing" and lists every Apple OS; it does not say it
-  may resolve over the network. https://developer.apple.com/documentation/foundation/processinfo/hostname
-  So the device name must come from an API that reads local state only, and nothing at start may wait on the network on the main thread.
+- The launch watchdog kill is in "Roaming on iOS" ("Not roaming, found on the way"). The `hostName` page says only "The name of the
+  host computer on which the process is executing" and lists every Apple OS; it does not say it may resolve over the network.
+  https://developer.apple.com/documentation/foundation/processinfo/hostname So the device name must come from an API that reads local
+  state only, and nothing at start may wait on the network on the main thread.
 - iOS and tvOS: `UIDevice.current.name`. The entitlement page `com.apple.developer.device-information.user-assigned-device-name` (iOS,
   tvOS 16): "In iOS 15 and earlier, the [name] property returns this name. In iOS 16 and later, the [name] property returns a generic device
   name by default instead"; the user-assigned name needs the entitlement, granted only for a user-visible multi-device feature, never for
@@ -1409,7 +1407,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   cancelled probe logs "no response"), the address in use, `reachable`, a request through `awaitCurrent` every 250 ms with how long it
   was held, every raw update of a second `nw_path_monitor` (status, interfaces, `isExpensive`, `isConstrained`, IPv4, IPv6, DNS, gateway
   count) and the elements of a second `NetworkChanges`. For the runs `Info.plist` got `NSLocalNetworkUsageDescription` and
-  `NSAllowsLocalNetworking`; the app has neither yet, and without the latter ATS refuses an IP address (see "Local network, discovery
+  `NSAllowsLocalNetworking`; the app had neither then (PR 34 adds both), and without the latter ATS refuses an IP address (see "Local network, discovery
   and plain HTTP: Apple").
 - How: three runs, each from a fresh install, with the cable unplugged, the log written to a file, and a button tapped before each step.
   Wi-Fi was turned off and on from Control Center, so the app stayed in the foreground unless stated. With the cable in, the console
@@ -1419,7 +1417,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   `DeviceIdentity` at start. On the main thread, the first launch after install was killed by the watchdog (SIGKILL; main thread in
   `-[NSHost blockingResolveUntil:]`). With Koin started off the main thread: Koin started 6.0 s after launch when Allow was tapped about
   5 s after the prompt appeared, and 35 s after launch when it was tapped later (the lookup gave up with the prompt still up). Once
-  access was allowed or denied, Koin started in 30-170 ms. Not fixed here.
+  access was allowed or denied, Koin started in 30-170 ms. Not fixed here; fixed in PR 34 (`UIDevice.name` on iOS and tvOS,
+  `SCDynamicStoreCopyComputerName` on macOS, see "Device name and the local network keys: Apple").
 - **Updates without a change are common on iOS.** Every logged field stayed the same. On home Wi-Fi they came in pairs about 5 s apart
   every 20-30 s in several stretches; on cellular, every 3 s right after Wi-Fi went off, then in pairs about 3 s apart every 10-40 s for
   at least 3 minutes; with a VPN on, every 6-10 s. Each is a `NetworkChanges` element. On Wi-Fi one costs a hold of 0.8-1.0 s (the 1 s
