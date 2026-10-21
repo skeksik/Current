@@ -39,9 +39,16 @@ function Assert([bool] $Condition, [string] $Message) {
 }
 
 Invoke-Msiexec '/i' $First 'install-first'
+Get-Entries | Format-List DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, PSPath
+if (-not (Test-Path (Join-Path $installDir 'Current.exe'))) {
+    Write-Host 'Current.exe found at:'
+    @($env:LOCALAPPDATA, $env:APPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } | ForEach-Object {
+        Get-ChildItem -Path $_ -Filter 'Current.exe' -Recurse -ErrorAction SilentlyContinue -Depth 4 | ForEach-Object { $_.FullName }
+    }
+    Select-String -Path (Join-Path $logDir 'install-first.log') -Pattern 'INSTALLDIR|ALLUSERS' | Select-Object -First 30 | ForEach-Object { $_.Line }
+}
 Assert (Test-Path (Join-Path $installDir 'Current.exe')) "Current.exe is in $installDir"
 Assert (-not (Test-Path (Join-Path $dataDir 'Current.exe'))) "nothing is installed into $dataDir"
-Get-Entries | Format-List DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, PSPath
 # Windows Installer keeps ARPPRODUCTICON as the product's ProductIcon here, not as DisplayIcon in the Uninstall key (printed for the record).
 Get-ItemProperty 'HKCU:\Software\Microsoft\Installer\Products\*' -ErrorAction SilentlyContinue |
     Where-Object { $_.ProductName -eq 'Current' } | Format-List ProductName, ProductIcon
