@@ -1046,7 +1046,8 @@ research agent reading the same files.
   specific permission more than once ... the user will no longer see the system permissions dialog ... considered a permanent denial";
   once denied it is flagged `USER_SET`, twice `USER_FIXED`. `shouldShowRequestPermissionRationale()` returning true means show an
   explanation; the page does not define `false`. The Activity Result API's `RequestPermission` contract needs `androidx.activity` 1.2.0+,
-  and the dialog cannot be customised.
+  and the dialog cannot be customised. The page does not say what closing the dialog without an answer (back, tapping outside) does, nor
+  what a `false` from `shouldShowRequestPermissionRationale()` means; that such a dismissal is not counted as a denial is not verified.
 - What the app does with it: ADR 0020.
 
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
