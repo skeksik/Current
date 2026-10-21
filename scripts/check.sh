@@ -25,6 +25,9 @@ fi
 echo "==> Web: npm packages and their licences (ADR 0009)"
 (cd webApp && npm ci && npm run licences)
 
+echo "==> Web: colour tokens meet WCAG AA in dark and light"
+(cd webApp && npm run contrast)
+
 echo "==> Web build (Kotlin library, TypeScript, Vite)"
 (cd webApp && npm run build)
 

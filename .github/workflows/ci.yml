@@ -37,11 +37,12 @@ jobs:
           cache-dependency-path: webApp/package-lock.json
       # jsNodeTest runs every pure-Kotlin module's commonTest on Node, and the web facade's own tests.
       - run: ./gradlew jvmTest jsNodeTest :desktopApp:classes
-      - name: Web app (npm licences, Kotlin library, Vite build)
+      - name: Web app (npm licences, contrast, Kotlin library, Vite build)
         working-directory: webApp
         run: |
           npm ci
           npm run licences
+          npm run contrast
           npm run build
       - run: ./gradlew :androidApp:assembleDebug
       - run: ./scripts/check-android-apk.sh

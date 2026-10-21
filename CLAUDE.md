@@ -58,6 +58,7 @@ npm --prefix webApp run dev                            # run web app (npm ci fir
 ./gradlew macosArm64Test                               # commonTest of every pure-Kotlin module on macOS (macOS host only)
 npm --prefix webApp run build                          # production web bundle (webApp/build/vite)
 npm --prefix webApp run licences                       # licences of shipped npm packages (ADR 0009)
+npm --prefix webApp run contrast                       # WCAG AA for the web colour tokens, dark and light (ContrastTest on Compose)
 ./gradlew :web:jsBrowserDevelopmentLibraryDistribution --continuous  # rebuild the Kotlin library while the dev server runs
 ./scripts/build-apple-app.sh                           # Apple app, unsigned, for iOS simulator, macOS, tvOS simulator (macOS host only)
 ./gradlew :apple:linkDebugFrameworkIosSimulatorArm64   # Apple framework only (also ...MacosArm64, ...TvosSimulatorArm64)
