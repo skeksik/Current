@@ -32,15 +32,18 @@ private class DefaultNetworkCallback(
     private val changed: (NetworkChange) -> Unit,
 ) : ConnectivityManager.NetworkCallback() {
     override fun onAvailable(network: Network) {
-        tracker.available(network)?.let(changed)
+        tracker.available(network).forEach(changed)
     }
 
     override fun onLost(network: Network) {
-        tracker.lost(network)?.let(changed)
+        tracker.lost(network).forEach(changed)
     }
 
-    /** API 29+; earlier versions never call it. Android blocks a background app's network and unblocks it in the foreground. */
+    /**
+     * API 29+; earlier versions never call it. Android blocks a background app's network and unblocks it in the foreground: blocked is
+     * [NetworkChange.Suspended], unblocked [NetworkChange.Resumed].
+     */
     override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
-        tracker.blockedStatus(network, blocked)?.let(changed)
+        tracker.blockedStatus(network, blocked).forEach(changed)
     }
 }

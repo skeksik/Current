@@ -1589,6 +1589,10 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     0.32-0.47 s in the four other hotspot joins. Not reproduced.
   - Requests sent just before the VPN came up went to the old address and hung 23.5 s and 29.4 s, until the VPN went off. This is the
     known in-flight case in ADR 0019.
+- Changed after this run (PR 23, not yet run on a device): the default network blocked is now `NetworkChange.Suspended` on Android
+  too, so a request waiting across a freeze starts its wait again at the unblock instead of failing. A blocked status is the app's,
+  not one network's, so a switch while blocked stays suspended until the new default is reported unblocked. On every platform, a
+  `Resumed` with no address in use holds requests until the check it starts ends. Both are meant to fix the two failures above.
 
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.

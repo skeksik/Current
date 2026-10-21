@@ -509,6 +509,43 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aResumedNetworkWithNoAddressInUseHoldsRequestsForItsCheck() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        // A switch while the app's network was blocked: the check after it finds nothing, and the address is gone.
+        probe.answers.clear()
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertNull(source.current.value)
+        // Unblocked: the local address answers again, a moment later.
+        probe.answers[local] = "late"
+        changes.emit(NetworkChange.Resumed)
+        val request = async { source.awaitCurrent() }
+        runCurrent()
+        assertFalse(request.isCompleted, "it waits for the check instead of failing at once")
+        advance(3.seconds)
+        assertEquals(url(local), request.await())
+    }
+
+    @Test
+    fun aResumedNetworkDuringACheckWithNoAddressHoldsUntilTheCheckItAskedFor() = runTest {
+        val source = roaming()
+        // The timer's check at 15 s runs until 20 s, and nothing answers, when the network is resumed at 17 s.
+        probe.answers += mapOf(local to "slow", internet to "slow")
+        advance(17.seconds)
+        probe.answers.clear()
+        probe.answers[local] = "late"
+        changes.emit(NetworkChange.Resumed)
+        val request = async { source.awaitCurrent() }
+        runCurrent()
+        assertFalse(request.isCompleted)
+        advance(3.seconds)
+        assertFalse(request.isCompleted, "the running check missed; the one the resume asked for is still running")
+        advance(3.seconds)
+        assertEquals(url(local), request.await())
+    }
+
+    @Test
     fun aResumedNetworkStartsTheRetryWaitsOver() = runTest {
         roaming()
         // Misses at 0, 15 and 45 s; the next wait would be 60 s.

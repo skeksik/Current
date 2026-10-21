@@ -2,60 +2,74 @@ package com.skeksik.current.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 /** The Android callback's decisions, with strings standing in for network handles. */
 class DefaultNetworkTrackerTest {
+    private val nothing = emptyList<NetworkChange>()
+    private val changed = listOf(NetworkChange.Changed)
+    private val suspended = listOf(NetworkChange.Suspended)
+    private val resumed = listOf(NetworkChange.Resumed)
+
     @Test
     fun theNetworkAtStartIsNotAChange() {
         val tracker = DefaultNetworkTracker("wifi")
-        assertNull(tracker.available("wifi"))
-        assertNull(tracker.blockedStatus("wifi", false))
+        assertEquals(nothing, tracker.available("wifi"))
+        assertEquals(nothing, tracker.blockedStatus("wifi", false))
     }
 
     @Test
     fun theFirstConnectionAfterStartingOfflineIsAChange() {
-        assertEquals(NetworkChange.Changed, DefaultNetworkTracker<String>(null).available("wifi"))
+        assertEquals(changed, DefaultNetworkTracker<String>(null).available("wifi"))
     }
 
     @Test
     fun anotherDefaultNetworkOrLosingItIsAChange() {
         val tracker = DefaultNetworkTracker("wifi")
-        assertEquals(NetworkChange.Changed, tracker.available("other-wifi"))
-        assertNull(tracker.lost("wifi"), "a network that is no longer the default")
-        assertEquals(NetworkChange.Changed, tracker.lost("other-wifi"))
+        assertEquals(changed, tracker.available("other-wifi"))
+        assertEquals(nothing, tracker.lost("wifi"), "a network that is no longer the default")
+        assertEquals(changed, tracker.lost("other-wifi"))
     }
 
     @Test
-    fun theSameNetworkUnblockedInTheForegroundResumesWithoutBeingAChange() {
+    fun blockedInTheBackgroundSuspendsAndUnblockedResumes() {
         val tracker = DefaultNetworkTracker("wifi")
-        assertNull(tracker.blockedStatus("wifi", true), "blocked in the background")
-        assertEquals(NetworkChange.Resumed, tracker.blockedStatus("wifi", false), "usable again in the foreground")
-        assertNull(tracker.blockedStatus("wifi", false))
+        assertEquals(suspended, tracker.blockedStatus("wifi", true), "blocked in the background")
+        assertEquals(nothing, tracker.blockedStatus("wifi", true), "still blocked while frozen")
+        assertEquals(resumed, tracker.blockedStatus("wifi", false), "usable again in the foreground")
+        assertEquals(nothing, tracker.blockedStatus("wifi", false))
     }
 
     @Test
-    fun aSwitchWhileBlockedIsOneChangeNotTwo() {
+    fun aSwitchWhileBlockedIsAChangeAndStaysSuspendedUntilTheUnblock() {
+        val tracker = DefaultNetworkTracker("wifi")
+        assertEquals(suspended, tracker.blockedStatus("wifi", true))
+        assertEquals(changed, tracker.available("other-wifi"))
+        assertEquals(nothing, tracker.blockedStatus("other-wifi", true), "reported blocked on arrival: still suspended")
+        assertEquals(resumed, tracker.blockedStatus("other-wifi", false))
+    }
+
+    @Test
+    fun aSwitchReportedUnblockedEndsTheSuspension() {
         val tracker = DefaultNetworkTracker("wifi")
         tracker.blockedStatus("wifi", true)
-        assertEquals(NetworkChange.Changed, tracker.available("other-wifi"))
-        assertNull(tracker.blockedStatus("other-wifi", false), "the switch was the change; nothing was blocked on this network")
+        assertEquals(changed, tracker.available("other-wifi"))
+        assertEquals(resumed, tracker.blockedStatus("other-wifi", false))
     }
 
     @Test
-    fun aSwitchThatArrivesBlockedResumesOnceUnblocked() {
+    fun losingTheNetworkWhileBlockedIsAChangeAndStaysSuspended() {
         val tracker = DefaultNetworkTracker("wifi")
         tracker.blockedStatus("wifi", true)
-        assertEquals(NetworkChange.Changed, tracker.available("other-wifi"))
-        assertNull(tracker.blockedStatus("other-wifi", true), "reported blocked on arrival")
-        assertEquals(NetworkChange.Resumed, tracker.blockedStatus("other-wifi", false))
+        assertEquals(changed, tracker.lost("wifi"))
+        assertEquals(changed, tracker.available("other-wifi"))
+        assertEquals(resumed, tracker.blockedStatus("other-wifi", false))
     }
 
     @Test
     fun aBlockedStatusForAnotherNetworkMeansTheDefaultChanged() {
         val tracker = DefaultNetworkTracker("wifi")
-        assertEquals(NetworkChange.Changed, tracker.blockedStatus("hotspot", true), "reported before its onAvailable")
-        assertNull(tracker.available("hotspot"))
-        assertEquals(NetworkChange.Resumed, tracker.blockedStatus("hotspot", false))
+        assertEquals(changed + suspended, tracker.blockedStatus("hotspot", true), "reported before its onAvailable")
+        assertEquals(nothing, tracker.available("hotspot"))
+        assertEquals(resumed, tracker.blockedStatus("hotspot", false))
     }
 }

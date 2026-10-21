@@ -51,12 +51,14 @@ is on, so a signal can only mean "something may have changed".
     waits over at 15 s. The address is dropped and requests wait from the first update, but the check starts only once updates have
     stopped for 1 s, since one transition comes as a burst;
   - when the same network is usable again (`NetworkChange.Resumed`): on Android when the system unblocks the default network (it
-    blocks a background app's network, and a check made then finds nothing), and on iOS and tvOS when the app comes back to the
-    foreground. The check starts at once, the address in use stays, and the retry waits start over. A request that was waiting across
-    it starts its wait again instead of failing, once per resumed network and never beyond twice the bound in all. The macOS
+    blocks a background app's network, and no check runs while it does), and on iOS and tvOS when the app comes back to the
+    foreground. The check starts at once, the address in use stays, and the retry waits start over. With no address in use (a switch
+    while blocked leaves none), requests wait for that check instead of failing at once, on every platform. A request that was waiting
+    across it starts its wait again instead of failing, once per resumed network and never beyond twice the bound in all. The macOS
     wake is not a signal yet (a follow-up);
-  - on iOS and tvOS, going to the background (`NetworkChange.Suspended`) stops every check and timer and holds requests from that
-    moment, since nothing runs while the app is suspended and the network may change meanwhile. The address in use is kept but no
+  - on Android when the system blocks the app's network (about 5 s after it goes to the background, and while it is frozen), and
+    on iOS and tvOS when the app goes to the background (`NetworkChange.Suspended`): every check and timer stops and requests are
+    held from that moment, since nothing runs while the app is suspended and the network may change meanwhile. The address in use is kept but no
     longer counts as proved: at the return (`Resumed`) a check starts at once, requests are released by the first address it proves,
     the kept one included, and the kept one is dropped if nothing answers. A request whose wait ran out during the suspension (its
     timeout fires at the return, before the loop has seen it) waits up to one more bound for the return and starts again; time spent

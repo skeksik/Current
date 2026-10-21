@@ -319,7 +319,11 @@ internal class RoamingServerAddress(
             publish()
         }
 
-        /** The same network is usable again: ask again at once, keep the address, and start the retry waits over. */
+        /**
+         * The network is usable again: ask again at once, keep the address, and start the retry waits over. With no address in use,
+         * requests wait for that check instead of failing at once: a switch made while blocked left none, and the check usually proves
+         * one within a fraction of a second.
+         */
         private fun resumed() {
             resumes++
             retry = timing.retryFirst
@@ -330,6 +334,7 @@ internal class RoamingServerAddress(
                 startCheck(full = true, woken = true)
                 return
             }
+            if (address == null) holding = true
             publish()
             when {
                 settlePending -> Unit
@@ -413,7 +418,8 @@ internal class RoamingServerAddress(
             // suspension and not proved since is cleared too, since the network may have changed meanwhile.
             if (found != null) address = found else if (unproved) address = null
             unproved = false
-            holding = false
+            // A resumed network that came during this check, with nothing proved, keeps requests waiting for the check it asked for.
+            holding = again && address == null
             publish()
             if (found == null && !done.full) {
                 startCheck(full = true, woken = done.woken)
