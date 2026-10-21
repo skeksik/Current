@@ -10,6 +10,12 @@ proved to be the same server. docs/platform-notes.md ("Detecting network changes
 is on, so a signal can only mean "something may have changed".
 
 ## Decision
+- **One event loop per server.** `RoamingServerAddress` handles every input in order from a single queue: an edit, a network change
+  and its settle, a resumed network, a request (no address, or the address in use failing), a timer, and each probe's result. Only the
+  loop changes the state (the address in use, whether requests are held, the check running, the retry wait); requests read what it
+  publishes and wait on it. The settle and the timers are scheduled events, and probes run as child jobs that post their results;
+  each carries a token of the settle, timer or check it belongs to, and the loop ignores one that has been replaced. The rules below
+  are the loop's.
 - **One `RoamingServerAddress` per saved server**, made by `RoamingAddressSources` (bound in Koin in place of the first address),
   started for every saved server and shared by every client of that server. It runs in the app scope until the server is removed,
   follows edits to its addresses, and has no address once stopped.
@@ -36,11 +42,14 @@ is on, so a signal can only mean "something may have changed".
   - at start, and when the user adds, removes or reorders addresses;
   - on a network change (`NetworkChanges`): Android's default network callback; the browser's `online` and `navigator.connection`
     `change` events; on desktop, the network interfaces polled every 5 s (a change in which ones are up or in their addresses); on
-    Apple, Network framework's path monitor (`NWPathMonitor`), every update after the first. A network change also starts the retry
+    Apple, Network framework's path monitor (`NWPathMonitor`), when the path's status, interfaces (names and types) or gateways differ
+    from the last update's; the first update is the path at start, and unchanged repeats do not count. A network change also starts the retry
     waits over at 15 s. The address is dropped and requests wait from the first update, but the check starts only once updates have
     stopped for 1 s, since one transition comes as a burst;
-  - on Android, when the system unblocks the default network (it blocks a background app's network, and a check made then finds
-    nothing): the same network is usable again, so the check starts at once, the address in use stays, and the retry waits start over;
+  - when the same network is usable again (`NetworkChange.Resumed`): on Android when the system unblocks the default network (it
+    blocks a background app's network, and a check made then finds nothing), and on iOS and tvOS when the app comes back to the
+    foreground. The check starts at once, the address in use stays, and the retry waits start over. A request that was waiting across
+    it starts its wait again instead of failing;
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
     when a request finds no address at all. Never while a check runs, which answers it, and at most once per 15 s after the last
     check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every
@@ -80,12 +89,14 @@ is on, so a signal can only mean "something may have changed".
   transition came as 7-11 path updates within 3-5 s, and opening the Wi-Fi menu alone sent some. Before the settle window each
   update restarted the check: mostly a few milliseconds, but on a phone hotspot, where the home address timed out instead of being
   refused, requests were held 4-7.5 s per update. With the window, a burst costs one check after it ends; an update with nothing
-  changed still costs one check. Ignoring Apple updates whose status, interfaces and gateways are unchanged is a possible follow-up.
+  changed still costs one check on platforms that report them; Apple's now compare the path first.
 - A network change no signal reports leaves requests on the old address until one fails or times out, or until the next periodic
   check (up to 5 minutes): if another device answers there on the new network, it receives them, credentials included. Known cases: on
   desktop, a move to another network that keeps the same interface addresses (same subnet and lease); on Apple, whatever the path
-  monitor does not report (a move between two Wi-Fi networks is not verified); on the web, any change the browser does not signal
-  (Firefox and Safari have only `online`).
+  monitor does not report; on the web, most real switches: the owner's run in Chrome, Edge and Firefox fired no `online` or `offline`
+  for switches between networks, and `navigator.connection` `change` follows the speed estimate, not the network
+  (docs/platform-notes.md, "Roaming in browsers"). There the periodic check and failed requests, now mapped to `Unreachable`, are what
+  notices a new network.
 - Desktop polling reads the interfaces every 5 s while the app runs. Link-local addresses are ignored, and an interface left with no
   other address does not count, so Docker's `veth*` pairs and idle Hyper-V or WSL adapters do not trigger a check. Each of these still
   does, and makes requests wait for one check: a virtual adapter with a routable address appearing, disappearing or changing (Hyper-V's
