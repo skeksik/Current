@@ -368,6 +368,34 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   helper has no default store on Linux and offers Secret Service, GPG/pass, an in-memory cache, or plain-text files it warns against.
 - macOS: the Keychain everywhere.
 
+## Windows title bar in dark mode (checked 2026-10-21 in the CMP 1.12.1 source, OpenJDK `master` and Microsoft Learn; nothing run)
+- A window's frame is light unless the app asks: "all windows default to light mode regardless of the system setting"
+  (https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute). So the desktop app's title bar stays
+  light in dark mode.
+- Compose Desktop has no option for it. The request is open as CMP-3928 (backlog; https://youtrack.jetbrains.com/issue/CMP-3928, from
+  https://github.com/JetBrains/compose-multiplatform/issues/3928); CMP-4393 was closed as its duplicate. CMP 1.12.1's experimental
+  `WindowDecoration` offers `SystemDefault` and `Undecorated(resizerThickness)` only, no colours (`WindowDecoration.desktop.kt`).
+- OpenJDK's Windows AWT calls `DwmGetWindowAttribute` for the frame bounds only; there is no dark mode attribute and no system property
+  (https://github.com/openjdk/jdk/tree/master/src/java.desktop/windows/native/libawt/windows).
+- The JetBrains Runtime has `WindowDecorations.setCustomTitleBar` with dark controls (Apache-2.0 API,
+  https://github.com/JetBrains/JetBrainsRuntimeApi/blob/main/src/com/jetbrains/WindowDecorations.java), and JetBrains' decorated
+  window library builds on it, but its README says it requires the JetBrains Runtime. The app packages a standard JDK.
+- The Win32 route: `DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE = 20, &TRUE, 4)` in `dwmapi.dll`; FALSE switches back.
+  Microsoft documents it "starting with Windows 11 Build 22000", like `DWMWA_CAPTION_COLOR` (35) and `DWMWA_TEXT_COLOR` (36), which set
+  the colours outright. Microsoft's sample sets it before the window is shown
+  (https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-windows-themes).
+  - The HWND: `ComposeWindow.windowHandle` ("returns HWND on Windows", CMP 1.12.1 source), or JNA's `Native.getWindowPointer(Window)`.
+  - jna-platform 5.19.1 has no `Dwmapi` binding; a two-line JNA `Library` interface is needed. JNA is already a dependency (ADR 0017).
+- Undecorated with a Compose title bar loses what the frame does natively: the Windows 11 snap layouts flyout needs `WM_NCHITTEST` to
+  answer `HTMAXBUTTON` (https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-snap-layout-menu), and minimise and
+  maximise animations go (CMP-3388). Resizing comes from Compose's own edge handles.
+- Following the system: `isSystemInDarkTheme()` on desktop reads skiko's system theme, which reads
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, and CMP 1.12 polls it every second on
+  Windows and macOS (`ComposeUiFlags.pollSystemTheme`, on by default except Linux; `ProvideSystemTheme.desktop.kt`). A
+  `LaunchedEffect` keyed on it can repeat the DWM call when the theme flips.
+- Not verified: value 20 (or the undocumented 19) on Windows 10; whether a window already shown repaints its frame without a nudge
+  (`SetWindowPos` with `SWP_FRAMECHANGED`); that the JBR API returns null on another JDK.
+
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
   configuration under `settings.gradle.kts`. All 52 Maven alerts on 2026-10-20 were build tooling: Netty from the Android Gradle
