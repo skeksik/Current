@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +39,6 @@ import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.SectionTitle
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.designsystem.focusRing
-import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.core.model.AppInfo
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
@@ -55,7 +53,6 @@ import com.skeksik.current.ui.resources.app_name
 import com.skeksik.current.ui.resources.settings_about
 import com.skeksik.current.ui.resources.settings_add_server
 import com.skeksik.current.ui.resources.settings_addresses
-import com.skeksik.current.ui.resources.settings_cancel
 import com.skeksik.current.ui.resources.settings_no_servers
 import com.skeksik.current.ui.resources.settings_offline
 import com.skeksik.current.ui.resources.settings_remove
@@ -92,7 +89,7 @@ internal fun SettingsScreen(navigator: Navigator) {
             focusAddServer = false
         }
     }
-    val rows = rememberListFocus(state.servers.size)
+    val rows = rememberListFocus(state.servers.map { it.ref })
     // What opened the page shown above this one, where focus goes back on return: the server whose Sign in button opened the sign-in
     // page (by then Sign out), the server whose Addresses button opened its addresses, or Add server. Saved, because this page leaves the composition while the other is shown.
     var signInOpener by rememberSaveable { mutableStateOf<String?>(null) }
@@ -102,10 +99,12 @@ internal fun SettingsScreen(navigator: Navigator) {
     val addressesButton = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (focusVisibility.keyboard) {
+            // The server may have been removed meanwhile (from another Settings page in the history); then Add server.
+            fun listed(key: String?) = key != null && state.servers.any { it.ref.saveKey == key }
             when {
-                signInOpener != null -> signInButton.requestFocus()
-                addressesOpener != null -> addressesButton.requestFocus()
-                addServerOpened -> addServer.requestFocus()
+                listed(signInOpener) -> signInButton.requestFocus()
+                listed(addressesOpener) -> addressesButton.requestFocus()
+                signInOpener != null || addressesOpener != null || addServerOpened -> addServer.requestFocus()
             }
         }
         signInOpener = null
@@ -130,7 +129,7 @@ internal fun SettingsScreen(navigator: Navigator) {
         // Up and Down move between servers; Tab moves between a server's buttons.
         with(rows) {
             Column(Modifier.arrowKeys(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-                state.servers.forEachIndexed { index, row ->
+                state.servers.forEach { row ->
                     key(row.ref) {
                         ServerPanel(
                             row,
@@ -144,7 +143,7 @@ internal fun SettingsScreen(navigator: Navigator) {
                                 navigator.open(ServerAddressesRoute(row.ref, row.name))
                             },
                             remove = { removing = row },
-                            modifier = Modifier.item(index),
+                            modifier = Modifier.item(row.ref),
                             signInModifier = if (row.ref.saveKey == signInOpener) Modifier.focusRequester(signInButton) else Modifier,
                             addressesModifier = if (row.ref.saveKey == addressesOpener) Modifier.focusRequester(addressesButton) else Modifier,
                         )
@@ -223,32 +222,8 @@ private fun ServerPanel(
     }
 }
 
-/** Asks before removing a server or an address; Cancel has focus, so Enter alone never removes anything. Escape cancels. */
-@Composable
-internal fun ConfirmRemoveDialog(title: String, message: String, confirm: () -> Unit, dismiss: () -> Unit) {
-    val cancel = remember { FocusRequester() }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        // The dialog gets its keys and clicks apart from the window, so it tells the focus rings itself.
-        modifier = Modifier.trackFocusVisibility(),
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(confirm, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(dismiss, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(cancel)) {
-                Text(stringResource(Res.string.settings_cancel))
-            }
-            // Inside the dialog's own composition, so the button is attached when focus is requested.
-            LaunchedEffect(Unit) { cancel.requestFocus() }
-        },
-    )
-}
-
-private val ServerRef.saveKey get() = "${service.value}/$key"
+/** A server's key in saved state and ViewModel keys. */
+internal val ServerRef.saveKey get() = "${service.value}/$key"
 
 private fun SecretStorage.description() = when (this) {
     SecretStorage.CredentialManager -> Res.string.settings_secrets_credential_manager

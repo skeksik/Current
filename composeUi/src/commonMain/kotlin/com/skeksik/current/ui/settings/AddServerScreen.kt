@@ -85,7 +85,7 @@ import org.jetbrains.compose.resources.stringResource
  */
 @Composable
 internal fun AddServerScreen(navigator: Navigator, addTo: ServerRef? = null, name: String = "") {
-    val viewModel = pageViewModel(key = addTo?.let { "${it.service.value}/${it.key}" }) { ServerSetupViewModel(get(), get(), get(), addTo) }
+    val viewModel = pageViewModel(key = addTo?.saveKey) { ServerSetupViewModel(get(), get(), get(), addTo) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val localNetwork = pageViewModel { LocalNetworkPromptViewModel(get()) }
     val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
