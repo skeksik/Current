@@ -2617,6 +2617,31 @@ https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systempar
      `argsParsing.py`); Microsoft: "Narrator ... does not set the SPI_SETSCREENREADER or SPI_GETSCREENREADER flags" (which does not
      matter, point 2). Code in the app and a reader started after the app is missed; only worth it if B or C measurably slows startup.
 
+Owner checklist (Windows 11, an installed MSI from `main`; nothing here is shipped). NVDA from https://www.nvaccess.org/download/ is GPL
+and a test tool only: never bundled, never a dependency. Write down, for each run, what the reader says for: a **sidebar** item (Tab
+to Home and Settings), the **page title** (NVDA+T reads the window title, `globalCommands.py`; then the first heading or text of the page with the reader's
+read-next key), a **button** (Settings > Add server), a **dialog** (Settings > Remove on a saved server; then Cancel), plus the
+startup time (launch to window, by eye or stopwatch) and anything odd. NVDA: Tools > Speech viewer shows the text. Narrator:
+Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
+0. Back up: `%LOCALAPPDATA%\Current App\app\Current.cfg` and, if it exists, `%USERPROFILE%\.accessibility.properties` (note its
+   contents). Then move the second one away. Note: anything written under `%LOCALAPPDATA%\Current App` is deleted by an upgrade or an
+   uninstall; these edits are only for this test.
+1. Baseline, Narrator: start Current, then Narrator. Expected: "Current window" only.
+2. Baseline, NVDA without the bridge: run the NVDA download and press "Continue running" (a temporary copy, which does not write the file;
+   `gui/startupDialogs.py`). Start Current after NVDA. Check `%USERPROFILE%\.accessibility.properties` is still absent. Expected: window title only.
+3. Fix B by hand: with Current closed, add `java-options=-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge`
+   as a new line under `[JavaOptions]` in `Current.cfg`. Start Current; repeat with the temporary NVDA, then with Narrator (expected: no
+   change for Narrator). Also once with no reader running, for the startup time. Restore `Current.cfg` from the backup.
+4. Fix C by hand: with Current closed, create `%LOCALAPPDATA%\Current App\runtime\conf\accessibility.properties` containing
+   `assistive_technologies=com.sun.java.accessibility.AccessBridge`. Repeat 3's runs with the temporary NVDA. Then create a per-user
+   `%USERPROFILE%\.accessibility.properties` holding only `#assistive_technologies=com.sun.java.accessibility.AccessBridge` and check
+   NVDA no longer reads the app (the user's opt-out wins). Delete both files.
+5. Fix A, installed NVDA: install NVDA and start it. Check `%USERPROFILE%\.accessibility.properties` now has the two lines. Start Current
+   with the original `Current.cfg`: expected to read like 3. Then quit Current, quit NVDA, start Current, then NVDA: expected nothing
+   until Current is restarted.
+6. Clean up: `Current.cfg` as backed up, no `runtime\conf\accessibility.properties`, and the per-user file as it was in step 0 (an
+   installed NVDA rewrites it at each start; uninstall NVDA if it is not wanted).
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
