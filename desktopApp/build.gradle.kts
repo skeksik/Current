@@ -64,8 +64,9 @@ compose.desktop {
                 // Relative to %LOCALAPPDATA% for a per-user install (jpackage's default is the app name, %LOCALAPPDATA%\Current, which
                 // is AppFolders.local(): removing the old product deletes INSTALLDIR recursively, so it took local.json with it).
                 // %LOCALAPPDATA%\Programs\<app> is Windows' convention for per-user apps. Never install into an app data folder.
-                // A forward slash: the plugin passes it quoted in an @argfile, where a backslash is an escape ("ProgramsCurrent").
-                installationPath = "Programs/Current"
+                // Two backslashes reach jpackage as one: the plugin passes the value quoted in an @argfile, where a backslash is an
+                // escape (a single one installed into "ProgramsCurrent"; a forward slash failed packageMsi).
+                installationPath = "Programs\\\\Current"
                 menu = true
                 menuGroup = "Current"
                 shortcut = true

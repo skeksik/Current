@@ -2314,9 +2314,10 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   (systemWide ? PROGRAM_FILES : LOCAL_PROGRAM_FILES).resolve(WINDOWS_INSTALL_DIR...)`). So a per-user install without it goes to
   `%LOCALAPPDATA%\Current`, which is `AppFolders.local()`, and the generated WiX adds a directory cleaner on `INSTALLDIR`
   (`addDirectoryCleaner`, "rm -rf"), which deleted `local.json` on upgrade and uninstall (section "Desktop installer: Windows run").
-  The app now sets `installationPath = "Programs/Current"`, i.e. `%LOCALAPPDATA%\Programs\Current`. With a backslash it installed
-  into `%LOCALAPPDATA%\ProgramsCurrent` (CI, 2026-10-21): the plugin writes each value quoted into an `@...args.txt` file for jpackage
-  (`AbstractJvmToolOperationTask.kt`, `cliArgUtils.kt`), and a backslash inside quotes there is an escape. CI installs a 0.1.0 MSI, writes
+  The app sets `installationPath` to `Programs\\Current` (an escaped backslash), i.e. `%LOCALAPPDATA%\Programs\Current`. With a single
+  backslash it installed into `%LOCALAPPDATA%\ProgramsCurrent` (CI, 2026-10-21): the plugin writes each value quoted into an
+  `@...args.txt` file for jpackage (`AbstractJvmToolOperationTask.kt`, `cliArgUtils.kt`), and a backslash inside quotes there is an
+  escape. `Programs/Current` made `packageMsi` fail in CI. CI installs a 0.1.0 MSI, writes
   `%LOCALAPPDATA%\Current\local.json`, upgrades to 0.1.1 and uninstalls, and checks the file survives (`scripts/check-msi-upgrade.ps1`).
   An install of an older build (into `%LOCALAPPDATA%\Current`) still deletes that folder when it is upgraded or removed.
 - Installed-apps icon: jpackage's `main.wxs` sets `ARPPRODUCTICON` from the launcher's icon (`WinMsiBundler.java`, `JpIcon`). Windows

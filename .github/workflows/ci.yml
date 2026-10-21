@@ -132,6 +132,9 @@ jobs:
           cp desktopApp/build/compose/binaries/main/msi/Current-0.1.1.msi "$RUNNER_TEMP/msi/second.msi"
           ls -l "$RUNNER_TEMP/msi"
           pwsh -NoProfile -File scripts/check-msi-upgrade.ps1 -First "$RUNNER_TEMP/msi/first.msi" -Second "$RUNNER_TEMP/msi/second.msi" -SecondVersion 0.1.1
+      - name: jpackage logs (on failure)
+        if: failure()
+        run: tail -n 60 desktopApp/build/compose/logs/*/*.txt || true
 
   macos:
     name: Apple apps (macOS)
