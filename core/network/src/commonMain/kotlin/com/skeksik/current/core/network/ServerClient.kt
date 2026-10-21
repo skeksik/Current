@@ -80,15 +80,17 @@ class ServerClients internal constructor(
             expectSuccess = true
             followRedirects = false
             install(HttpTimeout) { requestTimeoutMillis = requestTimeout.inWholeMilliseconds }
+            // Send hooks nest in install order, the first outermost. The log goes outside the deadline, so the deadline's own
+            // timeout is not seen as the caller's cancellation.
+            install(RequestLog) {
+                this.server = server
+                this.logger = this@ServerClients.logger
+            }
             install(RequestDeadline) { requestTimeout = this@ServerClients.requestTimeout }
             install(ServerRequests) {
                 this.server = server
                 this.address = address
                 this.auth = auth
-            }
-            install(RequestLog) {
-                this.server = server
-                this.logger = this@ServerClients.logger
             }
         }
         return ServerClient(server, address, http, onUnauthorized, platformUnreachable)

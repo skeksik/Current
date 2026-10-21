@@ -70,10 +70,12 @@ is on, so a signal can only mean "something may have changed".
     on iOS and tvOS when the app goes to the background (`NetworkChange.Suspended`): every check and timer stops and requests are
     held from that moment, since nothing runs while the app is suspended and the network may change meanwhile. The address in use is kept but no
     longer counts as proved: at the return (`Resumed`) a check starts at once, requests are released by the first address it proves,
-    the kept one included, and the kept one is dropped if nothing answers. A request whose wait ran out during the suspension (its
-    timeout fires at the return, before the loop has seen it) waits up to one more bound for the return and starts again; time spent
-    suspended does not count against the twice-the-bound limit. The owner's iOS run (docs/platform-notes.md, "Roaming on iOS,
-    final") found both a request failing at the return and requests reaching the old address in the few ms before the path update;
+    the kept one included, and the kept one is dropped if nothing answers. While suspended, a waiting request, or one made then, waits
+    for the return without a time limit; time spent suspended does not count against the bound or the twice-the-bound limit,
+    whether or not the process is actually frozen (Android blocks the network about 5 s after the app leaves, but freezes it only a
+    minute or so later). A wait that ran out during a freeze, whose timeout fires at the return before the loop has seen it, waits for
+    the return too. The owner's runs (docs/platform-notes.md, "Roaming on iOS, final" and the Android runs after it) found requests
+    failing at the return or while suspended, and requests reaching the old address in the few ms before the path update;
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
     when a request finds no address at all. Never while a check runs, which answers it, and at most once per 15 s after the last
     check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every

@@ -19,6 +19,10 @@ kotlin {
         compilerOptions {
             jvmTarget = JvmTarget.JVM_11
         }
+        // Packages the module's composeResources into the APK; the Android library plugin leaves them out otherwise.
+        androidResources {
+            enable = true
+        }
     }
 
     sourceSets {

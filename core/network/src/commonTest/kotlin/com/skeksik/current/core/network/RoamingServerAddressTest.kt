@@ -465,6 +465,30 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun requestsWaitWithoutALimitWhileSuspendedEvenIfTheProcessKeepsRunning() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        // A network change leaves a request waiting when Android blocks the network; the process is not frozen for a long time after.
+        probe.answers.clear()
+        changes.emit(NetworkChange.Changed)
+        val before = async { source.awaitCurrent() }
+        advance(0.5.seconds)
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        val after = async { source.awaitCurrent() }
+        advance(30.seconds)
+        val late = async { source.awaitCurrent() }
+        advance(70.seconds)
+        assertFalse(before.isCompleted || after.isCompleted || late.isCompleted, "nothing fails while suspended, however long")
+        probe.answers[internet] = homeId
+        changes.emit(NetworkChange.Resumed)
+        runCurrent()
+        assertEquals(url(internet), before.await())
+        assertEquals(url(internet), after.await())
+        assertEquals(url(internet), late.await())
+    }
+
+    @Test
     fun afterASuspensionNoRequestGoesToTheKeptAddressUntilItIsProvedAgain() = runTest {
         probe.answers[local] = homeId
         val source = roaming()

@@ -1629,6 +1629,52 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   not one network's, so a switch while blocked stays suspended until the new default is reported unblocked. On every platform, a
   `Resumed` with no address in use holds requests until the check it starts ends. Both are meant to fix the two failures above.
 
+## Roaming on Android, suspension fix (checked 2026-10-21 on the same Pixel 8 Pro, Android 17, SDK 37, build CP3A.261005.005; ADR 0019)
+- What ran: PR 23 at c59f387 (the fix is 7cac0e2; c59f387 adds notes only). Same throwaway harness, server, addresses, networks and adb
+  steps as "Roaming on Android, final", with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm grant` and a permissive cleartext config,
+  neither committed. Two changes to the harness: a 200 ms ticker that logs gaps, to show when the freezer stopped the process; and,
+  after the first run of case B, each request timed through `ServerClient.request` alone (before that the harness also called
+  `awaitCurrent` itself, so a request could wait twice). Times are from the unblock (`Resumed`) unless said.
+- **`Suspended` and `Resumed` arrive as meant.** `blocked=true` came 5.0 s after `onStop` at every trip to the background, and
+  `Suspended` reached the app 3-18 ms later; `blocked=false` and `Resumed` came within 12 ms of `onStart`. A switch while blocked came
+  as `onLost`, `Changed`, then `onAvailable` 1.1-5.3 s later with `blocked=true` and another `Changed`. No check ran in the background
+  after it, and requests went on waiting.
+- **Case A, a switch while in the background: pass**, 10 times. Home, a Wi-Fi switch about 8 s later, the return about 10 s after it.
+  - To the hotspot (3 times): the internet address proved 251-341 ms after the unblock. The request made at the return was held until
+    then and succeeded 301-578 ms after it, its own request over the hotspot included.
+  - To home Wi-Fi (6 times; in 3 of them the tap was meant for the hotspot, which had switched itself off, or the guest network, and
+    the phone rejoined home Wi-Fi as a new network): local proved 29-57 ms after the unblock, and the request at the return succeeded
+    56-91 ms after it.
+  - To the guest network, where nothing answers (once): requests were held through the check and failed as `Unreachable` 5.02 s after
+    the unblock, when both probes had timed out.
+  - Before the fix, the request at the return failed as `Unreachable` within 0-4 ms, 45-356 ms before the check proved an address.
+- **Case B, requests waiting when the freezer stops the app: fail.** Stays of 100 s (twice), 40 s and 150 s on home Wi-Fi. The freezer
+  stopped the process 70 s after `onStop` each time (65 s after the block; gaps of 29.8 s, 29.8 s and 79.7 s). Every request made after
+  the block was held, but `awaitCurrent` measures its bound in real time, and on Android the process runs for about a minute while
+  suspended:
+  - In the background, before the freezer: every held request failed as `Unreachable` 22.0 s after it was made, the app still
+    blocked: 21 failures in the second 100 s stay and in the 150 s stay, and 6 in the 40 s stay. Its first 11 s wait
+    (`requestWaitsAtMost`) ran out, then the 11 s it gives a suspended app to return, and it gave up while `suspended` was still set.
+  - At the return: requests whose second 11 s ran out during the freeze failed 0-3 ms around `Resumed`, before the check. That was 6
+    requests (41.6-51.6 s old) after 100 s away and 5 (93-101 s old) after 150 s away. This is the failure of the final run, now
+    only for requests made 11-22 s before the freeze.
+  - The rest waited again and succeeded once the check proved local after the return: 10-15 per stay, up to 91 s old. These were the
+    requests made in the last 11 s before the freeze and those still in their first 22 s at the return.
+  - Inferred from the code, not changed: the rule that time spent suspended does not count holds on iOS, where the app is suspended
+    within 1.3 s of going to the background ("Roaming on iOS, suspension fix"), but not on Android. There the network is blocked 5 s
+    after the background, and the process is frozen only about 65 s later. Reported as a bug, not fixed here.
+- **A return on the same network: pass, with a longer hold.** 11 returns after 19 s to 150 s away: the address in use was kept every
+  time, and `Resumed` made one check that proved it, in 35-100 ms on home Wi-Fi and 725 ms on the hotspot. Requests now wait for that
+  check from the block, as on iOS, so the request made at the return took 71-157 ms on home Wi-Fi (its own request included) and
+  1.14 s on the hotspot, against 1-3 ms in the final run, when Android sent no `Suspended`.
+- **Offline: pass.** Airplane mode for 68 s with the app in front: one check 1.03 s after `onLost`, then one every 15.04-15.05 s
+  (4 more), each probe failing in 7-20 ms. Airplane mode off: local in use 1.07 s after `onAvailable`.
+- Not run: a switch to mobile data (the phone has none), the VPN, Android 16.
+- Changed after this run (PR 23, not yet run on a device): while the source is suspended, a waiting request, or one made then, waits for
+  `Resumed` without a time limit, and only time not suspended counts toward the bound and the overall limit. This holds whether or not
+  the process is frozen, so the requests that failed after 22 s between the block and the freeze, and those that failed around
+  `Resumed`, should now wait for the return's check.
+
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
   It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
@@ -1806,7 +1852,42 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   call ("resolving DNS, connecting, writing the request body, server processing, and reading the response body", `OkHttpClient.kt`,
   okhttp 5.3.2 source jar). It is a new dependency (approval, ADR 0009); its size on Android was not checked.
 
+## The internet probe that "fails" at home (read 2026-10-21 in the code on main and PR 23 at ada40ea; JVM tests; an inference until checked on a device)
+- Seen in PR 23's final roaming runs ("Roaming in browsers, final" and "Roaming on Android, final", on that branch): at home, where an
+  https internet name resolves to the LAN server through split DNS, every check's probe of that name was logged as `no response` within
+  5-97 ms (Chrome, Edge, Firefox) and 11-167 ms (Android). Probed alone at setup it answered, and requests to it succeeded.
+- **The probe and requests build the same URL.** `JellyfinServerProbe` sends `GET System/Info/Public` through `ServerClients.create`,
+  like every request, so `ServerRequests` rebases it onto the address with its path prefix (`rebaseOnto`).
+  `JellyfinServerProbeTest` checks the URL with a prefix. A URL mismatch is ruled out.
+- **What a check does (PR 23, `RoamingServerAddress`).** A check probes all its addresses at once. When the best proved address has
+  every higher-ranked probe done, `finish` cancels the check's job, which cancels the lower-ranked probes still in flight. A cancelled
+  probe posts no result and changes nothing.
+- **What the log printed.** `RequestLog` logs in a `finally` block, so a cancelled request was logged with no status, and
+  `RequestLogEntry` printed every missing status as `no response`.
+- **Inference:** at home the LAN address (plain http, ranked above the internet one) answers in a few ms. The https probe of the
+  internet name still needs its TLS handshake, so it is cancelled when the LAN probe proves first. The time logged is then how long the
+  LAN probe took. This matches the rest of those runs: where the LAN probe hangs (a phone hotspot), the check cannot finish early, and
+  the internet probe proved in 0.13-0.47 s. On a network where the internet address is the one needed, nothing above it proves first,
+  so its probe is not cancelled and roaming is not affected.
+- Changed: `RequestLog` now reads, in that `finally`, whether the caller's coroutine is still active (it does not catch the
+  cancellation), and `RequestLogEntry.cancelled` prints `cancelled` instead of `no response`. A request timeout still prints
+  `no response`. For that, `RequestLog` is installed before `RequestDeadline`: Ktor 3.x's `HttpSend` wraps its interceptors in
+  reverse, so the first installed is the outermost (`HttpSend.kt`, https://github.com/ktorio/ktor/blob/3.3.0/ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/HttpSend.kt).
+  Inside the deadline's `withTimeoutOrNull`, the log would see the deadline's own timeout as a cancellation. JVM tests cover both, and how the probe classifies the other suspects:
+  - another server id: returned for the caller to compare;
+  - a proxy login page (200, HTML): `InvalidResponse`;
+  - a redirect (301, or a 302 to a login page): `InvalidResponse` with the status, not followed;
+  - a non-JSON body: `InvalidResponse`.
+- To confirm on a device: in the next home run, the internet name's lines in a check should read `cancelled`, not `no response`. To rule
+  out the server side as well, run these from the home network (read-only; `<name>` is the internet name):
+  - `nslookup <name>` should give the LAN server's IP (split DNS).
+  - `curl -sv https://<name>/System/Info/Public` should show status 200 with no `Location` header, and a JSON body whose `Id` equals
+    the saved server id. A 30x, an HTML page or another `Id` would mean the proxy answers that path differently. A TLS error would
+    mean the certificate does not cover the name on the LAN IP.
+
 ## Not verified (research before depending on it)
+- That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
+  "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
   Seen on Android 17: a missing `INTERNET` permission throws `SecurityException` (section "Roaming on Android"); PR 23 maps that one

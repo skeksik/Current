@@ -4,6 +4,8 @@ import com.skeksik.current.core.model.ServerRef
 import io.ktor.client.plugins.api.Send
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.http.URLBuilder
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlin.time.TimeSource
 import kotlinx.coroutines.currentCoroutineContext
 
@@ -47,7 +49,10 @@ internal class RequestLogConfig {
     var logger: NetworkLogger = NetworkLogger.None
 }
 
-/** Logs method, redacted path, status and duration of every request, never headers or bodies (ADR 0015). */
+/**
+ * Logs method, redacted path, status and duration of every request, never headers or bodies (ADR 0015). A request whose caller was
+ * cancelled is logged as cancelled, not as a failure; it is read from the coroutine in `finally`, without catching the cancellation.
+ */
 internal val RequestLog = createClientPlugin("RequestLog", ::RequestLogConfig) {
     val server = pluginConfig.server
     val logger = pluginConfig.logger
@@ -57,6 +62,7 @@ internal val RequestLog = createClientPlugin("RequestLog", ::RequestLogConfig) {
         try {
             proceed(request).also { status = it.response.status.value }
         } finally {
+            val cancelled = status == null && !currentCoroutineContext().isActive
             logger.log(
                 RequestLogEntry(
                     server = server,
@@ -64,6 +70,7 @@ internal val RequestLog = createClientPlugin("RequestLog", ::RequestLogConfig) {
                     path = Redaction.pathAndQuery(request.url.build()),
                     status = status,
                     durationMillis = start.elapsedNow().inWholeMilliseconds,
+                    cancelled = cancelled,
                 ),
             )
         }

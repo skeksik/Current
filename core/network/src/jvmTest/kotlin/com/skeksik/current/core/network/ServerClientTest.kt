@@ -17,7 +17,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
@@ -25,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
 class ServerClientTest {
@@ -259,6 +262,25 @@ class ServerClientTest {
         val entries = mutableListOf<RequestLogEntry>()
         val recorder = Recorder().apply { answer = { awaitCancellation() } }
         client(recorder, logger = { entries += it }).use { it.failure { get("Items") } }
-        assertNull(entries.single().status)
+        val entry = entries.single()
+        assertNull(entry.status)
+        assertFalse(entry.cancelled)
+        assertTrue(entry.toString().endsWith(" no response (${entry.durationMillis} ms)"), entry.toString())
+    }
+
+    @Test
+    fun logsARequestWhoseCallerWasCancelledAsCancelled() = runBlocking {
+        val entries = mutableListOf<RequestLogEntry>()
+        val started = CompletableDeferred<Unit>()
+        val recorder = Recorder().apply { answer = { started.complete(Unit); awaitCancellation() } }
+        client(recorder, logger = { entries += it }).use {
+            val call = launch { it.request { get("System/Info/Public") } }
+            started.await()
+            call.cancelAndJoin()
+        }
+        val entry = entries.single()
+        assertNull(entry.status)
+        assertTrue(entry.cancelled)
+        assertTrue(entry.toString().endsWith(" cancelled (${entry.durationMillis} ms)"), entry.toString())
     }
 }
