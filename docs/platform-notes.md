@@ -2744,6 +2744,59 @@ Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
 6. Clean up: `Current.cfg` as backed up, no `runtime\conf\accessibility.properties`, and the per-user file as it was in step 0 (an
    installed NVDA rewrites it at each start; uninstall NVDA if it is not wanted).
 
+Owner run (2026-10-22, Windows 11 Pro 10.0.26200; the per-user 0.1.1 MSI left installed by PR 45's re-run at 629e4ce, whose runtime lists
+`jdk.accessibility`; NVDA 2026.2 from nvaccess.org, SHA-1 equal to the one NV Access's update API gives, signed by NV Access Limited).
+Speech was read from the screen: NVDA's Speech viewer, Narrator's developer mode, and for Narrator also the UI Automation tree (read with
+.NET `System.Windows.Automation`). Claude drove the keyboard through computer use; the owner pressed the NVDA-key and Caps Lock chords,
+which the tool cannot send. Startup is `Current.exe` start to a visible window titled "Current", polled with `tasklist` (about 130 ms
+granularity). The one saved server is called "the server" below.
+- 0, backup: `Current.cfg` saved with its SHA-256; no per-user file existed.
+- 1, Narrator, no fix: "Current, window" only (owner, by ear). Developer mode: the focus box covers the whole window and never moves (Tab
+  to Home, Settings, Add server, the Remove dialog, Cancel); its caption never changed. UI Automation: a `SunAwtFrame` window "Current" with
+  one unnamed `SunAwtCanvas` pane, in every state, the dialog included; the focused element is always the window. Startup 1320 ms.
+- 2, temporary NVDA ("Continue running"), no fix: the per-user file stayed absent. On window focus "Current"; Tab to Home, Settings, Add
+  server, Remove, the dialog and Cancel: nothing. Startup 1244 ms.
+- 3, fix B by hand, temporary NVDA: `javaaccessbridge.dll` is loaded in the JVM process (`tasklist /M`). Sidebar: "Home tab selected 1 of
+  1", "Settings tab". Button: "Add server button", then "Sign out button", "Addresses button", "Remove button". Enter on Remove: the
+  dialog opens with focus on Cancel and NVDA says only "Cancel button" (no dialog role, title or text). Title, NVDA+T: "Current". NVDA+B
+  with the dialog open reads the page behind it first, then the dialog: "Home tab 1 of 2", "Settings tab selected 2 of 2", "Settings",
+  "Servers", "Add server button", the server card (name, address, user), "Sign out button", "Addresses button", "Remove button", the
+  Credential Manager line, "About", "Current", "Version 0.1.1", the diagnostics text, "Copy diagnostics button", "Remove <server>?", the
+  dialog text, "Remove button", "Cancel button". NVDA+Tab: "Cancel button focused read only". Enter on Cancel: the dialog closes, focus
+  is back on Remove, nothing is said; Shift+Tab then says "Addresses button". Narrator with fix B: "Current, window" only (owner), the same
+  box and UI Automation tree as in 1: the bridge adds nothing for UI Automation. Startup 1385 ms.
+- 4, fix C by hand, temporary NVDA: bridge loaded; reads the same as 3, item by item. **The opt-out as written fails:** with a per-user
+  file holding only `#assistive_technologies=...`, the bridge still loads and NVDA says "Home tab selected 1 of 1". A file with only a
+  comment has no properties, which counts as empty (point 3), so `runtime\conf` is read. With a second line `screen_magnifier_present=true`
+  (non-empty, no `assistive_technologies`), the bridge does not load and NVDA says only "Current". So C respects a per-user file only if
+  it holds some property; what `jabswitch /disable` leaves in the file is not checked.
+- 5, fix A, installed NVDA: on its first start NVDA wrote `%USERPROFILE%\.accessibility.properties` with exactly the two lines (CRLF).
+  Unmodified app: bridge loaded, reads like 3 ("Home tab selected 1 of 1", "Settings tab", "Add server button", "Sign out button",
+  "Addresses button", "Remove button", "Cancel button"). Home page, NVDA+T: "Current"; NVDA+B: "Current", "Home tab selected 1 of 2",
+  "Settings tab 2 of 2", "Signed in to Jellyfin" (the page title), then the body line. **The order test as written does not show the
+  gap:** after quitting both and starting Current, then NVDA, NVDA reads the app, because the file from NVDA's earlier start is still there
+  and the JVM reads it whether NVDA runs or not. The gap is a first start only: with the per-user file deleted, Current started, then
+  NVDA (which rewrote the file): "Current" only, nothing on Tab, bridge not loaded; after restarting Current it reads. Startups with the
+  installed NVDA: 1179, 1040, 1272, 1148 ms.
+- Startup, no reader, five launches each (median, range): baseline 1256 ms (1225-1287), fix B 1272 ms (1150-1287), fix C 1271 ms
+  (1212-1287). No cost visible at this granularity; the bridge DLL was loaded in exactly the B and C runs.
+- 6, clean-up: `Current.cfg` matches the backup's SHA-256, no `runtime\conf\accessibility.properties`, no per-user file (as in step 0).
+  NVDA uninstalled at the owner's choice; a `lib` folder stayed in `Program Files\NVDA` (usually removed at the next restart; not checked).
+- Odd:
+  - Page titles ("Settings", "Signed in to Jellyfin") are read as plain text with no heading role, so heading navigation has nothing
+    to find (not tried).
+  - Sidebar position: "1 of 1" on Tab, "1 of 2" / "2 of 2" in NVDA+B. "selected" is spoken for Home on Tab but not for Settings after
+    Enter opened it; the page change itself is not announced.
+  - The dialog has no dialog role or title in speech, the page behind it is still readable (NVDA+B), and focus going back to Remove
+    after Cancel is silent.
+  - The server card's buttons are "Sign out button", "Addresses button", "Remove button" with no server name: ambiguous with two servers.
+  - "read only" on a button (NVDA+Tab).
+  - Once, with Tab pressed without pauses (fix C), a stray "Remove button" came between "Sign out button" and "Addresses button"; not seen
+    with pauses.
+  - The jpackage launcher and the JVM are two processes, both named `Current.exe`. `taskkill /IM Current.exe` (WM_CLOSE to both) left a
+    Current.exe error box, "GetMessage() failed. System error [1400] (Invalid window handle)"; Alt+F4 or WM_CLOSE to the JVM's window
+    alone closes cleanly. Not a user path.
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
