@@ -31,17 +31,18 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Radius
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 
-/** The app's layout on wide screens: a fixed [sidebar] on the left, the current page beside it. */
+/** The app's layout on wide screens: a fixed [sidebar] on the left (with [sidebarModifier]), the current page beside it. */
 @Composable
 fun SidebarScaffold(
     sidebar: @Composable ColumnScope.() -> Unit,
     modifier: Modifier = Modifier,
+    sidebarModifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Row(Modifier.fillMaxSize()) {
             Column(
-                Modifier
+                sidebarModifier
                     .width(Size.sidebarWidth)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface)

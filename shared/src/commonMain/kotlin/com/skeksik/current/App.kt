@@ -33,10 +33,10 @@ private val appModules: List<Module> = listOf(
     settingsUiModule,
 )
 
-/** The app in one window (Android). */
+/** The app in one window (Android), fed key events by the activity through [input]. */
 @Composable
-fun App() {
-    CurrentKoin { AppContent() }
+fun App(input: MainWindowInput = remember { MainWindowInput() }) {
+    CurrentKoin { AppContent(input) }
 }
 
 /**
@@ -55,8 +55,8 @@ class MainWindowInput {
     internal val focusVisibility = FocusVisibility()
 
     /**
-     * For desktop's `Window(onPreviewKeyEvent = ...)`, which sees every key, even when nothing has focus (after a click on empty space),
-     * so the first Tab then shows the focus ring. Never consumes the event.
+     * For every key the window gets, even when nothing has focus (after a click or tap on empty space), so the first Tab then shows the
+     * focus ring: desktop's `Window(onPreviewKeyEvent = ...)`, Android's `Activity.dispatchKeyEvent`. Never consumes the event.
      */
     fun onPreviewKeyEvent(event: KeyEvent): Boolean {
         focusVisibility.onKeyEvent(event)

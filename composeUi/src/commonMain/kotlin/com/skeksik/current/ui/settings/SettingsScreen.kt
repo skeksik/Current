@@ -176,7 +176,10 @@ private fun ServerPanel(
             // One button for both, so focus stays on it when signing out turns it into Sign in.
             val signedIn = row.signedInAs != null
             if (signedIn || row.ref.service == ServiceType.jellyfin) {
-                OutlinedButton(if (signedIn) signOut else signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(signInModifier)) {
+                OutlinedButton(
+                    if (signedIn) signOut else signIn,
+                    Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(signInModifier),
+                ) {
                     Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in))
                 }
             }

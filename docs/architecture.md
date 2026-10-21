@@ -73,7 +73,7 @@ skip others silently.
 checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
 with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
-focus, Enter submits forms, and going back puts focus on what opened the page left, or on the page's first element. The highlighted sidebar entry is the
+focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element. The highlighted sidebar entry is the
 feature owning the page shown, not the back stack it sits on: Settings pages opened from Home (Add server, Sign in) stay on Home's back
 stack, so Back returns to Home, while Settings is highlighted. A sidebar entry always opens its feature's first page. The web shell has its own router (ADR 0011).
 

@@ -379,7 +379,8 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   (https://github.com/openjdk/jdk/tree/master/src/java.desktop/windows/native/libawt/windows).
 - The JetBrains Runtime has `WindowDecorations.setCustomTitleBar` with dark controls (Apache-2.0 API,
   https://github.com/JetBrains/JetBrainsRuntimeApi/blob/main/src/com/jetbrains/WindowDecorations.java), and JetBrains' decorated
-  window library builds on it, but its README says it requires the JetBrains Runtime. The app packages a standard JDK.
+  window library builds on it, but its README says it requires the JetBrains Runtime
+  (https://github.com/JetBrains/intellij-community/blob/master/platform/jewel/README.md). The app packages a standard JDK.
 - The Win32 route: `DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE = 20, &TRUE, 4)` in `dwmapi.dll`; FALSE switches back.
   Microsoft documents it "starting with Windows 11 Build 22000", like `DWMWA_CAPTION_COLOR` (35) and `DWMWA_TEXT_COLOR` (36), which set
   the colours outright. Microsoft's sample sets it before the window is shown
@@ -388,7 +389,7 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   - jna-platform 5.19.1 has no `Dwmapi` binding; a two-line JNA `Library` interface is needed. JNA is already a dependency (ADR 0017).
 - Undecorated with a Compose title bar loses what the frame does natively: the Windows 11 snap layouts flyout needs `WM_NCHITTEST` to
   answer `HTMAXBUTTON` (https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-snap-layout-menu), and minimise and
-  maximise animations go (CMP-3388). Resizing comes from Compose's own edge handles.
+  maximise animations go (CMP-3388, https://youtrack.jetbrains.com/issue/CMP-3388). Resizing comes from Compose's own edge handles.
 - Following the system: `isSystemInDarkTheme()` on desktop reads skiko's system theme, which reads
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, and CMP 1.12 polls it every second on
   Windows and macOS (`ComposeUiFlags.pollSystemTheme`, on by default except Linux; `ProvideSystemTheme.desktop.kt`). A

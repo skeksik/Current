@@ -33,7 +33,8 @@ class FocusVisibilityTest {
         assertFalse(visibility.showsRing(arrival))
         visibility.onKey(Key.Escape)
         assertFalse(visibility.showsRing(arrival))
-        // Tab then moves focus on, and the next element shows its ring.
+        // Tab, a key too, then moves focus on, and the element it reaches shows its ring.
+        visibility.onKey(Key.Tab)
         assertTrue(visibility.showsRing(visibility.focusGained()))
     }
 

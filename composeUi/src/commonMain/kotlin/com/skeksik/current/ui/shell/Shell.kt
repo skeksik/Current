@@ -14,10 +14,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -33,6 +36,7 @@ import androidx.navigation.compose.rememberNavController
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
+import com.skeksik.current.core.designsystem.LocalFocusVisibility
 import com.skeksik.current.core.designsystem.LocalPageTop
 import com.skeksik.current.core.designsystem.SidebarItem
 import com.skeksik.current.core.designsystem.SidebarItems
@@ -50,8 +54,12 @@ import kotlin.reflect.KClass
 
 /**
  * The app on wide screens: the sidebar from [graph], and the current page beside it. Pages below a sidebar entry's first page get a Back
- * button at the top of the page ([LocalPageTop]); Alt+Left goes back too. Going back focuses the page's first element (the sidebar entry when the page has none), unless the
- * page puts focus somewhere itself (on what opened the page just left).
+ * button at the top of the page ([LocalPageTop]); Alt+Left goes back too.
+ *
+ * A page shown again after the one above it left (any Back: the button, Alt+Left, Esc, a system or remote Back) gets focus on its first
+ * element, or the sidebar entry when it has none, unless the page puts focus somewhere itself (on what opened the page that left).
+ * Only after keyboard input, so a touch never opens a soft keyboard, and not while the sidebar holds focus (an entry that reopens the
+ * start page).
  */
 @Composable
 fun Shell(graph: ShellGraph) {
@@ -62,6 +70,10 @@ fun Shell(graph: ShellGraph) {
     val owner = destination?.let { shown -> graph.owner { shown.hasRoute(it) } }
     val atSidebarRoot = destination == null || graph.sidebar.any { destination.hasRoute(it.route::class) }
     val selectedEntry = remember { FocusRequester() }
+    val focusVisibility = LocalFocusVisibility.current
+    var sidebarHasFocus by remember { mutableStateOf(false) }
+    // Back stack entries shown so far in this composition: one shown again is a return. Not saved, so a recreated activity restores none.
+    val shownEntries = remember { mutableSetOf<String>() }
 
     SidebarScaffold(
         modifier = Modifier.trackFocusVisibility().onPreviewKeyEvent { event ->
@@ -69,6 +81,7 @@ fun Shell(graph: ShellGraph) {
             if (back) navigator.back()
             back
         },
+        sidebarModifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
         sidebar = {
             SidebarTitle(stringResource(Res.string.app_name))
             val features = graph.destinations.filter { it.sidebar != null }
@@ -100,9 +113,13 @@ fun Shell(graph: ShellGraph) {
                     val pageFocus = remember { FocusRequester() }
                     // Before the page's own effects, so a page that focuses something itself has the last word.
                     LaunchedEffect(Unit) {
-                        if (navigator.takeReturn() && !pageFocus.requestFocus()) selectedEntry.requestFocus()
+                        val returning = !shownEntries.add(entry.id)
+                        if (returning && focusVisibility.keyboard && !sidebarHasFocus && !pageFocus.requestFocus()) {
+                            selectedEntry.requestFocus()
+                        }
                     }
-                    CompositionLocalProvider(LocalPageTop provides if (atRoot) null else ({ BackButton(navigator::back) })) {
+                    val back: (@Composable () -> Unit)? = if (atRoot) null else ({ BackButton(navigator::back) })
+                    CompositionLocalProvider(LocalPageTop provides back) {
                         Box(Modifier.fillMaxSize().focusRequester(pageFocus).focusGroup()) { page.content(entry, navigator) }
                     }
                 }
@@ -121,11 +138,6 @@ private fun BackButton(onClick: () -> Unit) {
 }
 
 private class ControllerNavigator(private val controller: NavHostController) : Navigator {
-    // Set by back(), taken by the page shown next: focus was on the page just left, which is gone.
-    private var returning = false
-
-    fun takeReturn(): Boolean = returning.also { returning = false }
-
     // Single top: a held Enter or a double click opens a page once.
     override fun open(route: Any) = controller.navigate(route) { launchSingleTop = true }
 
@@ -135,9 +147,6 @@ private class ControllerNavigator(private val controller: NavHostController) : N
     }
 
     override fun back() {
-        if (controller.previousBackStackEntry != null) {
-            returning = true
-            controller.popBackStack()
-        }
+        if (controller.previousBackStackEntry != null) controller.popBackStack()
     }
 }

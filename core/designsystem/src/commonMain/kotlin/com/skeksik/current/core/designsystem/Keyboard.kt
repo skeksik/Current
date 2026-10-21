@@ -58,12 +58,15 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Size
  */
 @Stable
 class FocusVisibility {
-    /** Whether the last press was a key rather than a pointer; read when an element gains focus. */
+    /**
+     * Whether the last press was a key rather than a pointer. A plain field, not snapshot state: read it when deciding (an element
+     * gaining focus, a page placing focus), as a composable reading it would not recompose when it changes.
+     */
     var keyboard = true
         private set
 
     /** Pointer presses so far: a ring shown since an earlier count has gone. Snapshot state, so drawing follows it. */
-    var pointerPresses by mutableIntStateOf(0)
+    internal var pointerPresses by mutableIntStateOf(0)
         private set
 
     /** A key went down. Modifier keys alone (Ctrl held for a Ctrl+click) say nothing about how the user moves focus. */
@@ -82,10 +85,10 @@ class FocusVisibility {
     }
 
     /** Taken when an element gains focus; pass it to [showsRing] while the element keeps focus. */
-    fun focusGained(): FocusArrival = FocusArrival(byKeyboard = keyboard, pointerPresses = pointerPresses)
+    internal fun focusGained(): FocusArrival = FocusArrival(byKeyboard = keyboard, pointerPresses = pointerPresses)
 
     /** Whether an element focused as [arrival] shows its ring now. */
-    fun showsRing(arrival: FocusArrival): Boolean = arrival.byKeyboard && arrival.pointerPresses == pointerPresses
+    internal fun showsRing(arrival: FocusArrival): Boolean = arrival.byKeyboard && arrival.pointerPresses == pointerPresses
 
     private companion object {
         val modifierKeys = setOf(
@@ -95,15 +98,16 @@ class FocusVisibility {
 }
 
 /** How an element got focus, from [FocusVisibility.focusGained]. */
-data class FocusArrival(val byKeyboard: Boolean, val pointerPresses: Int)
+internal data class FocusArrival(val byKeyboard: Boolean, val pointerPresses: Int)
 
 /** The window's [FocusVisibility]. Each window provides its own; the default serves previews and tests. */
 val LocalFocusVisibility = staticCompositionLocalOf { FocusVisibility() }
 
 /**
  * Feeds key and pointer presses inside this element to [LocalFocusVisibility], without consuming them. Put it on the root of a window and
- * of each dialog (a dialog gets its input apart from the window). A window that can lose all focus also forwards its own key events, so the
- * first Tab after a click on empty space counts: on desktop, `Window(onPreviewKeyEvent = { visibility.onKeyEvent(it); false })`.
+ * of each dialog (a dialog gets its input apart from the window). Keys reach it only while something inside has focus, so the window
+ * forwards its own key events too, and the first key after a click or tap on empty space counts: desktop's `Window(onPreviewKeyEvent)`
+ * and Android's `Activity.dispatchKeyEvent`, through the app's `MainWindowInput`.
  */
 @Composable
 fun Modifier.trackFocusVisibility(): Modifier {

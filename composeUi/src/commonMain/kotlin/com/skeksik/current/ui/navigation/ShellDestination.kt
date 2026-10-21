@@ -22,8 +22,9 @@ interface ShellDestination {
 }
 
 /**
- * Binds [destination] for the shell. Each binding is qualified by the destination's type: Koin indexes a type by type and qualifier, so
- * unqualified bindings of one interface from two modules would override each other's index (a warning; `getAll` still finds both).
+ * Binds [destination] for the shell. Each binding is qualified by the destination's type (`named<T>()`), so there is one destination
+ * type per binding: binding the same type twice still overrides. Koin indexes a type by type and qualifier, so unqualified bindings of
+ * one interface from two modules would override each other's index (a warning; `getAll` still finds both).
  */
 inline fun <reified T : ShellDestination> Module.shellDestination(destination: T) {
     single<ShellDestination>(named<T>()) { destination }
