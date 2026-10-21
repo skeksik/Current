@@ -32,6 +32,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -109,9 +111,13 @@ internal class StoredJellyfinAccounts(
     /** Signed out here, with the stored token not removed yet: [authorizedClient] must not read it back. */
     private val signingOut = MutableStateFlow<Set<ServerRef>>(emptySet())
 
-    /** Puts saved sessions into the capabilities state, then checks each with its server in the background. */
+    /**
+     * Puts saved sessions into the capabilities state, then checks each with its server in the background. From then on, follows the
+     * sessions other copies of the app sharing the stores (browser tabs) start and end.
+     */
     fun restore(): Job =
         scope.launch {
+            follow()
             servers.servers.value.filter { it.ref.service == ServiceType.jellyfin }.forEach { server ->
                 val token = secrets.get(tokenKey(server.ref))
                 val user = settings.get(userKey(server.ref))?.let(::decodeUser)
@@ -124,6 +130,41 @@ internal class StoredJellyfinAccounts(
                 launch { verify(server, token) }
             }
         }
+
+    /**
+     * Another copy wrote a token or a user: this copy takes on what the stores hold now, so every copy converges on the last write. It
+     * only reads: the copy that wrote has already stored or removed the session, and ended it on the server.
+     */
+    private fun follow() {
+        // The servers a change touches; every one for a cleared store (a null key).
+        fun touched(key: String?, owner: (String) -> ServerRef?): List<ServerRef> =
+            if (key == null) (servers.servers.value.map { it.ref } + tokens.value.keys).distinct() else listOfNotNull(owner(key))
+        val changed = merge(
+            secrets.changedElsewhere.map { key -> touched(key) { tokenOwner(it) } },
+            settings.changedElsewhere.map { key -> touched(key) { userOwner(it) } },
+        )
+        scope.launch { changed.collect { refs -> refs.forEach { adopt(it) } } }
+    }
+
+    /**
+     * Takes on [server]'s session as the stores hold it now. While this copy signs [server] out, its own sign-out finishes first and
+     * adopts after.
+     */
+    private suspend fun adopt(server: ServerRef) {
+        if (server.service != ServiceType.jellyfin || server in signingOut.value) return
+        secretsLock.withLock {
+            val stored = secrets.get(tokenKey(server))
+            if (stored == null) {
+                val signedIn = capabilities.capabilities.value.status(server)?.signedIn == true
+                if (tokens.value[server] == null && !signedIn) return@withLock
+                tokens.update { it - server }
+                capabilities.update(server) { it.copy(signedIn = false, user = null) }
+                return@withLock
+            }
+            tokens.update { it + (server to stored) }
+            settings.get(userKey(server))?.let(::decodeUser)?.let { markSignedIn(server, it.toUser(server)) }
+        }
+    }
 
     private suspend fun verify(server: SavedServer, token: String) {
         try {
@@ -216,6 +257,8 @@ internal class StoredJellyfinAccounts(
             } finally {
                 signingOut.update { it - server }
             }
+            // Another copy may have signed in meanwhile: its session stays stored, and this copy takes it on.
+            adopt(server)
             if (token != null && saved != null && address != null) endSession(saved, token, address)
         }
     }
@@ -324,6 +367,15 @@ internal class StoredJellyfinAccounts(
 
         /** In settings: not secret, and needed to show who is signed in while the server is offline. */
         fun userKey(server: ServerRef) = "jellyfin.${server.key}.user"
+
+        fun tokenOwner(key: String): ServerRef? = ownerOf(key, "jellyfin/", "/token")
+
+        fun userOwner(key: String): ServerRef? = ownerOf(key, "jellyfin.", ".user")
+
+        private fun ownerOf(key: String, start: String, end: String): ServerRef? {
+            if (!key.startsWith(start) || !key.endsWith(end) || key.length <= start.length + end.length) return null
+            return ServerRef(ServiceType.jellyfin, key.substring(start.length, key.length - end.length))
+        }
 
         /** Jellyfin writes ids as 32 hex characters, but some fields may carry dashes or capitals. */
         fun normalisedId(id: String) = id.replace("-", "").lowercase()
