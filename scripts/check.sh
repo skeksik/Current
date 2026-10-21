@@ -26,6 +26,7 @@ echo "==> Web build (Kotlin library, TypeScript, Vite)"
 if [ -n "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
   echo "==> Android debug build"
   ./gradlew :androidApp:assembleDebug
+  ./scripts/check-android-apk.sh
 else
   echo "==> Skipping Android build (ANDROID_HOME not set)"
 fi
