@@ -22,6 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
@@ -80,7 +84,7 @@ private fun CenteredState(modifier: Modifier, content: @Composable () -> Unit) {
 @Composable
 private fun StateText(title: String, message: String?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-        Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
         if (message != null) {
             Text(
                 message,
@@ -107,10 +111,11 @@ private fun StateButtons(primary: StateAction, secondary: StateAction?) {
     LaunchedEffect(Unit) { if (focusVisibility.keyboard && !focusVisibility.focusHeld) focus.requestFocus() }
 }
 
-/** A small spinner with [message], inside a form or a list rather than in place of the page. */
+/** A small spinner with [message], inside a form or a list rather than in place of the page; screen readers announce it politely. */
 @Composable
 fun InlineProgress(message: String) {
     Row(
+        Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {

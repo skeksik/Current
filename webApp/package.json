@@ -7,7 +7,8 @@
     "dev": "node scripts/kotlin.mjs development && vite",
     "build": "node scripts/kotlin.mjs production && tsc --noEmit -p . && vite build",
     "preview": "vite preview",
-    "licences": "node scripts/check-licences.mjs"
+    "licences": "node scripts/check-licences.mjs",
+    "contrast": "node scripts/check-contrast.mjs"
   },
   "dependencies": {
     "react": "19.3.1",
