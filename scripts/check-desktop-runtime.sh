@@ -15,9 +15,9 @@ modules=$(sed -nE 's/^MODULES="(.*)"\r?$/\1/p' "$release")
 echo "Runtime modules: $modules"
 
 # java.net.http: ktor-client-java. jdk.accessibility: Java Access Bridge (screen readers on Windows). java.logging: JNA.
-# jdk.crypto.ec: elliptic-curve TLS on JDK 21. Keep in step with modules(...) in desktopApp/build.gradle.kts.
+# jdk.crypto.ec: elliptic-curve TLS on JDK 21. jdk.unsupported, java.instrument: suggested by jdeps. Keep in step with modules(...) in desktopApp/build.gradle.kts.
 status=0
-for required in java.base java.desktop java.logging java.net.http jdk.accessibility jdk.crypto.ec jdk.unsupported; do
+for required in java.base java.desktop java.logging java.net.http jdk.accessibility jdk.crypto.ec jdk.unsupported java.instrument; do
   if ! grep -qwF -- "$required" <<< "$modules"; then
     echo "$release: missing module $required" >&2
     status=1

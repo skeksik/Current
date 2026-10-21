@@ -44,8 +44,9 @@ compose.desktop {
 
             // Added to the plugin's defaults (java.base, java.desktop, java.logging, jdk.crypto.ec), which jlink copies into the
             // runtime. java.net.http: ktor-client-java. jdk.accessibility: Java Access Bridge for screen readers on Windows.
-            // jdk.unsupported: sun.misc.Unsafe for libraries that look for it. CI checks the packaged runtime has them.
-            modules("java.net.http", "jdk.accessibility", "jdk.unsupported")
+            // jdk.unsupported and java.instrument: what suggestRuntimeModules (jdeps) reported in CI on 2026-10-21, after the first two
+            // were listed (java.instrument is kotlinx-coroutines' debug agent). CI checks the packaged runtime has them all.
+            modules("java.net.http", "jdk.accessibility", "jdk.unsupported", "java.instrument")
 
             windows {
                 // Rendered once from docs/brand/current-icon.svg (a placeholder): the ICO holds 16-256 px, the PNG is 512 px.
@@ -63,7 +64,8 @@ compose.desktop {
                 // Debian package names are lowercase.
                 packageName = "current"
                 // TODO: the owner replaces this placeholder before the first DEB is handed out.
-                debMaintainer = "Current maintainers <maintainer@example.com>"
+                // An address only: jpackage writes the Maintainer field as "<vendor> <address>".
+                debMaintainer = "maintainer@example.com"
                 appCategory = "video"
                 menuGroup = "AudioVideo;Video;Player"
                 shortcut = true

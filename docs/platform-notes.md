@@ -2263,9 +2263,14 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   JVM running Gradle (`JvmApplicationData.kt`). The desktop app sets `javaHome` from a Temurin 21 Gradle toolchain (cross-cutting review A7).
 - WiX: on Windows the plugin downloads WiX 3.11 binaries from the wixtoolset GitHub releases (`downloadWix`, `unzipWix`) unless `WIX_PATH` is
   set or `compose.desktop.application.downloadWix=false` (`internal/wixToolset.kt`).
-- The modules the app needs beyond the defaults: `java.net.http` (ktor-client-java uses the JDK's `HttpClient`), `jdk.accessibility`, and
-  `jdk.unsupported` as a cheap safety net. JNA (Credential Manager, libsecret, the title bar) logs through `java.logging`, a default.
-  CI checks the packaged runtime's `release` file for them (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s.
+- The modules the app needs beyond the defaults: `java.net.http` (ktor-client-java uses the JDK's `HttpClient`) and `jdk.accessibility`.
+  With those two listed, `suggestRuntimeModules` in CI (2026-10-21, Temurin 21.0.12) suggested `java.instrument` and `jdk.unsupported`,
+  so both are listed too. JNA (Credential Manager, libsecret, the title bar) logs through `java.logging`, a default. The packaged runtime
+  also pulled in `java.datatransfer`, `java.xml` and `java.prefs` as dependencies. CI checks the runtime's `release` file
+  (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s: it booted on Windows and under Xvfb on Linux, where Skiko
+  fell back from OpenGL ("Cannot create Linux GL context") to its next renderer. The MSI was about 75 MB.
+- jpackage writes the DEB `Maintainer` field as `<vendor> <debMaintainer>`, so `debMaintainer` is an address only (seen in CI with
+  `dpkg-deb --info`).
 - Not verified: installing the MSI, its Start menu entry and icon, an in-place upgrade, a per-user uninstall, NVDA through the packaged
   runtime, a DEB on a real Debian or Ubuntu desktop.
 
