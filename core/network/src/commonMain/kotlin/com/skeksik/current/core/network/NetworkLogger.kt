@@ -9,6 +9,9 @@ import com.skeksik.current.core.model.ServerRef
 fun interface NetworkLogger {
     fun log(entry: RequestLogEntry)
 
+    /** A bug that ended background work: [what] happened, and the error's class name, never its message (ADR 0015). */
+    fun bug(what: String, error: Throwable) {}
+
     companion object {
         val None = NetworkLogger { }
     }

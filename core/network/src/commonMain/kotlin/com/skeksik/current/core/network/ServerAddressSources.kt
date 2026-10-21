@@ -55,6 +55,8 @@ class RoamingAddressSources internal constructor(
     private val time: TimeSource = TimeSource.Monotonic,
     /** Local addresses are left out while it denies them (ADR 0019). */
     private val localAccess: LocalNetworkAccess = LocalNetworkAccess.NotNeeded,
+    /** Where bugs that restart a source are logged. */
+    private val log: NetworkLogger = NetworkLogger.None,
 ) : ServerAddressSources {
     /** One run of [source]; [wait] is how long it waited after the last run that a bug ended. */
     private class Running(val source: StableAddress, val job: Job, val wait: Duration) {
@@ -66,7 +68,7 @@ class RoamingAddressSources internal constructor(
         // A platform signal that fails starts again, so sources never go blind; it may have missed a change meanwhile.
         .retryWhen { cause, attempt ->
             if (cause is CancellationException) return@retryWhen false
-            logBug("Network changes failed", cause)
+            log.bug("Network changes failed", cause)
             delay((timing.retryFirst * 2.0.pow(attempt.coerceAtMost(10L).toInt())).coerceAtMost(timing.retryAtMost))
             emit(NetworkChange.Changed)
             true
@@ -146,7 +148,7 @@ class RoamingAddressSources internal constructor(
             return
         }
         // The scope's handler never sees a cancellation, so it is logged here.
-        if (cause is CancellationException) logBug("Address source ended by a stray cancellation", cause)
+        if (cause is CancellationException) log.bug("Address source ended by a stray cancellation", cause)
         // The dead source may still hold its run's queued events: requests now wait on the fresh one, which starts cold.
         run.source.replace(fresh)
         capabilities.update(ref) { it.copy(reachable = null) }

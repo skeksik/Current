@@ -17,28 +17,25 @@ import org.koin.dsl.module
  */
 val AppScope = named("appScope")
 
-/**
- * A bug that ends background work is logged by class name only, since its message may quote a URL or a body (ADR 0015). Without a
- * handler it would end the app on Android and Apple; with it, a roaming source starts again ([RoamingAddressSources]).
- */
-private val logBackgroundBug = CoroutineExceptionHandler { _, error -> logBug("Background work ended by a bug", error) }
-
-/** Logs what happened and the error's class name, never its message (ADR 0015). */
-internal fun logBug(what: String, error: Throwable) = println("$what: ${error::class.simpleName}")
-
 /** Koin definitions of `core:network`. Needs `core:database`'s `databaseModule` for the saved servers. */
 val networkModule = module {
+    // A bug that ends background work is logged by class name only (ADR 0015). Without a handler it would end the app on Android and
+    // Apple; with it, a roaming source starts again (RoamingAddressSources).
     single<CoroutineScope>(AppScope) {
+        val log = get<NetworkLogger>()
+        val logBackgroundBug = CoroutineExceptionHandler { _, error -> log.bug("Background work ended by a bug", error) }
         CoroutineScope(SupervisorJob() + Dispatchers.Default + logBackgroundBug)
     } withOptions { onClose { it?.cancel() } }
     single { createHttpClient() } withOptions { onClose { it?.close() } }
     single { MutableCapabilitiesState() } bind CapabilitiesState::class
-    single { NetworkLogger.None }
+    // The request log, in memory ("Copy diagnostics") and printed where the platform's flag allows.
+    single { RequestLogBuffer(echo = platformLogEcho(this)) } bind NetworkLogger::class bind RequestLogHistory::class
+    single { platformInfo() }
     single { ServerClients(get(), get()) }
     single<NetworkChanges> { platformNetworkChanges() }
     // Resolved when the first data layer needs it, after every module's probes are defined.
     single<ServerAddressSources> {
-        RoamingAddressSources(get(), getAll(), get(), get(), get(AppScope), localAccess = get())
+        RoamingAddressSources(get(), getAll(), get(), get(), get(AppScope), localAccess = get(), log = get())
     }
     single<LocalNetworkAccess> { platformLocalNetworkAccess() }
     // Created at start so the saved servers are in the capabilities state before any feature reads it.
