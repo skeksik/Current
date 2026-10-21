@@ -1195,6 +1195,27 @@ research agent reading the same files.
 - Fix (`fix/android-polish`): `MainActivity` adds an `OnTouchModeChangeListener` to the decor view's tree observer; leaving touch mode
   marks the next focus as keyboard focus (`FocusVisibility.onKeyboardNavigation`). The listener is dispatched before
   `restoreDefaultFocus()`, so the element focused by that Tab gets its ring. Not yet checked on a device or the emulator.
+- Compose's own input mode (read 2026-10-21 in the 1.12.1 sources jars: `androidx.compose.ui:ui-android` from Google's Maven,
+  `org.jetbrains.compose.ui:ui-desktop` from Maven Central):
+  - Android: `AndroidComposeView` registers itself as an `OnTouchModeChangeListener` and sets `LocalInputModeManager`'s `inputMode` to
+    `Touch` or `Keyboard` from `isInTouchMode`. So on Android it tracks touch mode, the same signal the listener above uses.
+  - Desktop (`RootNodeOwner.skiko.kt`, `PlatformContext.skiko.kt`): the mode starts as `Keyboard`, becomes `Touch` on a pointer event
+    with a button, and becomes `Keyboard` again only for a key that moves focus (Tab, arrows) and is not consumed first. Enter opening
+    a page that focuses its first field does not change it, and the first frame counts as keyboard.
+  - So `inputMode` cannot replace `FocusVisibility` in common code (desktop would show rings at start and miss the Enter case), and
+    using it on Android only would need a platform split in `core:designsystem`. The activity's listener stays.
+
+## Runtime permission guidance (read 2026-10-21 at https://developer.android.com/training/permissions/requesting)
+- "Ask for a permission in context, when the user starts to interact with the feature that requires it." "Don't block the user."
+  Show an educational UI first when `shouldShowRequestPermissionRationale()` returns true.
+- "If the user taps Deny for a specific permission more than once during your app's lifetime of installation on a device, the user
+  will no longer see the system permissions dialog if your app requests that permission again. The user's action implies "don't ask
+  again," and is considered a permanent denial." The page adds that it is "very important to only prompt users for permissions when
+  they need access to a specific feature; otherwise, you might inadvertently lose the ability to re-request permissions."
+- "If the user denies or revokes a permission that a feature needs, gracefully degrade your app so that the user can continue using
+  your app."
+- What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
+  shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
 
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and

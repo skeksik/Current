@@ -20,7 +20,10 @@ sealed interface HomeLocalNetworkState {
     /** Nothing to ask: granted, the platform does not ask, or every saved server is on the internet. */
     data object Hidden : HomeLocalNetworkState
 
-    /** Explain, then ask. With [denied], the user said no: the local servers cannot be reached. */
+    /**
+     * Explain, then ask. With [denied], the user said no, here or on another screen ([LocalNetworkAccess.deniedBefore]): the local
+     * servers cannot be reached. The dialog then shows only when the user presses "Ask again".
+     */
     data class Ask(val denied: Boolean = false) : HomeLocalNetworkState
 
     /** The system dialog is up. */
@@ -45,9 +48,6 @@ class HomeLocalNetworkViewModel internal constructor(
 
     private val scope = scope ?: viewModelScope
 
-    // Whether the user denied the dialog since the last grant, while Android may still ask.
-    private var denied = false
-
     private val _state = MutableStateFlow(stateFor(servers.servers.value, access.status()))
     val state: StateFlow<HomeLocalNetworkState> = _state.asStateFlow()
 
@@ -67,21 +67,16 @@ class HomeLocalNetworkViewModel internal constructor(
         if (_state.value == HomeLocalNetworkState.Asking) return
         _state.value = HomeLocalNetworkState.Asking
         scope.launch {
-            val status = access.request()
-            denied = status == LocalNetworkPermission.CanAsk || status == LocalNetworkPermission.Blocked
-            _state.value = stateFor(servers.servers.value, status)
+            _state.value = stateFor(servers.servers.value, access.request())
         }
     }
 
     fun openSettings() = access.openSettings()
 
-    private fun stateFor(saved: List<SavedServer>, status: LocalNetworkPermission): HomeLocalNetworkState {
-        if (status == LocalNetworkPermission.Granted) denied = false
-        return when {
-            shouldAskForLocalNetwork(LocalNetworkAskReason.SavedServers, saved, status) -> HomeLocalNetworkState.Ask(denied)
-            status == LocalNetworkPermission.Blocked && saved.hasLocalAddress() -> HomeLocalNetworkState.Blocked
-            else -> HomeLocalNetworkState.Hidden
-        }
+    private fun stateFor(saved: List<SavedServer>, status: LocalNetworkPermission): HomeLocalNetworkState = when {
+        shouldAskForLocalNetwork(LocalNetworkAskReason.SavedServers, saved, status) -> HomeLocalNetworkState.Ask(access.deniedBefore())
+        status == LocalNetworkPermission.Blocked && saved.hasLocalAddress() -> HomeLocalNetworkState.Blocked
+        else -> HomeLocalNetworkState.Hidden
     }
 }
 

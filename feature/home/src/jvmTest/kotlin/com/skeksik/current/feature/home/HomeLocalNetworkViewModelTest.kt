@@ -8,6 +8,7 @@ import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.LocalNetworkAccess
 import com.skeksik.current.core.network.LocalNetworkPermission
 import com.skeksik.current.core.network.ServerRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,17 +36,27 @@ private class Servers(vararg saved: SavedServer) : ServerRepository {
     }
 }
 
-/** [answers] are what each request returns, in turn; [status] is what the settings page would show. */
-private class FakeAccess(var status: LocalNetworkPermission, vararg answers: LocalNetworkPermission) : LocalNetworkAccess {
+/**
+ * [answers] are what each request returns, in turn; [status] is what the settings page would show. [denied] is the stored denial, set
+ * by an answer that is not a grant (or by another screen), and read only while not granted, as the real store is.
+ */
+private class FakeAccess(
+    var status: LocalNetworkPermission,
+    vararg answers: LocalNetworkPermission,
+    var denied: Boolean = false,
+) : LocalNetworkAccess {
     private val answers = answers.toMutableList()
     var requests = 0
     var settingsOpened = 0
 
     override fun status() = status
 
+    override fun deniedBefore() = denied && (status == LocalNetworkPermission.CanAsk || status == LocalNetworkPermission.Blocked)
+
     override suspend fun request(): LocalNetworkPermission {
         requests++
         status = answers.removeAt(0)
+        denied = status != LocalNetworkPermission.Granted
         return status
     }
 
@@ -125,11 +136,69 @@ class HomeLocalNetworkViewModelTest {
     }
 
     @Test
+    fun aDenialOnAnotherScreenIsShownAtStartWithoutAsking() {
+        // "Don't allow" on Add server, then Home: the denied note with "Ask again", and no dialog until it is pressed.
+        val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.Granted, denied = true)
+        val viewModel = viewModel(Servers(server("a", AddressScope.Local)), access)
+        assertEquals(HomeLocalNetworkState.Ask(denied = true), viewModel.state.value)
+        viewModel.refresh()
+        assertEquals(0, access.requests)
+        viewModel.allow()
+        assertEquals(1, access.requests)
+        assertEquals(HomeLocalNetworkState.Hidden, viewModel.state.value)
+    }
+
+    @Test
+    fun aRequestNoScreenCouldShowIsNotADenial() {
+        // No activity attached: request() returns the unchanged state and records nothing, so the note stays the plain one.
+        val access = object : LocalNetworkAccess {
+            var requests = 0
+            override fun status() = LocalNetworkPermission.CanAsk
+            override fun deniedBefore() = false
+            override suspend fun request(): LocalNetworkPermission {
+                requests++
+                return LocalNetworkPermission.CanAsk
+            }
+            override fun openSettings() = Unit
+        }
+        val viewModel = viewModel(Servers(server("a", AddressScope.Local)), access)
+        viewModel.allow()
+        assertEquals(1, access.requests)
+        assertEquals(HomeLocalNetworkState.Ask(), viewModel.state.value)
+    }
+
+    @Test
+    fun resumingWhileTheDialogIsUpKeepsAsking() {
+        // The system dialog pauses and resumes the activity mid-request.
+        val gate = CompletableDeferred<LocalNetworkPermission>()
+        val access = object : LocalNetworkAccess {
+            var requests = 0
+            override fun status() = LocalNetworkPermission.CanAsk
+            override fun deniedBefore() = false
+            override suspend fun request(): LocalNetworkPermission {
+                requests++
+                return gate.await()
+            }
+            override fun openSettings() = Unit
+        }
+        val viewModel = viewModel(Servers(server("a", AddressScope.Local)), access)
+        viewModel.allow()
+        assertEquals(HomeLocalNetworkState.Asking, viewModel.state.value)
+        viewModel.refresh()
+        viewModel.allow()
+        assertEquals(HomeLocalNetworkState.Asking, viewModel.state.value)
+        gate.complete(LocalNetworkPermission.Granted)
+        assertEquals(HomeLocalNetworkState.Hidden, viewModel.state.value)
+        assertEquals(1, access.requests)
+    }
+
+    @Test
     fun aGrantClearsTheDenial() {
         val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.CanAsk)
         val viewModel = viewModel(Servers(server("a", AddressScope.Local)), access)
         viewModel.allow()
         access.status = LocalNetworkPermission.Granted
+        access.denied = false
         viewModel.refresh()
         // Android may reset its grants; the next ask starts with the plain explanation.
         access.status = LocalNetworkPermission.CanAsk

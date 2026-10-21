@@ -5,6 +5,7 @@ import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServiceType
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -96,5 +97,25 @@ class LocalNetworkAccessTest {
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
         assertEquals(LocalNetworkPermission.Granted, state.record(PermissionAnswer(granted = true)))
         assertEquals(LocalNetworkPermission.NotNeeded, state.status(apiSupported = false, granted = false))
+    }
+
+    @Test
+    fun aDenialIsRememberedForEveryScreenUntilAGrant() = runTest {
+        val store = InMemoryKeyValueStore()
+        assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = false))
+        // A request no screen could show records nothing.
+        LocalNetworkPermissionState(store).request(apiSupported = true, granted = false, LocalNetworkRequester { null })
+        assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = false))
+        LocalNetworkPermissionState(store).record(deniedCanAskAgain)
+        // Another screen, or the next start, reads the same store.
+        assertTrue(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = false))
+        // A dialog closed without a signal counts too.
+        val counted = InMemoryKeyValueStore()
+        LocalNetworkPermissionState(counted).record(denied)
+        assertTrue(LocalNetworkPermissionState(counted).deniedBefore(apiSupported = true, granted = false))
+        // Granted in the settings, then revoked there: the old denial is gone.
+        assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = true))
+        assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = false))
+        assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = false, granted = false))
     }
 }

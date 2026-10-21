@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -65,25 +67,30 @@ val homeUiModule = module {
 private fun HomeScreen(navigator: Navigator) {
     val viewModel = pageViewModel { HomeViewModel(get(), get()) }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxSize()) {
-        LocalNetworkAsk()
-        HomeState(state, navigator, Modifier.weight(1f))
+    val localNetwork = pageViewModel { HomeLocalNetworkViewModel(get(), get()) }
+    val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
+    // Back from the app's settings page, the permission may have changed.
+    LifecycleResumeEffect(localNetwork) {
+        localNetwork.refresh()
+        onPauseOrDispose {}
+    }
+    if (localNetworkState == HomeLocalNetworkState.Hidden) {
+        HomeState(state, navigator)
+    } else {
+        // Scrolls, so at small heights (a phone in landscape) the notice cannot push the page's button out of view.
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            LocalNetworkAsk(localNetworkState, localNetwork)
+            HomeState(state, navigator)
+        }
     }
 }
 
 /** Android only, with a saved server on the local network: asks for "Nearby devices" before that server times out (ADR 0020). */
 @Composable
-private fun LocalNetworkAsk() {
-    val viewModel = pageViewModel { HomeLocalNetworkViewModel(get(), get()) }
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    // Back from the app's settings page, the permission may have changed.
-    LifecycleResumeEffect(viewModel) {
-        viewModel.refresh()
-        onPauseOrDispose {}
-    }
-    val kind = when (val shown = state) {
+private fun LocalNetworkAsk(state: HomeLocalNetworkState, viewModel: HomeLocalNetworkViewModel) {
+    val kind = when (state) {
         HomeLocalNetworkState.Hidden -> return
-        is HomeLocalNetworkState.Ask -> if (shown.denied) LocalNetworkNoticeKind.Denied else LocalNetworkNoticeKind.Explain
+        is HomeLocalNetworkState.Ask -> if (state.denied) LocalNetworkNoticeKind.Denied else LocalNetworkNoticeKind.Explain
         HomeLocalNetworkState.Asking -> LocalNetworkNoticeKind.Explain
         HomeLocalNetworkState.Blocked -> LocalNetworkNoticeKind.Blocked
     }
@@ -101,14 +108,13 @@ private fun LocalNetworkAsk() {
 }
 
 @Composable
-private fun HomeState(state: HomeUiState, navigator: Navigator, modifier: Modifier) {
+private fun HomeState(state: HomeUiState, navigator: Navigator) {
     when (val shown = state) {
         HomeUiState.NoServer -> EmptyState(
             title = stringResource(Res.string.home_no_server_title),
             message = stringResource(Res.string.home_no_server_message),
             icon = CurrentIcons.Server,
             action = StateAction(stringResource(Res.string.home_add_server)) { navigator.open(AddServerRoute) },
-            modifier = modifier,
         )
         is HomeUiState.SignedOut -> EmptyState(
             title = stringResource(Res.string.home_signed_out_title),
@@ -120,7 +126,6 @@ private fun HomeState(state: HomeUiState, navigator: Navigator, modifier: Modifi
                 }
                 else -> StateAction(stringResource(Res.string.home_open_settings)) { navigator.open(SettingsRoute) }
             },
-            modifier = modifier,
         )
         is HomeUiState.SignedIn -> EmptyState(
             title = stringResource(Res.string.home_signed_in_title, shown.serverName),
@@ -129,7 +134,6 @@ private fun HomeState(state: HomeUiState, navigator: Navigator, modifier: Modifi
                 else -> stringResource(Res.string.home_signed_in_as, user, shown.serverName)
             },
             icon = CurrentIcons.Home,
-            modifier = modifier,
         )
     }
 }
