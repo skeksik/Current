@@ -6,8 +6,8 @@ of this is built yet. Home, offline states and settings: docs/architecture.md, "
 
 ## Keyboard (desktop, web, Mac)
 - Space play/pause, Left/Right seek, Up/Down volume, M mute, F full screen. Each shows a brief on-screen indicator.
-- Esc closes only the topmost transient UI, a menu or sheet first, as everywhere else (docs/architecture.md). It never closes the
-  whole player while a sheet is open.
+- Esc closes only the topmost transient UI (a menu or sheet first), as everywhere else (docs/architecture.md); with none open it
+  leaves full screen. It never closes the player: that is Back.
 - Closing a window or the player saves the resume point first.
 - Back works as elsewhere: Alt+Left, the mouse back button, Cmd+[ on a Mac.
 
