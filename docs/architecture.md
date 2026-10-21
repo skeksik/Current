@@ -99,7 +99,7 @@ with a fake history.
 
 Browser tabs of one origin share `localStorage` but not memory. `KeyValueStore` and `SecretStore` report the keys another copy of the
 app changed (`changedElsewhere`, from the `storage` event on the web, empty elsewhere): the saved servers reload, and the Jellyfin
-sessions take on what the stores hold now (a session another tab started or ended), without writing. The servers' index is always
+sessions take on what the stores hold now (a session another tab started or ended), never writing a token. The servers' index is always
 changed from the stored one, so a tab that has not heard of a change yet never writes back a stale list.
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
