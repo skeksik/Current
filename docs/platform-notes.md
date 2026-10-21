@@ -2796,6 +2796,9 @@ granularity). The one saved server is called "the server" below.
   - The jpackage launcher and the JVM are two processes, both named `Current.exe`. `taskkill /IM Current.exe` (WM_CLOSE to both) left a
     Current.exe error box, "GetMessage() failed. System error [1400] (Invalid window handle)"; Alt+F4 or WM_CLOSE to the JVM's window
     alone closes cleanly. Not a user path.
+Decision (owner, 2026-10-22): no change for now (fix A). Compose Desktop has no UI Automation support, so Narrator cannot read the app
+whatever the app does; an installed NVDA turns the bridge on by itself. Revisit when Compose adds UI Automation, or if portable NVDA or
+JAWS users need the bridge (fix B or C above).
 
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
