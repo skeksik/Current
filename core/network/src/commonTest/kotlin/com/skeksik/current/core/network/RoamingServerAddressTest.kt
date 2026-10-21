@@ -268,6 +268,28 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aRequestThatSucceedsAfterAMissMarksTheServerReachableWithoutProvingAnything() = runTest {
+        probe.answers += mapOf(internet to homeId)
+        val source = roaming()
+        probe.answers[internet] = "slow"
+        advance(5.minutes)
+        advance(5.seconds)
+        advance(5.seconds)
+        assertEquals(false, reachable)
+        probe.asked.clear()
+        // A request to another address proves nothing and changes nothing.
+        source.reportReachable(url(local))
+        runCurrent()
+        assertEquals(false, reachable)
+        // A request to the kept address answered while the probe timed out: the server is not offline.
+        source.reportReachable(url(internet))
+        runCurrent()
+        assertEquals(true, reachable)
+        assertEquals(url(internet), source.current.value)
+        assertTrue(probe.asked.isEmpty(), "a success starts no check")
+    }
+
+    @Test
     fun aNetworkChangeAsksEveryAddressAgain() = runTest {
         probe.answers += mapOf(local to homeId, internet to homeId)
         val source = roaming()

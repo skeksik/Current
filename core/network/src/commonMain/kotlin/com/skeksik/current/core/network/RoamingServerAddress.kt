@@ -172,6 +172,12 @@ internal class RoamingServerAddress(
         else if (failureQueued.value != address) request()
     }
 
+    /** Clears an offline state left by a check that missed (the address is kept), while requests to it still succeed. */
+    override fun reportReachable(address: ServerUrl) {
+        if (address != view.value.address) return
+        capabilities.update(latest.value.ref) { if (it.reachable == true) it else it.copy(reachable = true) }
+    }
+
     private fun request() {
         if (requestQueued.compareAndSet(expect = false, update = true)) events.trySend(Event.Requested)
     }
@@ -638,14 +644,24 @@ internal class RoamingServerAddress(
  * For a service that cannot be identified without credentials (Stash, later): its addresses in priority order, moving to the next on a
  * reported failure and back to the first on a network change. Every saved address is one the user typed or confirmed (ADR 0016).
  * While [localAccess] denies local addresses, only the others take turns, unless every address is local.
+ *
+ * With no probe, requests are the only signal: the server is reachable after a request succeeds, and unreachable once every address
+ * in turn has failed since then (or since the last network change).
  */
 internal class OrderedServerAddress(
     server: SavedServer,
+    private val capabilities: MutableCapabilitiesState,
     private val localAccess: LocalNetworkAccess = LocalNetworkAccess.NotNeeded,
 ) : ManagedServerAddress {
-    /** [allowed]: whether local addresses could be reached when [address] was chosen. */
-    private data class Ordered(val addresses: List<ServerUrl>, val address: ServerUrl?, val allowed: Boolean)
+    /** [allowed]: whether local addresses could be reached when [address] was chosen. [failed]: addresses that failed since. */
+    private data class Ordered(
+        val addresses: List<ServerUrl>,
+        val address: ServerUrl?,
+        val allowed: Boolean,
+        val failed: Set<ServerUrl> = emptySet(),
+    )
 
+    private val ref = server.ref
     private val state = MutableStateFlow(ordered(server.urls()))
     private val published = MutableStateFlow(state.value.address)
 
@@ -653,10 +669,26 @@ internal class OrderedServerAddress(
 
     override suspend fun awaitCurrent(): ServerUrl? = state.value.address
 
-    override fun reportUnreachable(address: ServerUrl) = state.update { ordered ->
-        if (ordered.address != address) return@update ordered
-        val usable = usable(ordered.addresses, ordered.allowed)
-        ordered.copy(address = usable.getOrNull((usable.indexOf(address) + 1) % usable.size))
+    override fun reportUnreachable(address: ServerUrl) {
+        var allFailed = false
+        state.update { ordered ->
+            allFailed = false
+            if (ordered.address != address) return@update ordered
+            val usable = usable(ordered.addresses, ordered.allowed)
+            val failed = ordered.failed + address
+            allFailed = failed.containsAll(usable)
+            ordered.copy(address = usable.getOrNull((usable.indexOf(address) + 1) % usable.size), failed = failed)
+        }
+        if (allFailed) capabilities.update(ref) { it.copy(reachable = false) }
+    }
+
+    override fun reportReachable(address: ServerUrl) {
+        var inUse = false
+        state.update { ordered ->
+            inUse = ordered.address == address
+            if (inUse) ordered.copy(failed = emptySet()) else ordered
+        }
+        if (inUse) capabilities.update(ref) { if (it.reachable == true) it else it.copy(reachable = true) }
     }
 
     override fun update(server: SavedServer) = state.update { now ->

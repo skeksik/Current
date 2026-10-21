@@ -1,7 +1,6 @@
 package com.skeksik.current.core.network
 
 import com.skeksik.current.core.database.KeyValueStore
-import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.BufferOverflow
@@ -94,16 +93,17 @@ enum class LocalNetworkAskReason {
 }
 
 /**
- * Whether to ask for local network access now (ADR 0020): when the user opens "Add server", or when a saved server has a local
- * address, and only while the dialog can still be shown. Never otherwise, so a user with internet addresses only is never asked.
- * Once [LocalNetworkPermission.Blocked], this stays false: the screen offers the settings page, and may also offer "Try again", which
- * calls [LocalNetworkAccess.request] and notices if the platform has reset its denials.
+ * Whether to ask for local network access now (ADR 0020): when the user opens "Add server", or when a saved server has an address that
+ * needs it ([SavedServer.needsLocalNetworkAccess], so not one reached only through an overlay VPN), and only while the dialog can still
+ * be shown. Never otherwise, so a user with internet addresses only is never asked. Once [LocalNetworkPermission.Blocked], this stays
+ * false: the screen offers the settings page, and may also offer "Try again", which calls [LocalNetworkAccess.request] and notices if
+ * the platform has reset its denials.
  */
 fun shouldAskForLocalNetwork(reason: LocalNetworkAskReason, servers: List<SavedServer>, status: LocalNetworkPermission): Boolean {
     if (status != LocalNetworkPermission.CanAsk) return false
     return when (reason) {
         LocalNetworkAskReason.AddServer -> true
-        LocalNetworkAskReason.SavedServers -> servers.any { server -> server.addresses.any { it.scope == AddressScope.Local } }
+        LocalNetworkAskReason.SavedServers -> servers.any { it.needsLocalNetworkAccess }
     }
 }
 
@@ -127,7 +127,10 @@ fun interface LocalNetworkRequester {
  */
 class LocalNetworkRequestBridge : LocalNetworkRequester {
     private var launch: (() -> Unit)? = null
+
+    /** The request in progress, shared by every caller; it ends with an answer, a finishing detach, or when its last caller leaves. */
     private var pending: CompletableDeferred<PermissionAnswer?>? = null
+    private var waiting = 0
     private val changed = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** [LocalNetworkAccess.changes]: after each answer and each [resumed]. */
@@ -145,26 +148,32 @@ class LocalNetworkRequestBridge : LocalNetworkRequester {
     /** [finishing] is false when the activity is only being recreated, so the dialog's answer will still come. */
     fun detach(launch: () -> Unit, finishing: Boolean) {
         if (this.launch === launch) this.launch = null
-        if (finishing) pending?.complete(null)
+        if (finishing) end(null)
     }
 
-    /** An answer nobody waits for (the request was cancelled, or the process restarted) is dropped: [LocalNetworkAccess.status] reads the grant anyway. */
+    /** An answer nobody waits for (every caller was cancelled, or the process restarted) is dropped: [LocalNetworkAccess.status] reads the grant anyway. */
     fun onResult(answer: PermissionAnswer) {
-        pending?.complete(answer)
+        end(answer)
         changed.tryEmit(Unit)
     }
 
     override suspend fun request(): PermissionAnswer? {
-        pending?.let { return it.await() }
-        val launch = launch ?: return null
-        val answer = CompletableDeferred<PermissionAnswer?>()
-        pending = answer
+        val joined = pending
+        val launch = if (joined == null) launch ?: return null else null
+        val answer = joined ?: CompletableDeferred<PermissionAnswer?>().also { pending = it }
+        waiting++
         try {
-            launch()
+            launch?.invoke()
             return answer.await()
         } finally {
-            if (pending === answer) pending = null
+            // A caller cancelled while others still wait leaves the request open for them.
+            if (--waiting == 0 && pending === answer) pending = null
         }
+    }
+
+    private fun end(answer: PermissionAnswer?) {
+        pending?.complete(answer)
+        pending = null
     }
 }
 
