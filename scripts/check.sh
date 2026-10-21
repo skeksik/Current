@@ -9,8 +9,8 @@ echo "==> No team ID in committed Xcode files"
 echo "==> Apple MARKETING_VERSION matches current.version"
 ./scripts/check-apple-version.sh
 
-echo "==> Unit tests (JVM, and the web facade's on Node)"
-./gradlew jvmTest :web:jsNodeTest
+echo "==> Unit tests (JVM, and every pure-Kotlin module's commonTest on Node)"
+./gradlew jvmTest jsNodeTest
 
 echo "==> Desktop app compiles and packages with the JDK modules it needs (CI also starts it)"
 ./gradlew :desktopApp:createDistributable
@@ -36,10 +36,12 @@ else
 fi
 
 if [ "$(uname)" = "Darwin" ]; then
+  echo "==> Unit tests on macOS (commonTest as a native binary)"
+  ./gradlew macosArm64Test
   echo "==> Apple app (iOS simulator, macOS, tvOS simulator; unsigned)"
   ./scripts/build-apple-app.sh
 else
-  echo "==> Skipping Apple app (macOS only)"
+  echo "==> Skipping macOS unit tests and the Apple app (macOS only)"
 fi
 
 echo "All checks passed."
