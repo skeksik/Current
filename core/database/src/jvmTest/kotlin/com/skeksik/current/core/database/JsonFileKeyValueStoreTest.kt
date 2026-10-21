@@ -55,4 +55,17 @@ class JsonFileKeyValueStoreTest {
         store.put("servers", "[]")
         assertEquals("[]", JsonFileKeyValueStore(file).get("servers"))
     }
+
+    @Test
+    fun aFileThatIsNotUtf8IsSetAsideAndTheStoreStartsEmpty() {
+        Files.createDirectories(file.parent)
+        // Saved as UTF-16 by a text editor: the byte order mark is not valid UTF-8.
+        val bytes = """{"servers":"[]"}""".toByteArray(Charsets.UTF_16)
+        Files.write(file, bytes)
+        val store = JsonFileKeyValueStore(file)
+        assertNull(store.get("servers"))
+        assertTrue(Files.readAllBytes(file.resolveSibling("settings.json.unreadable")).contentEquals(bytes))
+        store.put("theme", "dark")
+        assertEquals("dark", JsonFileKeyValueStore(file).get("theme"))
+    }
 }

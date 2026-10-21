@@ -46,6 +46,7 @@ import com.skeksik.current.ui.navigation.pageViewModel
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.add_address_already_added
 import com.skeksik.current.ui.resources.add_address_confirm
+import com.skeksik.current.ui.resources.add_address_server_not_saved
 import com.skeksik.current.ui.resources.add_address_subtitle
 import com.skeksik.current.ui.resources.add_address_title
 import com.skeksik.current.ui.resources.add_server_address
@@ -196,4 +197,5 @@ private fun ServerSetupProblem.message(addingAddress: Boolean): StringResource =
     ServerSetupProblem.Refused -> Res.string.add_server_refused
     ServerSetupProblem.AlreadyAdded -> if (addingAddress) Res.string.add_address_already_added else Res.string.add_server_already_added
     ServerSetupProblem.DifferentServer -> Res.string.add_server_different_server
+    ServerSetupProblem.ServerNotSaved -> Res.string.add_address_server_not_saved
 }

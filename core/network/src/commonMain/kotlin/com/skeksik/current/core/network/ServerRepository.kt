@@ -40,8 +40,9 @@ fun newServerRef(service: ServiceType): ServerRef = ServerRef(service, Random.ne
  * Keeps each server under its own key (`server.<key>`) and their order under `servers`, so no value grows with the number of servers.
  * Every saved server is in the capabilities state from the start, signed out until sign-in says otherwise; removing one removes it there.
  * Unreadable entries are skipped. Call it from one thread, as the UI does.
+ * Public so other modules' tests can use the real repository on an `InMemoryKeyValueStore`; the app binds it in Koin.
  */
-internal class StoredServerRepository(
+class StoredServerRepository(
     private val store: KeyValueStore,
     private val capabilities: MutableCapabilitiesState,
 ) : ServerRepository {

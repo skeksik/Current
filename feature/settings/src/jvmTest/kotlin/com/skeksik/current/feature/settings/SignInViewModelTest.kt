@@ -1,83 +1,45 @@
 package com.skeksik.current.feature.settings
 
-import com.skeksik.current.core.database.InMemorySecretStore
-import com.skeksik.current.core.database.SecretStorage
-import com.skeksik.current.core.model.AddressScope
-import com.skeksik.current.core.model.SavedServer
-import com.skeksik.current.core.model.ServerAddress
-import com.skeksik.current.core.model.ServerRef
-import com.skeksik.current.core.model.ServerStatus
-import com.skeksik.current.core.model.ServiceType
-import com.skeksik.current.core.model.User
-import com.skeksik.current.core.network.MutableCapabilitiesState
-import com.skeksik.current.core.network.ServerClient
-import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
-import com.skeksik.current.data.jellyfin.JellyfinAccounts
-import com.skeksik.current.data.jellyfin.QuickConnectRequest
 import com.skeksik.current.data.jellyfin.SignInException
 import com.skeksik.current.data.jellyfin.SignInFailure
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-private val home = ServerRef(ServiceType.jellyfin, "home")
-
-/** Answers as told; records sign-outs. */
-private class FakeAccounts : JellyfinAccounts {
-    var quickConnect = true
-    var signInResult: () -> User = { User("u1", home, "Alex") }
-    val approval = CompletableDeferred<Unit>()
-    var finishFailure: SignInFailure? = null
-    val signedOut = mutableListOf<ServerRef>()
-
-    override suspend fun signIn(server: ServerRef, username: String, password: String) = signInResult()
-    override suspend fun quickConnectEnabled(server: ServerRef) = quickConnect
-    override suspend fun startQuickConnect(server: ServerRef) = QuickConnectRequest("123456", "secret")
-    override suspend fun finishQuickConnect(server: ServerRef, request: QuickConnectRequest): User {
-        approval.await()
-        finishFailure?.let { throw SignInException(it) }
-        return User("u1", home, "Alex")
-    }
-    override suspend fun signOut(server: ServerRef) {
-        signedOut += server
-    }
-    override suspend fun authorizedClient(server: ServerRef): ServerClient? = null
-}
-
 class SignInViewModelTest {
-    private suspend fun SignInViewModel.settled(predicate: (SignInUiState) -> Boolean) = withTimeout(5_000) { state.first(predicate) }
+    private fun TestScope.viewModel(accounts: FakeAccounts) = SignInViewModel(accounts, home, scope = backgroundScope)
 
-    private fun CoroutineScope.viewModel(accounts: FakeAccounts) = SignInViewModel(accounts, home, scope = this)
+    private fun SignInViewModel.form() = assertIs<SignInUiState.Form>(state.value)
 
     @Test
-    fun quickConnectIsOfferedWhenTheServerHasItOn() = runBlocking<Unit> {
-        val form = viewModel(FakeAccounts()).settled { it is SignInUiState.Form && it.quickConnect }
-        assertIs<SignInUiState.Form>(form)
+    fun quickConnectIsOfferedWhenTheServerHasItOn() = runTest {
+        val viewModel = viewModel(FakeAccounts())
+        runCurrent()
+        assertTrue(viewModel.form().quickConnect)
     }
 
     @Test
-    fun aPasswordSignInEndsSignedIn() = runBlocking<Unit> {
-        val viewModel = viewModel(FakeAccounts())
+    fun aPasswordSignInEndsSignedIn() = runTest {
+        val accounts = FakeAccounts()
+        val viewModel = viewModel(accounts)
         viewModel.onUsername(" alex ")
         viewModel.onPassword("pw")
         viewModel.signIn()
-        assertEquals(SignInUiState.SignedIn("Alex"), viewModel.settled { it is SignInUiState.SignedIn })
+        runCurrent()
+        assertEquals(SignInUiState.SignedIn("Alex"), viewModel.state.value)
+        assertEquals(listOf("alex"), accounts.signIns)
     }
 
     @Test
-    fun failuresBecomeProblemsOnTheForm() = runBlocking<Unit> {
+    fun failuresBecomeProblemsOnTheForm() = runTest {
         val cases = mapOf(
             ServiceException(home, ServiceErrorKind.Unauthorized, 401) to SignInProblem.WrongCredentials,
             ServiceException(home, ServiceErrorKind.Unreachable) to SignInProblem.Unreachable,
@@ -88,85 +50,110 @@ class SignInViewModelTest {
             val viewModel = viewModel(FakeAccounts().apply { signInResult = { throw error } })
             viewModel.onUsername("alex")
             viewModel.signIn()
-            val form = viewModel.settled { it is SignInUiState.Form && it.problem != null } as SignInUiState.Form
+            runCurrent()
+            val form = viewModel.form()
             assertEquals(problem, form.problem)
             assertEquals("alex", form.username)
+            assertFalse(form.working)
         }
     }
 
     @Test
-    fun aBlankUsernameDoesNothing() = runBlocking<Unit> {
-        val viewModel = viewModel(FakeAccounts())
+    fun aBlankUsernameDoesNothing() = runTest {
+        val accounts = FakeAccounts()
+        val viewModel = viewModel(accounts)
         viewModel.signIn()
-        assertIs<SignInUiState.Form>(viewModel.state.value)
-        assertTrue(!(viewModel.state.value as SignInUiState.Form).working)
+        runCurrent()
+        assertFalse(viewModel.form().working)
+        assertTrue(accounts.signIns.isEmpty())
     }
 
     @Test
-    fun quickConnectShowsTheCodeUntilApproved() = runBlocking<Unit> {
+    fun quickConnectShowsTheCodeUntilApproved() = runTest {
         val accounts = FakeAccounts()
         val viewModel = viewModel(accounts)
         viewModel.startQuickConnect()
-        assertEquals(SignInUiState.QuickConnect("123456"), viewModel.settled { it is SignInUiState.QuickConnect })
+        runCurrent()
+        assertEquals(SignInUiState.QuickConnect("123456"), viewModel.state.value)
         accounts.approval.complete(Unit)
-        assertEquals(SignInUiState.SignedIn("Alex"), viewModel.settled { it is SignInUiState.SignedIn })
+        runCurrent()
+        assertEquals(SignInUiState.SignedIn("Alex"), viewModel.state.value)
     }
 
     @Test
-    fun anExpiredCodeGoesBackToTheForm() = runBlocking<Unit> {
+    fun anExpiredCodeGoesBackToTheForm() = runTest {
         val accounts = FakeAccounts().apply { finishFailure = SignInFailure.QuickConnectExpired }
         val viewModel = viewModel(accounts)
         viewModel.startQuickConnect()
-        viewModel.settled { it is SignInUiState.QuickConnect }
+        runCurrent()
         accounts.approval.complete(Unit)
-        val form = viewModel.settled { it is SignInUiState.Form && it.problem != null } as SignInUiState.Form
-        assertEquals(SignInProblem.QuickConnectExpired, form.problem)
+        runCurrent()
+        assertEquals(SignInProblem.QuickConnectExpired, viewModel.form().problem)
+        assertFalse(viewModel.form().working)
     }
 
     @Test
-    fun cancellingQuickConnectReturnsToTheForm() = runBlocking<Unit> {
-        val viewModel = viewModel(FakeAccounts())
+    fun startingQuickConnectHoldsTheFormUntilTheCodeArrives() = runTest {
+        val accounts = FakeAccounts().apply { codeReady = CompletableDeferred() }
+        val viewModel = viewModel(accounts)
+        viewModel.onUsername("alex")
         viewModel.startQuickConnect()
-        viewModel.settled { it is SignInUiState.QuickConnect }
+        runCurrent()
+        assertTrue(viewModel.form().working)
+
+        // Sign in (or Enter in the password field) before the code shows: ignored, so only one job runs.
+        viewModel.signIn()
+        viewModel.startQuickConnect()
+        runCurrent()
+        assertTrue(accounts.signIns.isEmpty())
+
+        accounts.codeReady.complete(Unit)
+        runCurrent()
+        assertEquals(SignInUiState.QuickConnect("123456"), viewModel.state.value)
+    }
+
+    @Test
+    fun aFailedQuickConnectStartFreesTheForm() = runTest {
+        val accounts = FakeAccounts().apply { codeReady = CompletableDeferred() }
+        val viewModel = viewModel(accounts)
+        viewModel.startQuickConnect()
+        runCurrent()
+        accounts.codeReady.completeExceptionally(SignInException(SignInFailure.QuickConnectDisabled))
+        runCurrent()
+        assertEquals(SignInProblem.QuickConnectDisabled, viewModel.form().problem)
+        assertFalse(viewModel.form().working)
+    }
+
+    @Test
+    fun cancellingQuickConnectStopsTheWaitAndReturnsToTheForm() = runTest {
+        val accounts = FakeAccounts()
+        val viewModel = viewModel(accounts)
+        viewModel.startQuickConnect()
+        runCurrent()
         viewModel.cancelQuickConnect()
+        runCurrent()
+        assertEquals(SignInUiState.Form(quickConnect = true), viewModel.state.value)
+        assertTrue(accounts.finishCancelled)
+
+        // An approval that comes later changes nothing.
+        accounts.approval.complete(Unit)
+        runCurrent()
         assertEquals(SignInUiState.Form(quickConnect = true), viewModel.state.value)
     }
-}
-
-class ServersViewModelTest {
-    private val saved = SavedServer(home, "0123456789abcdef0123456789abcdef", "Home", listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Local)))
-
-    private class Servers(initial: List<SavedServer>) : ServerRepository {
-        private val state = MutableStateFlow(initial)
-        override val servers: StateFlow<List<SavedServer>> = state
-        override fun save(server: SavedServer) {
-            state.value = state.value.filterNot { it.ref == server.ref } + server
-        }
-        override fun remove(ref: ServerRef) {
-            state.value = state.value.filterNot { it.ref == ref }
-        }
-    }
 
     @Test
-    fun rowsShowWhoIsSignedInAndWhereTokensAre() = runBlocking<Unit> {
-        val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(home, signedIn = true, reachable = true, user = User("u1", home, "Alex"))) }
-        val scope = CoroutineScope(coroutineContext + SupervisorJob())
-        val viewModel = ServersViewModel(Servers(listOf(saved)), capabilities, FakeAccounts(), InMemorySecretStore(), scope)
-        val state = withTimeout(5_000) { viewModel.state.first { it.servers.isNotEmpty() } }
-        assertEquals(listOf(ServerRow(home, "Home", "http://192.168.1.10:8096", "Alex", true)), state.servers)
-        assertEquals(SecretStorage.Memory, state.secretStorage)
-        scope.cancel()
-    }
-
-    @Test
-    fun removingSignsOutFirst() = runBlocking<Unit> {
-        val servers = Servers(listOf(saved))
+    fun aPasswordSignInAfterACancelledQuickConnectEndsSignedIn() = runTest {
         val accounts = FakeAccounts()
-        val scope = CoroutineScope(coroutineContext + SupervisorJob())
-        val viewModel = ServersViewModel(servers, MutableCapabilitiesState(), accounts, InMemorySecretStore(), scope)
-        viewModel.remove(home)
-        withTimeout(5_000) { servers.servers.first { it.isEmpty() } }
-        assertEquals(listOf(home), accounts.signedOut)
-        scope.cancel()
+        val viewModel = viewModel(accounts)
+        viewModel.startQuickConnect()
+        runCurrent()
+        viewModel.cancelQuickConnect()
+        viewModel.onUsername("alex")
+        viewModel.signIn()
+        runCurrent()
+        accounts.approval.complete(Unit)
+        runCurrent()
+        assertEquals(SignInUiState.SignedIn("Alex"), viewModel.state.value)
+        assertEquals(listOf("alex"), accounts.signIns)
     }
 }
