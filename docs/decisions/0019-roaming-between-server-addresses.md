@@ -24,7 +24,13 @@ is on, so a signal can only mean "something may have changed".
   `ServerProbe`, without credentials, and only one that reports the saved server id is used. When no address is in use, the first
   that proves itself is used at once and the check moves up to each higher one that answers, so requests never wait for a higher
   address that hangs until its probe times out (5 s for Jellyfin). An address already in use is only replaced mid-check by a higher
-  one; a lower one takes over only when the check ends without it answering. The check ends when the highest proved address has no
+  one; a lower one takes over only when the check ends without it answering. The exception is an address in use that a request
+  just found failing (it reported the address unreachable): the check that answers that report, the one running or the one it
+  starts, counts it as unproved, the way a suspension does, so the first lower address that proves itself is used at once, and the
+  check still moves back up if the failing address answers after all. Credentials still go only to proved addresses. The owner's
+  browser run (docs/platform-notes.md, "Roaming in browsers, final") found a lower address answering within 0.13-0.45 s after a
+  hotspot switch while the check waited about 5 s more for the failing one's probe to time out.
+  The check ends when the highest proved address has no
   higher one still being asked, or once it has run for twice the probe's timeout (10 s for Jellyfin), with the best
   address it proved by then, since a probe can fail to answer at all. An address that answers with another id, a redirect or
   anything else is never used. In a browser, a local `http` address from an `https` page fails as mixed content and simply does
