@@ -39,6 +39,17 @@ Facts below were read from the linked sources on that date. Re-check before rely
   Source: https://kotlinlang.org/docs/native-swift-export.html
 - SKIE converts Flow/StateFlow to AsyncSequence, suspend to async, sealed classes/enums to Swift enums. Release 0.10.15 (latest at check time) mentions Kotlin 2.4.20 support.
   Sources: https://skie.touchlab.co/ , https://github.com/touchlab/SKIE/releases
+- Swift export status, read 2026-10-21 (the project is on Kotlin 2.4.20; the page names no Kotlin version), quoted from
+  https://kotlinlang.org/docs/native-swift-export.html:
+  - "Kotlin's interoperability with Swift through Swift export is currently in Alpha."
+  - "Swift export is currently in Alpha and still incomplete, so breaking changes are expected."
+  - "You can seamlessly call suspending Kotlin code from Swift and export kotlinx.coroutines flows as Swift's AsyncSequence out of the box."
+  - "Swift export currently works only in projects that use direct integration to connect the iOS framework to the Xcode project." Our
+    Xcode build phase uses direct integration (`embedAndSignAppleFrameworkForXcode`); Swift export has its own task,
+    `embedSwiftExportForXcode`.
+  - Known issues it lists: types inheriting from `List`, `Set` or `Map` are ignored (KT-80416) and their inheritors cannot be made from
+    Swift (KT-80417); generic type parameters are erased to their upper bounds; opt-in declarations need a module-level `optIn`.
+  - Not checked: how exceptions from Kotlin reach Swift (the page does not say), and whether it works with this Kotlin, Ktor and Koin set.
 
 ## Apple playback (custom UI)
 - PiP in a custom player: `AVPictureInPictureController` with an `AVPlayerLayer` or `AVSampleBufferDisplayLayer`; app supplies its PiP button, restores its UI in the delegate,
@@ -51,6 +62,52 @@ Facts below were read from the linked sources on that date. Re-check before rely
 - Now Playing: `MPNowPlayingInfoCenter` exists on iOS, macOS (also has `playbackState`) and tvOS. Source: https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter
 - Subtitles: a developer forum thread reports native subtitles work with `AVPlayerLayer` but are lost with `AVSampleBufferDisplayLayer`; `AVPlayerItemLegibleOutput` gives attributed text that must be laid out manually.
   This is a user report, not Apple guidance. Source: https://developer.apple.com/forums/thread/700128
+
+## Apple system integration with a custom player (read 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com; nothing run)
+Input for ADR 0007's amendment 2026-10-21: what our own player UI must do itself on every engine.
+- **Now Playing.** `MPNowPlayingInfoCenter` (iOS, tvOS 5+, macOS 10.12.2+): the system shows its `nowPlayingInfo` on the Lock Screen
+  and in Control Center; the app does not control the layout. It takes `MPMediaItemPropertyTitle`, `...Artist`, `...AlbumTitle`,
+  `...Artwork`, `...PlaybackDuration` and others, plus `MPNowPlayingInfoPropertyElapsedPlaybackTime` and `...PlaybackRate`, from which
+  the system computes elapsed time itself (no frequent updates needed). On macOS `playbackState` must be set every time playback starts
+  or stops, "otherwise remote control functionality may not work as expected".
+  - tvOS: once an `MPNowPlayingSession` (tvOS 14+, iOS 16+, not macOS) is used, the system ignores the default info center, so the whole
+    app moves to sessions; PiP needs the player tied to a session. `AVPlayerViewController` owns its own session. Both come from the
+    `MPNowPlayingSession` page and "Adopting Picture in Picture in a custom player"; that the session takes a non-AVPlayer engine is not
+    stated (the page speaks of `AVPlayer` instances).
+- **Remote commands.** `MPRemoteCommandCenter.shared()` (iOS, tvOS 7.1+, macOS 10.12.2+) responds to "remote control events sent by
+  external accessories and system controls": `skipForwardCommand`/`skipBackwardCommand` (`preferredIntervals` in seconds),
+  `changePlaybackPositionCommand` (iOS 9.1+, tvOS 9+, macOS 10.12.2+), `nextTrackCommand`, play/pause. Each can be disabled.
+- **Picture in Picture.** `AVPictureInPictureController` (iOS 9+, tvOS 14+, macOS 10.15+); `init(contentSource:)` with
+  `ContentSource(sampleBufferDisplayLayer:playbackDelegate:)` and `AVPictureInPictureSampleBufferPlaybackDelegate` (iOS, tvOS 15+,
+  macOS 12+) is the path for a player that is not `AVPlayer`. Check `isPictureInPictureSupported()` first (otherwise `init` returns
+  nil); observe `isPictureInPicturePossible`; keep a strong reference; restore the UI in
+  `restoreUserInterfaceForPictureInPictureStopWithCompletionHandler`. iOS and tvOS need the audio session and background modes. "Only
+  begin PiP playback in response to user interaction and never programmatically" (App Store review rejects otherwise); the automatic
+  start on leaving the app is `canStartPictureInPictureAutomaticallyFromInline` (iOS 14.2+, not tvOS or macOS), "only for content that
+  you intend to be the user's primary focus".
+- **AirPlay picker.** `AVRoutePickerView` (iOS, tvOS 11+, macOS 10.15+): a button that opens the system's list of nearby receivers,
+  with video-capable devices higher when the app prefers video.
+- **Display criteria.** `AVDisplayManager.preferredDisplayCriteria` exists on tvOS 11.2+ and visionOS only, and applies only when user
+  settings allow; details under "HDR and Dolby Vision: Apple, AVPlayer". There is no such API on iOS or macOS.
+- **Display awake.** `AVPlayer.preventsDisplaySleepDuringVideoPlayback` defaults to true on iOS and tvOS and to false on macOS. Another
+  engine: `UIApplication.isIdleTimerDisabled` on iOS and tvOS (reset it when playback stops; Apple names "programs where the app needs to
+  continue displaying content when user interaction is minimal"), and on macOS an IOKit assertion
+  `IOPMAssertionCreateWithName` with `kIOPMAssertionTypePreventUserIdleDisplaySleep`.
+- Sources: https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter/playbackstate ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfopropertyelapsedplaybacktime ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayingsession ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter/changeplaybackpositioncommand ,
+  https://developer.apple.com/documentation/mediaplayer/mpskipintervalcommand/preferredintervals ,
+  https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-in-a-custom-player ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/canstartpictureinpictureautomaticallyfrominline ,
+  https://developer.apple.com/documentation/avkit/avroutepickerview ,
+  https://developer.apple.com/documentation/avkit/avdisplaymanager/preferreddisplaycriteria ,
+  https://developer.apple.com/documentation/avfoundation/avplayer/preventsdisplaysleepduringvideoplayback ,
+  https://developer.apple.com/documentation/uikit/uiapplication/isidletimerdisabled ,
+  https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep
 
 ## Desktop and web playback (checked 2026-10-18; input for the M1 video spikes)
 **Compose over native video.** Compose Multiplatform 1.12 has no supported way to draw Compose over native video:
@@ -1094,6 +1151,51 @@ research agent reading the same files.
   addresses. https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking
 - So `appleApp/Current/Info.plist`, shared by iOS, macOS and tvOS (ADR 0012), carries both keys. On tvOS the ATS key is set anyway; whether
   tvOS allows plain `http` to a LAN address with it, or without it, is not verified.
+
+## Privacy manifest: Apple (checked 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com, and in the Kotlin/Native, kotlinx.coroutines and Ktor sources; nothing built for this section)
+- "Privacy manifest files": "Apps and third-party SDKs [...] can contain a privacy manifest file, named `PrivacyInfo.xcprivacy`", which
+  records "The types of data collected by your app or third-party SDK. You need to provide this information for your app or third-party
+  SDK on all platforms" and "The required reasons APIs your app or third-party SDK uses. You need to provide this information for your app
+  or third-party SDK on iOS, iPadOS, tvOS, visionOS, and watchOS." "You need to add the privacy manifest file to your target's resources
+  for Xcode to use it when you generate a privacy report." https://developer.apple.com/documentation/bundleresources/privacy-manifest-files
+- "Describing use of required reason API": "Starting May 1, 2024, apps that don't describe their use of required reason API in their
+  privacy manifest file aren't accepted by App Store Connect." "If you use the API in your app's code, then you need to report the API in
+  your app's privacy manifest file." "For each executable or dynamic library in an app that uses a required reason API, the bundle that
+  includes the executable or dynamic library needs to include a privacy manifest file that reports the API."
+  https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+  `Shared` is a static framework linked into the app's executable (`apple/build.gradle.kts`), so the app's manifest covers its code.
+- The categories and reasons are on the `NSPrivacyAccessedAPIType` page
+  (https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype):
+  - `NSPrivacyAccessedAPICategoryUserDefaults`, `CA92.1`: "Declare this reason to access user defaults to read and write information that
+    is only accessible to the app itself. This reason does not permit reading information that was written by other apps or the system, or
+    writing information that can be accessed by other apps." Used: `UserDefaultsKeyValueStore` (core:database `appleMain`) reads and writes
+    `NSUserDefaults.standardUserDefaults` under its own `current.` keys. Declared.
+  - `NSPrivacyAccessedAPICategorySystemBootTime`: `systemUptime` and `mach_absolute_time()`. Not called by our Kotlin or Swift code (grep).
+    `TimeSource.Monotonic` (roaming, request durations; kotlinx.coroutines' native `nanoTime()` and `delay` use it too) is
+    `getTimeNanos()` in the Kotlin/Native runtime (`kotlin-native/runtime/src/main/cpp/Porting.cpp`, tag `v2.4.20`), which reads
+    `std::chrono::steady_clock` (or `high_resolution_clock` when steady), not either listed API. What Apple's libc++ calls under
+    `steady_clock` is not verified, nor whether App Store Connect flags it. Not declared; if App Store Connect asks, the reason is `35F9.1`
+    (elapsed time between events within the app).
+  - `NSPrivacyAccessedAPICategoryFileTimestamp` (`creationDate`, `modificationDate`, `stat`, `fstat`, `getattrlist`, ...),
+    `NSPrivacyAccessedAPICategoryDiskSpace` (`statfs`, `volumeAvailableCapacity...Key`, `systemFreeSize`, ...),
+    `NSPrivacyAccessedAPICategoryActiveKeyboards` (`activeInputModes`): none in our Kotlin `appleMain`/`iosMain`/`macosMain`/`tvosMain`
+    code or in `appleApp/` (grep), none in the Kotlin/Native runtime's Apple code (`fstat` appears only in its ELF reader), none in
+    kotlinx.coroutines 1.11.0 `native`/`nativeDarwin` or in Ktor 3.6.0's client, utils, io and http sources (the "modification-date" hits
+    there are HTTP header names). Not declared. Not verified: kotlinx-io's file system code (not called by us) and whatever the system
+    frameworks call on our behalf.
+  - macOS: `SCDynamicStoreCopyComputerName` (device name) is not on the list.
+- Collected data. "Describing data use in privacy manifests": "Record the categories of data that your app or third-party SDK collects about
+  the person using the app". https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests
+  The definition is on "App privacy details on the App Store": "\"Collect\" refers to transmitting data off the device in a way that
+  allows you and/or your third-party partners to access it for a period longer than what is necessary to service the transmitted request
+  in real time." and "Data that is processed only on device is not \"collected\"". https://developer.apple.com/app-store/app-privacy-details/
+  Current sends sign-in details, the device name and id and playback requests only to the servers the user adds; the developer and no
+  partner can read them. So `NSPrivacyCollectedDataTypes` is empty. This is a reading of "you and/or your third-party partners", not a
+  case Apple names: the owner confirms it before the first App Store submission. "Copy diagnostics" only copies to the clipboard.
+- `NSPrivacyTracking` is false and `NSPrivacyTrackingDomains` empty: no tracking, no analytics, no third-party SDK that contacts a domain.
+- The file is `appleApp/Current/PrivacyInfo.xcprivacy`. The target's folder is a synchronized group, so the file is a target member with no
+  `project.pbxproj` change. `scripts/build-apple-app.sh` fails when a built bundle lacks it. The privacy report (Product > Archive >
+  Generate Privacy Report) has not been generated.
 
 ## Local network, discovery and cleartext HTTP: Android (checked 2026-10-19 in the Android docs and AOSP `main`; nothing run on a device)
 - Android 17 local network permission, https://developer.android.com/privacy-and-security/local-network-permission and
@@ -2496,8 +2598,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   line in `~/.accessibility.properties` (`java.awt.Toolkit`, `jdk21u`). `jabswitch /enable` writes that line
   (`assistive_technologies=com.sun.java.accessibility.AccessBridge`) and sets the Windows accessibility registry key (`jabswitch.cpp`).
   The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
-  Bridge DLLs but no `jabswitch.exe`. Not tried: whether passing the property as a JVM argument of the packaged app makes Narrator or
-  NVDA see the Compose content without the user running `jabswitch`. A follow-up.
+  Bridge DLLs but no `jabswitch.exe`. Narrator cannot read the app with any setting, and an installed NVDA turns the bridge on by itself:
+  see "Windows screen readers and the desktop app".
 - No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
   follow-up.
 - Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
@@ -2540,6 +2642,108 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
   after the upgrade and after the launch.
 - 0.1.1 left installed at the owner's choice; uninstall not re-run here (CI covers it).
 
+## Windows screen readers and the desktop app (read 2026-10-21 in the sources below; nothing run on Windows)
+Sources, all read 2026-10-21: compose-multiplatform-core tag `v1.12.1` (a1a7f35), `compose/ui/ui/src/desktopMain/.../platform/a11y/`;
+skiko tag `v0.150.1` (the version CMP 1.12.1's `libs.versions.toml` names), `skiko/src/awtMain/cpp/windows/`; the compose-multiplatform
+Gradle plugin at tag `v1.12.1`; OpenJDK `jdk21u` at b7833d8; NVDA's source on `master` (https://github.com/nvaccess/nvda, `source/`);
+https://kotlinlang.org/docs/multiplatform/compose-desktop-accessibility.html (the page shows 03 December 2024);
+https://docs.oracle.com/en/java/javase/21/access/java-access-bridge-overview.html;
+https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility-testing (ms.date 2026-07-22);
+https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow (ms.date 2024-03-27).
+
+1. **Compose Desktop on Windows is Java Access Bridge only.**
+   - JetBrains' page: "Windows: Supported via Java Access Bridge", "which is disabled by default"; enable it with
+     `%JAVA_HOME%\bin\jabswitch.exe /enable`, and add `jdk.accessibility` to a native distribution. Linux: "Not supported" (no AT-SPI
+     mention).
+   - In the source, the whole desktop tree is `javax.accessibility`: `ComposeAccessible.kt` (`ComposeAccessibleComponent :
+     AccessibleContext(), AccessibleComponent, AccessibleAction`), `ComposeSceneAccessibility.kt`, `SemanticsOwnerAccessibility.kt`. The
+     one Windows branch fakes an AWT focus event for the bridge (`Accessibility.desktop.kt`, `requestAccessBridgeFocusOnAccessible`);
+     on other systems but macOS the focus helper does nothing. Comments there tune roles for NVDA and VoiceOver; none mention Narrator.
+   - No UI Automation or MSAA code anywhere on the path: none in `ui/src/desktopMain`, none in skiko's Windows natives (no
+     `WM_GETOBJECT`, `UiaReturnRawElementProvider` or `IAccessible`), and in the JDK's `awt_Component.cpp`, `awt_Window.cpp`,
+     `awt_Frame.cpp`, `awt_Canvas.cpp`, `awt_Toolkit.cpp` `WM_GETOBJECT` appears only in the debug message-name table. So a Windows client
+     that does not speak the bridge sees only what Windows itself provides for a top-level window: its title.
+   - Compose's own accessibility is on unless `-Dcompose.accessibility.enable=false` or `COMPOSE_DISABLE_ACCESSIBILITY` is set
+     (`ComposeSceneAccessibility.kt`, `enabled`); it does not look for a screen reader.
+2. **Who reads the bridge.**
+   - Oracle: an AT "communicates with Java Access Bridge DLLs, which in turn communicates with the Java Virtual Machine through Java
+     Access Bridge Java libraries".
+   - NVDA: yes. It loads its own `windowsaccessbridge.dll` from its program folder (`NVDAState.py`, `javaAccessBridgeDLL`), and hands
+     Java windows to it (`IAccessibleHandler/__init__.py`, "If Java access bridge is running, and this is a java window, then pass it to
+     java"). **An installed NVDA turns the bridge on by itself:** at start-up, if `%USERPROFILE%\.accessibility.properties` is not
+     exactly `assistive_technologies=com.sun.java.accessibility.AccessBridge` + `screen_magnifier_present=true`, it overwrites the file
+     with those two lines (`JABHandler.py`, `initialize`, `isBridgeEnabled`, `enableBridge`). It skips this when it is not an installed
+     copy (a portable or launcher copy) and on the secure desktop.
+   - JAWS: JetBrains' page names JAWS' speech history for testing, so JAWS reads the bridge. Freedom Scientific's own bulletin
+     (support.freedomscientific.com, bulletin 1475) returned 403; whether JAWS enables the bridge itself is not checked.
+   - Narrator: Microsoft's testing page describes Narrator through UI Automation only (AccScope "is specifically intended for testing
+     Narrator accessibility scenarios and uses the UI Automation information provided by an app"). No Microsoft or Oracle source found says
+     Narrator uses the Java Access Bridge. With point 1, Narrator cannot read this app with any bridge setting; "Current window" is what
+     the owner heard. A fix for Narrator is a UI Automation provider in Compose or the JDK, not something the app can configure.
+3. **How the bridge gets turned on, and why the packaged app has no `jabswitch`.**
+   - The JVM side: `java.awt.Toolkit`'s static initialiser calls `initAssistiveTechnologies()`; `getDefaultToolkit()` then calls
+     `loadAssistiveTechnologies()`, which activates every `AccessibilityProvider` whose name is listed. Order of lookup: the system
+     property `javax.accessibility.assistive_technologies`; else `assistive_technologies` from `%USERPROFILE%\.accessibility.properties`;
+     and only if that file is missing or empty, from `<java.home>\conf\accessibility.properties`. `screen_magnifier_present` is looked up
+     the same way. It is read once, when AWT starts: a change needs an app restart.
+   - The name is `com.sun.java.accessibility.AccessBridge`, provided by `jdk.accessibility` on Windows only (`ProviderImpl.java`,
+     `module-info.java.extra`); activating it starts the bridge thread and loads `javaaccessbridge.dll` (`AccessBridge.java`).
+   - **A name with no provider is fatal:** `fallbackToLoadClassForAT` throws `AWTError("Assistive Technology not found: ...")` from
+     `getDefaultToolkit()`. So the property must never reach the Linux package, and a runtime without `jdk.accessibility` crashes for
+     every user whose per-user file names the bridge (this one has the module).
+   - `jabswitch /enable` writes or fixes the two lines in `%USERPROFILE%\.accessibility.properties` and adds `oracle_javaaccessbridge` to
+     `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Accessibility\Configuration` (`jabswitch.cpp`). Nothing on the Java side reads
+     that registry value (no match in `AccessBridge.java`, `JavaAccessBridge.cpp`, `WinAccessBridge.cpp`); the file is what matters.
+   - `jabswitch` is a launcher of `jdk.accessibility` (`make/modules/jdk.accessibility/Launcher.gmk`), so a `bin` file of type
+     `NATIVE_CMD`, which jlink's `--strip-native-commands` drops (`StripNativeCommandsPlugin.java`). The Compose plugin always passes it:
+     `stripNativeCommands` is an `internal` property of `AbstractJLinkTask`, default `true`, with no DSL setting.
+   - What the plugin can add: `application.jvmArgs` go to jpackage as `--java-options` (`configureJvmApplication.kt`,
+     `launcherJvmArgs`; `AbstractJPackageTask.kt`) and also to `:desktopApp:run`. There is no per-OS `jvmArgs` (`WindowsPlatformSettings`
+     has none), but the MSI is only built on Windows, so a host-OS check in `build.gradle.kts` keeps it out of the DEB. Nothing in the DSL
+     writes into the runtime; a file there needs a `doLast` on the `createRuntimeImage` task.
+   - jpackage's Windows layout: the launcher in the install folder, `app\Current.cfg` (its `[JavaOptions]` section holds one
+     `java-options=` line per option) and `runtime\` as `java.home` (`ApplicationLayout.windowsAppImage`, `CfgFile.java`). Installed per
+     user, that is `%LOCALAPPDATA%\Current App\app\Current.cfg` and `%LOCALAPPDATA%\Current App\runtime\conf\accessibility.properties`.
+4. **Fixes, smallest first.**
+   - **A. No change.** NVDA users get the bridge from NVDA itself (point 2), once NVDA has run before the app starts. Narrator cannot
+     be helped by any option here. Gaps: a portable NVDA, JAWS (not checked), and a user who starts the app before NVDA (restart it).
+   - **B. One Windows-only JVM argument:** `if (OperatingSystem.current().isWindows) jvmArgs("-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge")`.
+     The bridge is on for every reader that speaks it. Trade-offs: it is on for every user, also without a screen reader (a daemon thread,
+     a DLL and AWT event listeners; startup cost not measured); and the property wins over the per-user file, so `jabswitch /disable` no
+     longer turns it off for this app.
+   - **C. `runtime\conf\accessibility.properties`** with the same line, written by a `doLast` on `createRuntimeImage` (Windows host).
+     The same effect, but a non-empty per-user file still wins, so the user's `jabswitch /disable` or a hand edit is respected. A few
+     lines of build code instead of one.
+   - **D. Only when a screen reader runs:** in `main()`, before anything touches AWT, read `SPI_GETSCREENREADER` through JNA (already a
+     dependency) and set the property only if it is true. NVDA sets that flag unless started with `--no-sr-flag` (`nvda.pyw`,
+     `argsParsing.py`); Microsoft: "Narrator ... does not set the SPI_SETSCREENREADER or SPI_GETSCREENREADER flags" (which does not
+     matter, point 2). Code in the app and a reader started after the app is missed; only worth it if B or C measurably slows startup.
+
+Owner checklist (Windows 11, an installed MSI from `main`; nothing here is shipped). NVDA from https://www.nvaccess.org/download/ is GPL
+and a test tool only: never bundled, never a dependency. Write down, for each run, what the reader says for: a **sidebar** item (Tab
+to Home and Settings), the **page title** (NVDA+T reads the window title, `globalCommands.py`; then the first heading or text of the page with the reader's
+read-next key), a **button** (Settings > Add server), a **dialog** (Settings > Remove on a saved server; then Cancel), plus the
+startup time (launch to window, by eye or stopwatch) and anything odd. NVDA: Tools > Speech viewer shows the text. Narrator:
+Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
+0. Back up: `%LOCALAPPDATA%\Current App\app\Current.cfg` and, if it exists, `%USERPROFILE%\.accessibility.properties` (note its
+   contents). Then move the second one away. Note: anything written under `%LOCALAPPDATA%\Current App` is deleted by an upgrade or an
+   uninstall; these edits are only for this test.
+1. Baseline, Narrator: start Current, then Narrator. Expected: "Current window" only.
+2. Baseline, NVDA without the bridge: run the NVDA download and press "Continue running" (a temporary copy, which does not write the file;
+   `gui/startupDialogs.py`). Start Current after NVDA. Check `%USERPROFILE%\.accessibility.properties` is still absent. Expected: window title only.
+3. Fix B by hand: with Current closed, add `java-options=-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge`
+   as a new line under `[JavaOptions]` in `Current.cfg`. Start Current; repeat with the temporary NVDA, then with Narrator (expected: no
+   change for Narrator). Also once with no reader running, for the startup time. Restore `Current.cfg` from the backup.
+4. Fix C by hand: with Current closed, create `%LOCALAPPDATA%\Current App\runtime\conf\accessibility.properties` containing
+   `assistive_technologies=com.sun.java.accessibility.AccessBridge`. Repeat 3's runs with the temporary NVDA. Then create a per-user
+   `%USERPROFILE%\.accessibility.properties` holding only `#assistive_technologies=com.sun.java.accessibility.AccessBridge` and check
+   NVDA no longer reads the app (the user's opt-out wins). Delete both files.
+5. Fix A, installed NVDA: install NVDA and start it. Check `%USERPROFILE%\.accessibility.properties` now has the two lines. Start Current
+   with the original `Current.cfg`: expected to read like 3. Then quit Current, quit NVDA, start Current, then NVDA: expected nothing
+   until Current is restarted.
+6. Clean up: `Current.cfg` as backed up, no `runtime\conf\accessibility.properties`, and the per-user file as it was in step 0 (an
+   installed NVDA rewrites it at each start; uninstall NVDA if it is not wanted).
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
@@ -2572,7 +2776,8 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
 ## Not verified (research before depending on it)
-- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
+- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
+  checklist in "Windows screen readers and the desktop app"), the
   window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
@@ -2674,4 +2879,12 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
       a `TypeError` at once: see "Local server discovery, run on devices".)
     - Chrome 145 and 156 changes (third-party reports only).
   - ktor-network: the wasm-js source jar was not opened; nothing was run on any target.
-- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
+- Apple system integration with a custom player (section of that name; documentation only):
+  - That the fallback engine can feed an `AVSampleBufferDisplayLayer` for PiP (and keep HDR there), and that `MPNowPlayingSession`
+    works on tvOS without an `AVPlayer`.
+  - That media keys and the macOS menu bar's Now Playing reach `MPRemoteCommandCenter` and `MPNowPlayingInfoCenter` (the pages say
+    "system controls", Lock Screen and Control Center, not media keys or the menu bar by name).
+  - AirPlay video from the fallback engine: `AVRoutePickerView` picks a route, but what plays there without `AVPlayer` is not stated.
+  - Matching frame rate and dynamic range on iOS and macOS (no display-criteria API there).
+  - The remux route (ADR 0007): whether AVPlayer plays a local HLS/fMP4 repackaged on the device, and how it is served to it.
+- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; CI also builds the web, Android and Apple targets since 2026-10-18, roadmap M0).

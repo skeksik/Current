@@ -13,7 +13,7 @@ URL, Quick Connect secrets in the query. Logs and problem reports must never car
   server shares the platform engine. Paths are relative to the server (`get("System/Info/Public")`).
 - **The address is swappable.** A `ServerAddressSource` holds the current `ServerUrl` (http or https, host, port, optional path prefix);
   the client reads it for every request and reports addresses it cannot connect to. `FixedServerAddress` has one address; choosing among
-  several comes with server setup.
+  several came with roaming (ADR 0019).
 - **Credentials are the data layer's.** `RequestAuth` adds them to each request after the address is applied; core knows no scheme.
 - **Redirects are not followed and only 2xx succeeds**, so credentials never go to a host the user did not configure.
 - **Errors:** every call goes through `ServerClient.request`, which throws `ServiceException(server, kind, status, detail)` with a kind:

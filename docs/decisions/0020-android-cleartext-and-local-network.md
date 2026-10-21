@@ -4,8 +4,7 @@ Status: accepted (2026-10-21).
 
 ## Context
 On Android the app could not reach a server on the local network. The owner's runs on Android 17 (target 37) found three gaps; they are
-recorded in docs/platform-notes.md by two open PRs, the roaming PR ("Roaming on Android") and the discovery spike ("Local server discovery,
-run on devices"), and must merge for those citations to resolve. On this branch, the sections "Local network, discovery and cleartext
+recorded in docs/platform-notes.md ("Roaming on Android" and "Local server discovery, run on devices"). The sections "Local network, discovery and cleartext
 HTTP: Android" and "Local network permission on Android: the API" have the documentation behind them:
 - the manifest had no `INTERNET`;
 - a target of 28 or more blocks plain `http` by default;
@@ -59,6 +58,6 @@ HTTP: Android" and "Local network permission on Android: the API" have the docum
   VPN connections, so they presumably do not need it. Not verified on a device. One rule, computed from the URL
   (`needsLocalNetworkAccess`), decides both: a user whose only local addresses are Tailscale ones is never asked, and roaming does not
   skip those addresses while access is denied (ADR 0019).
-- The machine-local store is not yet kept out of Android backups (ADR 0017, M4); until then a restored phone may carry a `Blocked` state,
-  which `status()` corrects as soon as the permission is granted, and "Try again" works around.
+- The machine-local store is kept out of Android backups (`data_extraction_rules.xml`, PR 46), so a restored phone starts without the
+  old `Blocked` state.
 - Whether Media3 and Coil honour the cleartext setting is not verified (docs/platform-notes.md).

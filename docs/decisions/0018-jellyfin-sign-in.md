@@ -14,8 +14,8 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
   then `POST /Users/AuthenticateWithQuickConnect`), sign-out, and `authorizedClient` for the data layer to come.
 - **The header** is `MediaBrowser Client="Current", Device="…", DeviceId="…", Version="…"[, Token="…"]` with URL-encoded values, built
   from `DeviceIdentity` and `AppInfo`, sent without `Token` until signed in.
-- **Credentials reach only the saved server.** Requests go to the saved server's address (`ServerAddressSources`, the first address
-  until roaming). The `ServerId` in a sign-in answer must equal the id saved at setup; otherwise the new session is ended on that server
+- **Credentials reach only the saved server.** Requests go to the saved server's address (`ServerAddressSources`, the address roaming
+  has proved, ADR 0019). The `ServerId` in a sign-in answer must equal the id saved at setup; otherwise the new session is ended on that server
   and nothing is kept.
 - **What is kept:** the token in the `SecretStore` (`jellyfin/<server key>/token`); the user's id, name and admin flag in settings
   (`jellyfin.<server key>.user`), which are not secret and let the app show who is signed in while the server is offline.
@@ -33,7 +33,7 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
   where tokens are kept, and the opt-in file when there is no keyring).
 
 ## Consequences
-- The web app has the same flow, through the `web` facade once the React shell has screens; CORS is open on Jellyfin (platform notes).
+- The web app has the same flow, through the `web` facade (the React sign-in page shipped in PR 37); CORS is open on Jellyfin (platform notes).
 - The shapes come from the 12.2 OpenAPI spec. The opt-in live smoke tests (`LiveJellyfinSmokeTest`) confirmed password and Quick Connect
   sign-in, the restored-session check and sign-out against a live 12.2 server on 2026-10-20.
 - The user's avatar is not loaded yet (`PrimaryImageTag`), and Quick Connect approval of another device's code (`/QuickConnect/Authorize`)
