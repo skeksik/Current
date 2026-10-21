@@ -113,7 +113,7 @@ function QuickConnectCode({ code, cancel }: { code: string; cancel: () => void }
   return (
     <>
       <Panel>
-        <p className="panel-title">{strings.signInQuickConnectTitle}</p>
+        <h3 className="panel-title">{strings.signInQuickConnectTitle}</h3>
         <p className="code">{code}</p>
         <p>{strings.signInQuickConnectMessage}</p>
         <Progress>{strings.signInQuickConnectWaiting}</Progress>

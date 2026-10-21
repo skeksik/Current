@@ -65,7 +65,8 @@ export const strings = {
     SecretService: "Sign-ins are kept in your desktop's keyring, through the Secret Service.",
     Browser: 'Sign-ins are kept in this browser.',
     File: 'Sign-ins are kept in a file only your user account can read.',
-    Memory: 'No credential store was found, so you are signed out when the app quits.',
+    // On the web, only when the browser blocks storage for this site or a write to it failed.
+    Memory: 'This browser is not keeping data for this site, so you are signed out when you close or reload the page.',
   } satisfies Record<SecretStorageName, string>,
   settingsSecretsKeepInFile: 'Keep sign-ins in a file',
   settingsAbout: 'About',

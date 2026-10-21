@@ -38,6 +38,7 @@ import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
 import com.skeksik.current.core.designsystem.Panel
+import com.skeksik.current.core.designsystem.PanelTitle
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.model.AddressScope
@@ -245,7 +246,7 @@ private fun AddressPanel(
     modifier: Modifier = Modifier,
 ) {
     Panel(modifier) {
-        Text(row.url, style = MaterialTheme.typography.titleMedium)
+        PanelTitle(row.url)
         // Wraps when narrow, so "In use" moves below the scope rather than squeezing.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             val scope = if (row.scope == AddressScope.Local) Res.string.addresses_local else Res.string.addresses_internet

@@ -78,7 +78,7 @@ function AddServerForm({ page }: { page: AddServerPage }) {
       {state.kind === 'found' && (
         <>
           <Panel>
-            <p className="panel-title">{strings.addServerFound(state.name ?? '')}</p>
+            <h3 className="panel-title">{strings.addServerFound(state.name ?? '')}</h3>
             {state.version && <p>{strings.addServerVersion(state.version)}</p>}
             <p>{state.address}</p>
             <Notice kind="info">{state.local ? strings.addServerLocal : strings.addServerInternet}</Notice>
