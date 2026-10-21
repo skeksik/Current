@@ -85,6 +85,13 @@ internal class RoamingServerAddress(
     }
 
     private val events = Channel<Event>(Channel.UNLIMITED)
+
+    /**
+     * Whether a [Event.Requested] or [Event.Resumed] is queued and not yet taken: those come at the rate of requests or of
+     * platform signals, and one queued says all that more would, so the queue stays bounded.
+     */
+    private val requestQueued = MutableStateFlow(false)
+    private val resumeQueued = MutableStateFlow(false)
     private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0))
     private val published = MutableStateFlow<ServerUrl?>(null)
 
@@ -96,19 +103,27 @@ internal class RoamingServerAddress(
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
     override suspend fun awaitCurrent(): ServerUrl? {
+        val started = time.markNow()
         while (true) {
             val resumes = view.value.resumes
-            val seen = withTimeoutOrNull(requestWaitsAtMost) { view.first { !it.holding } }
+            // At most twice the bound in all, however many resumed networks come.
+            val left = minOf(requestWaitsAtMost, requestWaitsAtMost * 2 - started.elapsedNow())
+            val seen = withTimeoutOrNull(left) { view.first { !it.holding } }
             // The app was suspended, or the network was blocked, while this request waited: wait again rather than fail.
-            if (seen == null && view.value.resumes != resumes) continue
+            // Once per resumed network, and only while time is left.
+            if (seen == null && view.value.resumes != resumes && started.elapsedNow() < requestWaitsAtMost * 2) continue
             val address = seen?.address?.takeIf { it in latest.value.urls() }
-            if (address == null) events.trySend(Event.Requested)
+            if (address == null) request()
             return address
         }
     }
 
     override fun reportUnreachable(address: ServerUrl) {
-        if (address == view.value.address) events.trySend(Event.Requested)
+        if (address == view.value.address) request()
+    }
+
+    private fun request() {
+        if (requestQueued.compareAndSet(expect = false, update = true)) events.trySend(Event.Requested)
     }
 
     override fun update(server: SavedServer) {
@@ -122,7 +137,10 @@ internal class RoamingServerAddress(
                 launch { view.collect { published.value = it.address } }
                 launch {
                     networkChanges.collect { change ->
-                        events.send(if (change == NetworkChange.Changed) Event.Changed else Event.Resumed)
+                        when (change) {
+                            NetworkChange.Changed -> events.send(Event.Changed)
+                            NetworkChange.Resumed -> if (resumeQueued.compareAndSet(expect = false, update = true)) events.send(Event.Resumed)
+                        }
                     }
                 }
                 Loop(this).run()
@@ -169,12 +187,18 @@ internal class RoamingServerAddress(
             when (event) {
                 is Event.Edited -> edited(event.server)
                 Event.Changed -> changed()
-                Event.Resumed -> resumed()
+                Event.Resumed -> {
+                    resumeQueued.value = false
+                    resumed()
+                }
                 is Event.Settled -> if (event.token == settleToken && settlePending) {
                     settlePending = false
                     startCheck(full = true, woken = true)
                 }
-                Event.Requested -> requested()
+                Event.Requested -> {
+                    requestQueued.value = false
+                    requested()
+                }
                 is Event.TimerFired -> if (event.token == timerToken && check == null && !settlePending) {
                     timerDue = null
                     startCheck(full = event.full, woken = event.requested)

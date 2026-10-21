@@ -403,6 +403,24 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun resumedNetworksRestartAWaitAtMostUpToTwiceTheBound() = runTest {
+        probe.answers += mapOf(local to "hang", internet to "hang")
+        val source = roaming()
+        val request = async { source.awaitCurrent() }
+        // Each resumed network comes just before the wait would end; the bound is 11 s, so the cap is 22 s.
+        advance(10.seconds)
+        changes.emit(NetworkChange.Resumed)
+        advance(10.seconds)
+        changes.emit(NetworkChange.Resumed)
+        advance(1.9.seconds)
+        assertFalse(request.isCompleted, "the restarted wait still runs")
+        changes.emit(NetworkChange.Resumed)
+        advance(0.2.seconds)
+        assertTrue(request.isCompleted, "no wait goes beyond twice the bound")
+        assertNull(request.await())
+    }
+
+    @Test
     fun aResumedNetworkStartsTheRetryWaitsOver() = runTest {
         roaming()
         // Misses at 0, 15 and 45 s; the next wait would be 60 s.
