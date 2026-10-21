@@ -73,8 +73,11 @@ is on, so a signal can only mean "something may have changed".
 - **A source whose run a bug ends is replaced**, a stray `CancellationException` included. Clients hold a stable wrapper; behind it
   a fresh source, with its own queue, ids and state, starts cold (holding requests and checking) from the saved server as it is then,
   so the dead run's queued events and probe results are never handled. It starts after 15 s, doubling while the bug recurs up to
-  5 minutes, back to 15 s after a run of 5 minutes. The bug reaches the app scope's exception handler, which logs its class name only
-  (ADR 0015), so it does not end the app on Android and Apple.
+  5 minutes, back to 15 s after a run of 5 minutes. A dying run drops its address at once, and `reachable` goes back to unknown
+  until the fresh source has checked. The bug reaches the app scope's exception handler, which logs its class name only (ADR 0015),
+  so it does not end the app on Android and Apple; a stray cancellation, which that handler never sees, is logged the same way.
+- **A network signal that fails starts again** after 15 s, doubling up to 5 minutes, and counts as a change, since one may have been
+  missed meanwhile. A source whose signal ends is treated as a bug, never left running blind.
 - **A service that cannot identify itself without credentials** (Stash, later; an explicit list) gets its addresses in priority order,
   moves to the next on a reported failure and back to the first on a network change. Every saved address is one the user typed or
   confirmed (ADR 0016). Any other service without a probe gets no address.

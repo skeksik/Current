@@ -12,18 +12,24 @@ import io.ktor.client.engine.mock.respondOk
 import io.ktor.client.request.get
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -247,6 +253,99 @@ class RoamingAddressSourcesTest {
         advanceTimeBy(1.seconds)
         runCurrent()
         assertEquals(3, runs, "the next after 30 s")
+    }
+
+    @Test
+    fun aWaitingRequestGetsNothingAtOnceWhenABugEndsTheRunWhileAProbeStillRuns() = runTest {
+        val appScope = appScope()
+        val probe = object : ServerProbe {
+            override val service = ServiceType.jellyfin
+            override val defaultPort = 8096
+
+            override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+                if (address.toString() == internet.url) {
+                    delay(1.seconds)
+                    throw IllegalStateException("a bug in a probe")
+                }
+                // An engine that ignores cancellation: this probe returns only after 5 s whatever happens.
+                withContext(NonCancellable) { delay(5.seconds) }
+                throw ServiceException(server, ServiceErrorKind.Timeout)
+            }
+        }
+        val home = server().also(repository::save)
+        val source = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, appScope, time = testTimeSource)
+            .forServer(home)
+        val request = async { source.awaitCurrent() }
+        runCurrent()
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertTrue(request.isCompleted, "not held until the other probe returns")
+        assertNull(request.await())
+    }
+
+    @Test
+    fun aNetworkSignalThatFailsStartsAgainAndCountsAsAChange() = runTest {
+        var collections = 0
+        val failingOnce = NetworkChanges {
+            flow {
+                if (collections++ == 0) throw IllegalStateException("a bug in the platform signal")
+                emitAll(changes)
+            }
+        }
+        val home = server().also(repository::save)
+        val source = RoamingAddressSources(repository, listOf(probe), capabilities, failingOnce, backgroundScope, time = testTimeSource)
+            .forServer(home)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        probe.asked.clear()
+        // Restarted after 15 s; a change may have been missed meanwhile, so the addresses are asked again once it settles.
+        advanceTimeBy(15.seconds + 1.seconds)
+        runCurrent()
+        assertEquals(listOf(local.url, internet.url), probe.asked)
+        probe.asked.clear()
+        changes.emit(NetworkChange.Changed)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(listOf(local.url, internet.url), probe.asked, "the restarted signal is heard")
+    }
+
+    @Test
+    fun aSourceThatCannotBeMadeAgainIsNotHandedOut() = runTest {
+        val bugs = mutableListOf<Throwable>()
+        val appScope = appScope(bugs)
+        var bugged = false
+        var breakNextMake = false
+        val probe = object : ServerProbe {
+            override val service = ServiceType.jellyfin
+            override val defaultPort = 8096
+
+            // Read when a roaming source is made; the test breaks the one made after the bug.
+            override val timeout
+                get() = if (breakNextMake) {
+                    breakNextMake = false
+                    throw IllegalStateException("a bug while making a source")
+                } else {
+                    5.seconds
+                }
+
+            override suspend fun identify(server: ServerRef, address: ServerUrl): ServerIdentity {
+                if (!bugged) {
+                    bugged = true
+                    breakNextMake = true
+                    throw IllegalStateException("a bug in a probe")
+                }
+                return ServerIdentity(homeId, "Home", null)
+            }
+        }
+        val home = server().also(repository::save)
+        val sources = RoamingAddressSources(repository, listOf(probe), capabilities, { changes }, appScope, time = testTimeSource)
+        val dead = sources.forServer(home)
+        runCurrent()
+        assertTrue(bugs.isNotEmpty())
+        val next = sources.forServer(home)
+        assertNotSame(dead, next)
+        runCurrent()
+        assertEquals(url(local), next.current.value)
     }
 
     /** A real client on a mock engine that runs on the test's clock, recording where each request went. */

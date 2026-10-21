@@ -3,6 +3,7 @@ package com.skeksik.current.core.network
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import kotlin.math.pow
 import kotlin.time.Duration
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -58,7 +60,16 @@ class RoamingAddressSources internal constructor(
     }
 
     private val probes = probes.associateBy { it.service }
-    private val changes = networkChanges.changes().shareIn(scope, SharingStarted.WhileSubscribed())
+    private val changes = networkChanges.changes()
+        // A platform signal that fails starts again, so sources never go blind; it may have missed a change meanwhile.
+        .retryWhen { cause, attempt ->
+            if (cause is CancellationException) return@retryWhen false
+            logBug("Network changes failed", cause)
+            delay((timing.retryFirst * 2.0.pow(attempt.coerceAtMost(10L).toInt())).coerceAtMost(timing.retryAtMost))
+            emit(NetworkChange.Changed)
+            true
+        }
+        .shareIn(scope, SharingStarted.WhileSubscribed())
     private val running = MutableStateFlow<Map<ServerRef, Running>>(emptyMap())
 
     init {
@@ -112,27 +123,41 @@ class RoamingAddressSources internal constructor(
      */
     private fun watch(ref: ServerRef, run: Running) {
         run.job.invokeOnCompletion { cause ->
-            val stopped = cause == null || running.value[ref] !== run || scope.coroutineContext[Job]?.isActive == false
-            val saved = servers.server(ref)
-            val fresh = saved?.let(::make)
-            if (stopped || fresh == null) {
-                running.update { map -> if (map[ref] === run) map - ref else map }
-                return@invokeOnCompletion
+            try {
+                restartIfABugEnded(ref, run, cause)
+            } catch (e: Throwable) {
+                // Never hand out a source that will not run again: the next caller starts a new one.
+                val left = running.value[ref]?.takeIf { it.source === run.source }
+                running.update { map -> if (left != null && map[ref] === left) map - ref else map }
+                left?.job?.cancel()
+                throw e
             }
-            // The dead source may still hold its run's queued events: requests now wait on the fresh one, which starts cold.
-            run.source.replace(fresh)
-            servers.server(ref)?.let(fresh::update)
-            val longRun = run.started?.let { it.elapsedNow() >= timing.retryAtMost } ?: false
-            val wait = if (run.wait == Duration.ZERO || longRun) timing.retryFirst else (run.wait * 2).coerceAtMost(timing.retryAtMost)
-            val again = runLater(run.source, wait)
-            val replaced = running.updateAndGet { map -> if (map[ref] === run) map + (ref to again) else map }[ref] === again
-            if (replaced && servers.server(ref) != null) {
-                watch(ref, again)
-                again.job.start()
-            } else {
-                again.job.cancel()
-                running.update { map -> if (map[ref] === again) map - ref else map }
-            }
+        }
+    }
+
+    private fun restartIfABugEnded(ref: ServerRef, run: Running, cause: Throwable?) {
+        val stopped = cause == null || running.value[ref] !== run || scope.coroutineContext[Job]?.isActive == false
+        val fresh = if (stopped) null else servers.server(ref)?.let(::make)
+        if (fresh == null) {
+            running.update { map -> if (map[ref] === run) map - ref else map }
+            return
+        }
+        // The scope's handler never sees a cancellation, so it is logged here.
+        if (cause is CancellationException) logBug("Address source ended by a stray cancellation", cause)
+        // The dead source may still hold its run's queued events: requests now wait on the fresh one, which starts cold.
+        run.source.replace(fresh)
+        capabilities.update(ref) { it.copy(reachable = null) }
+        servers.server(ref)?.let(fresh::update)
+        val longRun = run.started?.let { it.elapsedNow() >= timing.retryAtMost } ?: false
+        val wait = if (run.wait == Duration.ZERO || longRun) timing.retryFirst else (run.wait * 2).coerceAtMost(timing.retryAtMost)
+        val again = runLater(run.source, wait)
+        val replaced = running.updateAndGet { map -> if (map[ref] === run) map + (ref to again) else map }[ref] === again
+        if (replaced && servers.server(ref) != null) {
+            watch(ref, again)
+            again.job.start()
+        } else {
+            again.job.cancel()
+            running.update { map -> if (map[ref] === again) map - ref else map }
         }
     }
 

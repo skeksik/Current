@@ -21,9 +21,10 @@ val AppScope = named("appScope")
  * A bug that ends background work is logged by class name only, since its message may quote a URL or a body (ADR 0015). Without a
  * handler it would end the app on Android and Apple; with it, a roaming source starts again ([RoamingAddressSources]).
  */
-private val logBackgroundBug = CoroutineExceptionHandler { _, error ->
-    println("Background work ended by a bug: ${error::class.simpleName}")
-}
+private val logBackgroundBug = CoroutineExceptionHandler { _, error -> logBug("Background work ended by a bug", error) }
+
+/** Logs what happened and the error's class name, never its message (ADR 0015). */
+internal fun logBug(what: String, error: Throwable) = println("$what: ${error::class.simpleName}")
 
 /** Koin definitions of `core:network`. Needs `core:database`'s `databaseModule` for the saved servers. */
 val networkModule = module {

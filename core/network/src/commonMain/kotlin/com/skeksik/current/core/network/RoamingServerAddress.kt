@@ -154,17 +154,29 @@ internal class RoamingServerAddress(
                                 changesSeen.update { it + 1 }
                                 events.send(Event.Changed)
                             }
-                            NetworkChange.Resumed -> if (resumeQueued.compareAndSet(expect = false, update = true)) events.send(Event.Resumed)
+                            NetworkChange.Resumed ->
+                                if (resumeQueued.compareAndSet(expect = false, update = true)) events.send(Event.Resumed)
                         }
                     }
+                    // A source that no longer hears of network changes must not go on blind.
+                    error("Network changes ended")
                 }
-                Loop(this).run()
+                try {
+                    Loop(this).run()
+                } finally {
+                    // At once, not once every probe has returned: a dying run's address is not used meanwhile.
+                    stop()
+                }
             }
         } finally {
-            // No request waits on a stopped source, not even for a change the loop never handled.
-            view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE) }
-            published.value = null
+            stop()
         }
+    }
+
+    /** No request waits on a stopped source, not even for a change the loop never handled. */
+    private fun stop() {
+        view.update { it.copy(address = null, holding = false, changes = Int.MAX_VALUE) }
+        published.value = null
     }
 
     private inner class Check(val id: Int, val candidates: List<ServerUrl>, val full: Boolean, val woken: Boolean) {
@@ -426,6 +438,7 @@ internal class OrderedServerAddress(server: SavedServer) : ManagedServerAddress 
                 networkChanges.collect { change ->
                     if (change == NetworkChange.Changed) state.update { it.copy(address = it.addresses.firstOrNull()) }
                 }
+                error("Network changes ended")
             }
         } finally {
             state.update { it.copy(addresses = emptyList(), address = null) }
