@@ -48,6 +48,8 @@ compose.desktop {
             modules("java.net.http", "jdk.accessibility", "jdk.unsupported")
 
             windows {
+                // Rendered once from docs/brand/current-icon.svg (a placeholder): the ICO holds 16-256 px, the PNG is 512 px.
+                iconFile.set(project.file("icons/current.ico"))
                 // Never change: it ties every version's MSI together, so a newer one upgrades in place.
                 upgradeUuid = "420fb9fa-28cd-429a-8bf8-bccfb857d4b4"
                 // Installs under the user's profile without an administrator prompt; upgrades are per user too.
@@ -57,6 +59,7 @@ compose.desktop {
                 shortcut = true
             }
             linux {
+                iconFile.set(project.file("icons/current.png"))
                 // Debian package names are lowercase.
                 packageName = "current"
                 // TODO: the owner replaces this placeholder before the first DEB is handed out.
