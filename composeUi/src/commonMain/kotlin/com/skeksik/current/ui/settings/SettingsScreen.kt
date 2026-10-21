@@ -200,7 +200,7 @@ private fun ServerPanel(
             Text(status, style = MaterialTheme.typography.bodyMedium)
             if (row.reachable == false) Notice(stringResource(Res.string.settings_offline), NoticeKind.Warning)
         }
-        // Under the details, and wrapping at phone width, where the buttons do not fit beside them.
+        // Under the details; whole buttons wrap at phone width, and their labels never break.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             // One button for both, so focus stays on it when signing out turns it into Sign in.
             val signedIn = row.signedInAs != null
@@ -209,14 +209,14 @@ private fun ServerPanel(
                     if (signedIn) signOut else signIn,
                     Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(signInModifier),
                 ) {
-                    Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in))
+                    Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in), maxLines = 1, softWrap = false)
                 }
             }
             OutlinedButton(addresses, Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(addressesModifier)) {
-                Text(stringResource(Res.string.settings_addresses))
+                Text(stringResource(Res.string.settings_addresses), maxLines = 1, softWrap = false)
             }
             TextButton(remove, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error)
+                Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false)
             }
         }
     }

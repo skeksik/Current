@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -20,7 +19,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -117,7 +115,7 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
                 Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addAddress),
             ) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
-                Text(stringResource(Res.string.addresses_add), Modifier.padding(start = Spacing.s))
+                Text(stringResource(Res.string.addresses_add), Modifier.padding(start = Spacing.s), maxLines = 1, softWrap = false)
             }
         },
     ) {
@@ -181,7 +179,8 @@ private fun AddressPanel(
 ) {
     Panel(modifier) {
         Text(row.url, style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+        // Wraps when narrow, so "In use" moves below the scope rather than squeezing.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             val scope = if (row.scope == AddressScope.Local) Res.string.addresses_local else Res.string.addresses_internet
             Text(stringResource(scope), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (row.inUse) {
@@ -196,7 +195,7 @@ private fun AddressPanel(
         if (!row.canRemove) Notice(stringResource(Res.string.addresses_keep_one), NoticeKind.Info)
         // A single address has nothing to move or remove.
         if (count > 1) {
-            // Wraps at phone width, where the three buttons do not fit side by side.
+            // Whole buttons wrap at phone width, where the three do not fit side by side; their labels never break.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 // The buttons say which address they act on, as a screen reader reads them apart from the row.
                 val moveUpLabel = stringResource(Res.string.addresses_move_up_description, row.url)
@@ -209,7 +208,7 @@ private fun AddressPanel(
                         .semantics { contentDescription = moveUpLabel },
                     enabled = index > 0,
                 ) {
-                    Text(stringResource(Res.string.addresses_move_up))
+                    Text(stringResource(Res.string.addresses_move_up), maxLines = 1, softWrap = false)
                 }
                 OutlinedButton(
                     moveDown,
@@ -218,7 +217,7 @@ private fun AddressPanel(
                         .semantics { contentDescription = moveDownLabel },
                     enabled = index < count - 1,
                 ) {
-                    Text(stringResource(Res.string.addresses_move_down))
+                    Text(stringResource(Res.string.addresses_move_down), maxLines = 1, softWrap = false)
                 }
                 if (row.canRemove) {
                     TextButton(
@@ -227,7 +226,7 @@ private fun AddressPanel(
                             .focusRequester(focus.remove)
                             .semantics { contentDescription = removeLabel },
                     ) {
-                        Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(Res.string.settings_remove), color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false)
                     }
                 }
             }
