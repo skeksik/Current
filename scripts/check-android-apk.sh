@@ -22,7 +22,8 @@ for file in */src/commonMain/composeResources/values/*.xml */*/src/commonMain/co
   fi
   name=$(basename "$file" .xml)
   compiled="composeResources/$package/values/$name.commonMain.cvr"
-  if ! grep -Fxq "$compiled" <<< "$contents"; then
+  # The APK keeps them under a prefix (assets/), so match the whole path after a slash.
+  if ! awk -v c="$compiled" '$0 == c || substr($0, length($0) - length(c)) == "/" c { found = 1 } END { exit !found }' <<< "$contents"; then
     echo "The APK lacks the compiled $file ($compiled)" >&2
     status=1
   fi
