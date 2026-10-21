@@ -86,8 +86,9 @@ internal fun AddServerScreen(navigator: Navigator, addTo: ServerRef? = null, nam
     val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
     val field = remember { FocusRequester() }
     val confirm = remember { FocusRequester() }
-    // Asks for local network access first, if the user has not answered yet: a denied local address only times out (ADR 0020).
-    val check = { if (state is ServerSetupUiState.Editing) localNetwork.beforeCheck(viewModel::check) }
+    // Asks for local network access first, if the user has not answered yet: a denied local address only times out (ADR 0020). Enter
+    // or Go in an empty field reaches here too (the button is disabled): a blank input is checked without asking.
+    val check: () -> Unit = { (state as? ServerSetupUiState.Editing)?.let { localNetwork.beforeCheck(it.input, viewModel::check) } }
     // A check that timed out while access was denied runs again once it is granted.
     val retryTimedOut = {
         if ((viewModel.state.value as? ServerSetupUiState.Editing)?.problem == ServerSetupProblem.TimedOut) viewModel.check()
