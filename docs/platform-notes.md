@@ -39,6 +39,17 @@ Facts below were read from the linked sources on that date. Re-check before rely
   Source: https://kotlinlang.org/docs/native-swift-export.html
 - SKIE converts Flow/StateFlow to AsyncSequence, suspend to async, sealed classes/enums to Swift enums. Release 0.10.15 (latest at check time) mentions Kotlin 2.4.20 support.
   Sources: https://skie.touchlab.co/ , https://github.com/touchlab/SKIE/releases
+- Swift export status, read 2026-10-21 (the project is on Kotlin 2.4.20; the page names no Kotlin version), quoted from
+  https://kotlinlang.org/docs/native-swift-export.html:
+  - "Kotlin's interoperability with Swift through Swift export is currently in Alpha."
+  - "Swift export is currently in Alpha and still incomplete, so breaking changes are expected."
+  - "You can seamlessly call suspending Kotlin code from Swift and export kotlinx.coroutines flows as Swift's AsyncSequence out of the box."
+  - "Swift export currently works only in projects that use direct integration to connect the iOS framework to the Xcode project." Our
+    Xcode build phase uses direct integration (`embedAndSignAppleFrameworkForXcode`); Swift export has its own task,
+    `embedSwiftExportForXcode`.
+  - Known issues it lists: types inheriting from `List`, `Set` or `Map` are ignored (KT-80416) and their inheritors cannot be made from
+    Swift (KT-80417); generic type parameters are erased to their upper bounds; opt-in declarations need a module-level `optIn`.
+  - Not checked: how exceptions from Kotlin reach Swift (the page does not say), and whether it works with this Kotlin, Ktor and Koin set.
 
 ## Apple playback (custom UI)
 - PiP in a custom player: `AVPictureInPictureController` with an `AVPlayerLayer` or `AVSampleBufferDisplayLayer`; app supplies its PiP button, restores its UI in the delegate,
@@ -51,6 +62,52 @@ Facts below were read from the linked sources on that date. Re-check before rely
 - Now Playing: `MPNowPlayingInfoCenter` exists on iOS, macOS (also has `playbackState`) and tvOS. Source: https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter
 - Subtitles: a developer forum thread reports native subtitles work with `AVPlayerLayer` but are lost with `AVSampleBufferDisplayLayer`; `AVPlayerItemLegibleOutput` gives attributed text that must be laid out manually.
   This is a user report, not Apple guidance. Source: https://developer.apple.com/forums/thread/700128
+
+## Apple system integration with a custom player (read 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com; nothing run)
+Input for ADR 0007's amendment 2026-10-21: what our own player UI must do itself on every engine.
+- **Now Playing.** `MPNowPlayingInfoCenter` (iOS, tvOS 5+, macOS 10.12.2+): the system shows its `nowPlayingInfo` on the Lock Screen
+  and in Control Center; the app does not control the layout. It takes `MPMediaItemPropertyTitle`, `...Artist`, `...AlbumTitle`,
+  `...Artwork`, `...PlaybackDuration` and others, plus `MPNowPlayingInfoPropertyElapsedPlaybackTime` and `...PlaybackRate`, from which
+  the system computes elapsed time itself (no frequent updates needed). On macOS `playbackState` must be set every time playback starts
+  or stops, "otherwise remote control functionality may not work as expected".
+  - tvOS: once an `MPNowPlayingSession` (tvOS 14+, iOS 16+, not macOS) is used, the system ignores the default info center, so the whole
+    app moves to sessions; PiP needs the player tied to a session. `AVPlayerViewController` owns its own session. Both come from the
+    `MPNowPlayingSession` page and "Adopting Picture in Picture in a custom player"; that the session takes a non-AVPlayer engine is not
+    stated (the page speaks of `AVPlayer` instances).
+- **Remote commands.** `MPRemoteCommandCenter.shared()` (iOS, tvOS 7.1+, macOS 10.12.2+) responds to "remote control events sent by
+  external accessories and system controls": `skipForwardCommand`/`skipBackwardCommand` (`preferredIntervals` in seconds),
+  `changePlaybackPositionCommand` (iOS 9.1+, tvOS 9+, macOS 10.12.2+), `nextTrackCommand`, play/pause. Each can be disabled.
+- **Picture in Picture.** `AVPictureInPictureController` (iOS 9+, tvOS 14+, macOS 10.15+); `init(contentSource:)` with
+  `ContentSource(sampleBufferDisplayLayer:playbackDelegate:)` and `AVPictureInPictureSampleBufferPlaybackDelegate` (iOS, tvOS 15+,
+  macOS 12+) is the path for a player that is not `AVPlayer`. Check `isPictureInPictureSupported()` first (otherwise `init` returns
+  nil); observe `isPictureInPicturePossible`; keep a strong reference; restore the UI in
+  `restoreUserInterfaceForPictureInPictureStopWithCompletionHandler`. iOS and tvOS need the audio session and background modes. "Only
+  begin PiP playback in response to user interaction and never programmatically" (App Store review rejects otherwise); the automatic
+  start on leaving the app is `canStartPictureInPictureAutomaticallyFromInline` (iOS 14.2+, not tvOS or macOS), "only for content that
+  you intend to be the user's primary focus".
+- **AirPlay picker.** `AVRoutePickerView` (iOS, tvOS 11+, macOS 10.15+): a button that opens the system's list of nearby receivers,
+  with video-capable devices higher when the app prefers video.
+- **Display criteria.** `AVDisplayManager.preferredDisplayCriteria` exists on tvOS 11.2+ and visionOS only, and applies only when user
+  settings allow; details under "HDR and Dolby Vision: Apple, AVPlayer". There is no such API on iOS or macOS.
+- **Display awake.** `AVPlayer.preventsDisplaySleepDuringVideoPlayback` defaults to true on iOS and tvOS and to false on macOS. Another
+  engine: `UIApplication.isIdleTimerDisabled` on iOS and tvOS (reset it when playback stops; Apple names "programs where the app needs to
+  continue displaying content when user interaction is minimal"), and on macOS an IOKit assertion
+  `IOPMAssertionCreateWithName` with `kIOPMAssertionTypePreventUserIdleDisplaySleep`.
+- Sources: https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter/playbackstate ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfopropertyelapsedplaybacktime ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayingsession ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter/changeplaybackpositioncommand ,
+  https://developer.apple.com/documentation/mediaplayer/mpskipintervalcommand/preferredintervals ,
+  https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-in-a-custom-player ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/canstartpictureinpictureautomaticallyfrominline ,
+  https://developer.apple.com/documentation/avkit/avroutepickerview ,
+  https://developer.apple.com/documentation/avkit/avdisplaymanager/preferreddisplaycriteria ,
+  https://developer.apple.com/documentation/avfoundation/avplayer/preventsdisplaysleepduringvideoplayback ,
+  https://developer.apple.com/documentation/uikit/uiapplication/isidletimerdisabled ,
+  https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep
 
 ## Desktop and web playback (checked 2026-10-18; input for the M1 video spikes)
 **Compose over native video.** Compose Multiplatform 1.12 has no supported way to draw Compose over native video:
@@ -1094,6 +1151,51 @@ research agent reading the same files.
   addresses. https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking
 - So `appleApp/Current/Info.plist`, shared by iOS, macOS and tvOS (ADR 0012), carries both keys. On tvOS the ATS key is set anyway; whether
   tvOS allows plain `http` to a LAN address with it, or without it, is not verified.
+
+## Privacy manifest: Apple (checked 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com, and in the Kotlin/Native, kotlinx.coroutines and Ktor sources; nothing built for this section)
+- "Privacy manifest files": "Apps and third-party SDKs [...] can contain a privacy manifest file, named `PrivacyInfo.xcprivacy`", which
+  records "The types of data collected by your app or third-party SDK. You need to provide this information for your app or third-party
+  SDK on all platforms" and "The required reasons APIs your app or third-party SDK uses. You need to provide this information for your app
+  or third-party SDK on iOS, iPadOS, tvOS, visionOS, and watchOS." "You need to add the privacy manifest file to your target's resources
+  for Xcode to use it when you generate a privacy report." https://developer.apple.com/documentation/bundleresources/privacy-manifest-files
+- "Describing use of required reason API": "Starting May 1, 2024, apps that don't describe their use of required reason API in their
+  privacy manifest file aren't accepted by App Store Connect." "If you use the API in your app's code, then you need to report the API in
+  your app's privacy manifest file." "For each executable or dynamic library in an app that uses a required reason API, the bundle that
+  includes the executable or dynamic library needs to include a privacy manifest file that reports the API."
+  https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+  `Shared` is a static framework linked into the app's executable (`apple/build.gradle.kts`), so the app's manifest covers its code.
+- The categories and reasons are on the `NSPrivacyAccessedAPIType` page
+  (https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype):
+  - `NSPrivacyAccessedAPICategoryUserDefaults`, `CA92.1`: "Declare this reason to access user defaults to read and write information that
+    is only accessible to the app itself. This reason does not permit reading information that was written by other apps or the system, or
+    writing information that can be accessed by other apps." Used: `UserDefaultsKeyValueStore` (core:database `appleMain`) reads and writes
+    `NSUserDefaults.standardUserDefaults` under its own `current.` keys. Declared.
+  - `NSPrivacyAccessedAPICategorySystemBootTime`: `systemUptime` and `mach_absolute_time()`. Not called by our Kotlin or Swift code (grep).
+    `TimeSource.Monotonic` (roaming, request durations; kotlinx.coroutines' native `nanoTime()` and `delay` use it too) is
+    `getTimeNanos()` in the Kotlin/Native runtime (`kotlin-native/runtime/src/main/cpp/Porting.cpp`, tag `v2.4.20`), which reads
+    `std::chrono::steady_clock` (or `high_resolution_clock` when steady), not either listed API. What Apple's libc++ calls under
+    `steady_clock` is not verified, nor whether App Store Connect flags it. Not declared; if App Store Connect asks, the reason is `35F9.1`
+    (elapsed time between events within the app).
+  - `NSPrivacyAccessedAPICategoryFileTimestamp` (`creationDate`, `modificationDate`, `stat`, `fstat`, `getattrlist`, ...),
+    `NSPrivacyAccessedAPICategoryDiskSpace` (`statfs`, `volumeAvailableCapacity...Key`, `systemFreeSize`, ...),
+    `NSPrivacyAccessedAPICategoryActiveKeyboards` (`activeInputModes`): none in our Kotlin `appleMain`/`iosMain`/`macosMain`/`tvosMain`
+    code or in `appleApp/` (grep), none in the Kotlin/Native runtime's Apple code (`fstat` appears only in its ELF reader), none in
+    kotlinx.coroutines 1.11.0 `native`/`nativeDarwin` or in Ktor 3.6.0's client, utils, io and http sources (the "modification-date" hits
+    there are HTTP header names). Not declared. Not verified: kotlinx-io's file system code (not called by us) and whatever the system
+    frameworks call on our behalf.
+  - macOS: `SCDynamicStoreCopyComputerName` (device name) is not on the list.
+- Collected data. "Describing data use in privacy manifests": "Record the categories of data that your app or third-party SDK collects about
+  the person using the app". https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests
+  The definition is on "App privacy details on the App Store": "\"Collect\" refers to transmitting data off the device in a way that
+  allows you and/or your third-party partners to access it for a period longer than what is necessary to service the transmitted request
+  in real time." and "Data that is processed only on device is not \"collected\"". https://developer.apple.com/app-store/app-privacy-details/
+  Current sends sign-in details, the device name and id and playback requests only to the servers the user adds; the developer and no
+  partner can read them. So `NSPrivacyCollectedDataTypes` is empty. This is a reading of "you and/or your third-party partners", not a
+  case Apple names: the owner confirms it before the first App Store submission. "Copy diagnostics" only copies to the clipboard.
+- `NSPrivacyTracking` is false and `NSPrivacyTrackingDomains` empty: no tracking, no analytics, no third-party SDK that contacts a domain.
+- The file is `appleApp/Current/PrivacyInfo.xcprivacy`. The target's folder is a synchronized group, so the file is a target member with no
+  `project.pbxproj` change. `scripts/build-apple-app.sh` fails when a built bundle lacks it. The privacy report (Product > Archive >
+  Generate Privacy Report) has not been generated.
 
 ## Local network, discovery and cleartext HTTP: Android (checked 2026-10-19 in the Android docs and AOSP `main`; nothing run on a device)
 - Android 17 local network permission, https://developer.android.com/privacy-and-security/local-network-permission and
@@ -2674,4 +2776,12 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
       a `TypeError` at once: see "Local server discovery, run on devices".)
     - Chrome 145 and 156 changes (third-party reports only).
   - ktor-network: the wasm-js source jar was not opened; nothing was run on any target.
-- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
+- Apple system integration with a custom player (section of that name; documentation only):
+  - That the fallback engine can feed an `AVSampleBufferDisplayLayer` for PiP (and keep HDR there), and that `MPNowPlayingSession`
+    works on tvOS without an `AVPlayer`.
+  - That media keys and the macOS menu bar's Now Playing reach `MPRemoteCommandCenter` and `MPNowPlayingInfoCenter` (the pages say
+    "system controls", Lock Screen and Control Center, not media keys or the menu bar by name).
+  - AirPlay video from the fallback engine: `AVRoutePickerView` picks a route, but what plays there without `AVPlayer` is not stated.
+  - Matching frame rate and dynamic range on iOS and macOS (no display-criteria API there).
+  - The remux route (ADR 0007): whether AVPlayer plays a local HLS/fMP4 repackaged on the device, and how it is served to it.
+- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; CI also builds the web, Android and Apple targets since 2026-10-18, roadmap M0).

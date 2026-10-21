@@ -235,8 +235,8 @@ HDR on the web works for HDR10 in HEVC on Chrome and Edge with Windows HDR on, d
 - **Partial or never:**
   - HDR10+ plays as HDR10: its dynamic metadata is dropped.
   - Dolby Vision plays only as its HDR10 or SDR base layer; profiles without one go to the server.
-- **Dolby Vision is not probed yet.** Safari and some Edge setups decode it natively, with codec strings `dvh1.05.06` (profile 5) and
-  `dvh1.08.06` (profile 8). The web shell adds those probes and allows `DOVI` ranges where they pass on an HDR display.
+- **Dolby Vision is probed** (`BrowserProbes`, 2026-10): Safari and some Edge setups decode it natively, with codec strings `dvh1.05.06`
+  (profile 5) and `dvh1.08.06` (profile 8); `VideoRanges` allows `DOVI` ranges for the profiles that pass.
 - **Not verified:**
   - What reaches the screen. The media logs prove the HDR stream is decoded; whether Windows shows it in HDR needs the owner's eyes,
     for example the same film in Edge next to Firefox's tone-mapped copy.

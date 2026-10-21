@@ -34,24 +34,33 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume.assumeTrue
 
 /**
  * Opt-in checks against a real Jellyfin server (roadmap, M1). Never in CI, and nothing about the server is in the repo: everything comes
- * from the environment.
+ * from the environment. They run only when Gradle is given `-Pcurrent.liveTests=true` (passed on as the system property of the same name),
+ * so a shell that keeps `CURRENT_LIVE_*` set doesn't reach the server on every `jvmTest` or `check.sh`. A test that doesn't run is
+ * reported as skipped, not passed (JUnit 4's `Assume`, which kotlin.test runs on for the JVM).
  * - `CURRENT_LIVE_JELLYFIN_URL`: the address as a user would type it (with or without scheme). Without it, every test here is skipped.
  * - `CURRENT_LIVE_QUICK_CONNECT=1`: also sign in with Quick Connect. The code is printed and written to
  *   `data/jellyfin/build/live-smoke/quick-connect-code.txt`; approve it in a signed-in Jellyfin app within 10 minutes.
  * - `CURRENT_LIVE_JELLYFIN_USERNAME` and `CURRENT_LIVE_JELLYFIN_PASSWORD`: also sign in with a password.
  *
  * Read-only apart from the session a sign-in creates, which each test ends again. The device shows up on the server as
- * "Current smoke test". Run with `./gradlew :data:jellyfin:jvmTest --tests "*LiveJellyfinSmokeTest" --rerun`. Output never contains
+ * "Current smoke test". Run with `./gradlew :data:jellyfin:jvmTest --tests "*LiveJellyfinSmokeTest" -Pcurrent.liveTests=true --rerun`. Output never contains
  * tokens; request log lines name the server by its key, not its host.
  */
 class LiveJellyfinSmokeTest {
+    private val optedIn = System.getProperty("current.liveTests") == "true"
     private val typed: String? = System.getenv("CURRENT_LIVE_JELLYFIN_URL")?.takeIf { it.isNotBlank() }
     private val ref = ServerRef(ServiceType.jellyfin, "live-smoke")
     private val device = DeviceIdentity("current-live-smoke-test", "Current smoke test")
     private val clients = ServerClients(createHttpClient(), logger = { println("LIVE request: $it") })
+
+    private fun assumeServer() {
+        assumeTrue("live tests run only with -Pcurrent.liveTests=true", optedIn)
+        assumeTrue("needs CURRENT_LIVE_JELLYFIN_URL", typed != null)
+    }
 
     /** The first candidate address that answers, as server setup picks it. */
     private suspend fun find(): Pair<ServerUrl, ServerIdentity> {
@@ -86,7 +95,7 @@ class LiveJellyfinSmokeTest {
 
     @Test
     fun theServerIdentifiesItselfWithoutCredentials() = runBlocking<Unit> {
-        if (typed == null) return@runBlocking
+        assumeServer()
         val (url, identity) = find()
         println("LIVE found ${if (url.isHttps) "https" else "http"} (${url.scope}) server version ${identity.version}")
         assertEquals(32, identity.serverId.length, "server id is 32 hex characters")
@@ -99,7 +108,8 @@ class LiveJellyfinSmokeTest {
 
     @Test
     fun quickConnectSignsInRestoresAndSignsOut() = runBlocking<Unit> {
-        if (typed == null || System.getenv("CURRENT_LIVE_QUICK_CONNECT") != "1") return@runBlocking
+        assumeServer()
+        assumeTrue("needs CURRENT_LIVE_QUICK_CONNECT=1", System.getenv("CURRENT_LIVE_QUICK_CONNECT") == "1")
         signInAndOut { accounts ->
             val request = accounts.startQuickConnect(ref)
             File("build/live-smoke").mkdirs()
@@ -113,8 +123,9 @@ class LiveJellyfinSmokeTest {
     fun aPasswordSignsInRestoresAndSignsOut() = runBlocking<Unit> {
         val username = System.getenv("CURRENT_LIVE_JELLYFIN_USERNAME")
         val password = System.getenv("CURRENT_LIVE_JELLYFIN_PASSWORD")
-        if (typed == null || username.isNullOrBlank() || password == null) return@runBlocking
-        signInAndOut { accounts -> accounts.signIn(ref, username, password).name }
+        assumeServer()
+        assumeTrue("needs CURRENT_LIVE_JELLYFIN_USERNAME and CURRENT_LIVE_JELLYFIN_PASSWORD", !username.isNullOrBlank() && password != null)
+        signInAndOut { accounts -> accounts.signIn(ref, username!!, password!!).name }
     }
 
     /** Signs in with [signIn], checks the session, restores it in a second instance as after a restart, signs out, checks it ended. */

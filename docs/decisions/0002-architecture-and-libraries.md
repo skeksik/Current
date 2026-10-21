@@ -3,8 +3,8 @@
 Status: accepted. Added on 2026-10-19 (versions, targets and licences: docs/platform-notes.md, "Libraries per ADR 0002"): Ktor client,
 kotlinx.serialization, Koin, Navigation Compose, Coil 3. SQLDelight is not added yet.
 
-- MVVM: `ViewModel` exposing `StateFlow`, common `LoadState<T>`.
-- Koin for DI and ViewModels.
+- MVVM: `ViewModel` exposing `StateFlow`. (2026-10: there is no common `LoadState<T>`; each ViewModel has its own sealed UI state.)
+- Koin for DI. (2026-10: ViewModels are not bound; each page builds its own from Koin-bound interfaces.)
 - JetBrains Navigation Compose with `@Serializable` type-safe routes (Android and desktop; the web uses the core's History API router, ADR 0011).
 - Ktor client + kotlinx.serialization for Jellyfin/Seerr/Stash.
 - SQLDelight for cache and download metadata (see ADR 0004 for web).

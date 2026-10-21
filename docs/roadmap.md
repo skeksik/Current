@@ -63,7 +63,7 @@ Then:
       app version servers see. Android and Apple keep secrets in memory until M4
 - [x] Jellyfin sign-in (2026-10-20, ADR 0018): username and password or Quick Connect with that device id, the server id checked
       against the saved one, sign out, sessions restored at start and dropped on a 401. Logic and ViewModels; the screens come with the
-      shells below. password and Quick Connect sign-in, restore and sign-out checked against a live server
+      shells below. Password and Quick Connect sign-in, restore and sign-out checked against a live server
 - [x] Compose shell (desktop) (2026-10-20): theme from design tokens, navigation assembled from registered destinations, sidebar layout,
       settings (servers, sign out, about), loading/error/empty states, strings in resources; `HomeViewModel` for the first screen.
       Keyboard alone works throughout. Add, sign in (password, Quick Connect), restart signed in and sign out checked with the keyboard on
@@ -77,10 +77,18 @@ Then:
         Quick Connect, keyboard use and Back over the browser's history, light and dark. Checked in Chrome against the real core and a
         local stand-in, and by the owner's hand against a live server (docs/platform-notes.md, "Web shell against the real core");
   - [x] routing through the core's History API router; npm in CI with a licence check
-- [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only when `CURRENT_LIVE_*` environment variables are set, never
+- [x] Opt-in live smoke tests (2026-10-20, `LiveJellyfinSmokeTest`): run only with `-Pcurrent.liveTests=true` and `CURRENT_LIVE_*` environment variables set, never
       in CI; read-only apart from a sign-in they end again. Password and Quick Connect sign-in, restore and sign-out passed against a live 12.2 server
+- [x] Android network setup (2026-10-21, ADR 0020, PR 27): cleartext, `INTERNET` and the local network permission; Android polish
+      (2026-10-21, PR 36): the local network ask on Home, first-Tab focus ring, APK check per module
+- [x] Apple: device name without a network lookup, and the local network keys (2026-10-21, PR 34)
+- [x] Full code review (2026-10-21, docs/reviews/2026-10) and its first fixes (2026-10-21, PRs 41-46): sign-in and session robustness,
+      the request log with Copy diagnostics, local network rules, web hardening (CSP), Compose navigation and backup rules, the desktop
+      MSI (per-user, installed, upgraded and launched on Windows)
 
 Done when: sign in and out of Jellyfin on Windows and in the browser, and the app restarts signed in.
+State (2026-10-21): met in the browser against a live server. On Windows only against a local stand-in so far; a run against a real
+server is the owner's hand check.
 
 ## M2: First usable version: Jellyfin browse and play (Windows desktop, web)
 - [ ] `data:jellyfin`: libraries, items (paging, sort, filter), latest, resume, next up, series/seasons/episodes, details, similar,
@@ -103,6 +111,9 @@ Done when: sign in and out of Jellyfin on Windows and in the browser, and the ap
 - [ ] Media keys: Windows (System Media Transport Controls, in our libmpv build per ADR 0010), Media Session API on web
 - [ ] The rest of the player feature target (ADR 0007) as far as Windows and web allow: HDR output, subtitle appearance, delay and preferred
       languages, remembered quality and zoom, a playback info overlay, a problem report with redacted logs
+- [ ] Player route transparency and choices (ADR 0007, amendment 2026-10-21): the playback information view with the planner's reasons,
+      and remembered audio, subtitle, quality and zoom with a scope (Off, Season, Show)
+- [ ] Spike: remux a compatible MKV to local HLS/fMP4 so the native engine plays it without a server transcode (ADR 0007, to be evaluated)
 - [ ] Deploy the web build (static files) behind a reverse proxy for daily use
 
 Done when: a Jellyfin library is browsable and playable on Windows and web every day, with resume and progress synced to the server.
@@ -123,8 +134,12 @@ Done when: a title can be found, requested and followed to "available", then pla
 - [ ] Spikes first: where Media3 and AVPlayer fall short of the player feature target (ADR 0007), and which fallback engine to use on
       each (licences, store rules)
 - [ ] Android: Media3 engine plus the chosen fallback, phone/tablet layouts, PiP, media session
-- [ ] Apple (SwiftUI, iOS/iPadOS and macOS): the M1-M3 screens on the shared ViewModels (SKIE), AVPlayer plus the chosen fallback engine,
+- [ ] Apple bridge spike first (ADR 0006, addendum 2026-10-21): an Apple facade (Koin start, ViewModel holders, `@Throws`) with Swift
+      Export, which is Alpha; SKIE is the fallback and needs the owner's approval as a dependency
+- [ ] Apple (SwiftUI, iOS/iPadOS and macOS): the M1-M3 screens on the shared ViewModels through that facade, AVPlayer plus the chosen fallback engine,
       Keychain, Now Playing, PiP, AirPlay
+- [ ] Apple system integration on every engine, fallback included: remote commands and Now Playing, PiP, AirPlay picker, display
+      criteria, display kept awake (ADR 0007, amendment 2026-10-21)
 - [ ] Shared design tokens read by both UIs
 
 Done when: everything from M1-M3 works on Android, iPhone/iPad and Mac.
@@ -152,7 +167,7 @@ behaves exactly as before.
       of new episodes
 
 ## M8: Release readiness
-- [ ] R8 rules, signing, icons, desktop installers (MSI, DEB) and updates, web release with setup docs for self-hosters (reverse proxy)
+- [ ] R8 rules, signing, icons, desktop installers (MSI, DEB; both packaged in CI and the MSI checked on Windows since PR 45) and updates, web release with setup docs for self-hosters (reverse proxy)
 - [ ] Editions (ADR 0014): Store builds for the stores and direct downloads, Private builds only when a part needs them; licences screen and published LGPL
       sources with each release; patent review per codec; store policies checked first
 
