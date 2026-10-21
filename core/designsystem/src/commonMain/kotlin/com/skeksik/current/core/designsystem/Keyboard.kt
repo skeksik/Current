@@ -1,22 +1,36 @@
 package com.skeksik.current.core.designsystem
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MinimumInteractiveLeftAlignmentLine
+import androidx.compose.material3.MinimumInteractiveTopAlignmentLine
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusEventModifierNode
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusState
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Size as GeometrySize
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -30,21 +44,56 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Size
 // Every screen works with the keyboard alone (and later a remote): visible focus, arrows and Tab move it, Enter acts.
 
 /**
- * Draws a ring in the accent colour while this element or one inside it has focus. The ring is drawn outside the element, [gap] away from
- * its edge, so it shows on a filled button of the same colour, and it takes no layout space. Put it before the focusable element's own
- * modifiers, before any clip.
+ * Draws a ring in the accent colour while this element or one inside it has focus. The ring is drawn outside the element's visible shape,
+ * [gap] away from its edge, so it shows on a filled button of the same colour, and it takes no layout space. Material buttons pad
+ * themselves to the minimum touch target; the ring follows the visible button inside that padding, so the gap is even on every side. Put
+ * it before the focusable element's own modifiers, before any clip.
  */
 @Composable
-fun Modifier.focusRing(shape: Shape, gap: Dp = Size.focusRingGap): Modifier {
-    var focused by remember { mutableStateOf(false) }
-    val color = MaterialTheme.colorScheme.primary
-    return onFocusChanged { focused = it.hasFocus }.drawWithContent {
+fun Modifier.focusRing(shape: Shape, gap: Dp = Size.focusRingGap): Modifier =
+    this then FocusRingElement(shape, gap, MaterialTheme.colorScheme.primary)
+
+private data class FocusRingElement(val shape: Shape, val gap: Dp, val color: Color) : ModifierNodeElement<FocusRingNode>() {
+    override fun create() = FocusRingNode(shape, gap, color)
+
+    override fun update(node: FocusRingNode) {
+        node.shape = shape
+        node.gap = gap
+        node.color = color
+        node.invalidateDraw()
+    }
+}
+
+private class FocusRingNode(var shape: Shape, var gap: Dp, var color: Color) :
+    Modifier.Node(), FocusEventModifierNode, LayoutModifierNode, DrawModifierNode {
+    private var focused = false
+
+    // Where the visible element starts inside its touch target padding (MinimumInteractiveModifier publishes these lines); 0 without one.
+    private var insetX = 0
+    private var insetY = 0
+
+    override fun onFocusEvent(focusState: FocusState) {
+        if (focused != focusState.hasFocus) {
+            focused = focusState.hasFocus
+            invalidateDraw()
+        }
+    }
+
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+        val placeable = measurable.measure(constraints)
+        insetX = placeable[MinimumInteractiveLeftAlignmentLine].takeUnless { it == AlignmentLine.Unspecified } ?: 0
+        insetY = placeable[MinimumInteractiveTopAlignmentLine].takeUnless { it == AlignmentLine.Unspecified } ?: 0
+        return layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+    override fun ContentDrawScope.draw() {
         drawContent()
-        if (!focused) return@drawWithContent
+        if (!focused) return
         val stroke = Size.focusRing.toPx()
         val outset = gap.toPx() + stroke / 2
-        val outline = shape.createOutline(GeometrySize(size.width + 2 * outset, size.height + 2 * outset), layoutDirection, this)
-        translate(-outset, -outset) { drawOutline(outline, color, style = Stroke(stroke)) }
+        val visible = GeometrySize(size.width - 2 * insetX, size.height - 2 * insetY)
+        val outline = shape.createOutline(GeometrySize(visible.width + 2 * outset, visible.height + 2 * outset), layoutDirection, this)
+        translate(insetX - outset, insetY - outset) { drawOutline(outline, color, style = Stroke(stroke)) }
     }
 }
 
