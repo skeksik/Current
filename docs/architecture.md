@@ -122,6 +122,9 @@ The player's UX rules (keyboard, pointer, scrubber, touch, subtitles, Next Up, P
   downloads exist). Every load has a timeout, never an endless spinner.
 - **Admin and paid features** appear only where they apply. No tab exists only to upsell (a general rule; the app has no paid features).
 - **Settings on the Mac:** a settings window bound to Cmd+, , not a small sheet. Platform-only settings stay off other platforms.
+- **Never disable the focused control; ignore input instead.** A control that can become busy while it holds focus (Refresh while a
+  check runs, including one the app started by itself) stays enabled and focusable: a press while busy is ignored, and the busy state
+  shows by a spinner and the control's state description. Disabling it drops keyboard focus to the window's start or the sidebar.
 
 ## Platforms
 | Platform | UI | Engine (planned) |

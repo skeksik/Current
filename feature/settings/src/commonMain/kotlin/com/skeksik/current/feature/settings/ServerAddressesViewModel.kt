@@ -34,9 +34,9 @@ data class ServerAddressesUiState(
     val reachable: Boolean? = null,
     /** The "Currently using" block: whether the server can be reached now. */
     val status: AddressesStatus = AddressesStatus.Checking,
-    /** The address requests go to now, with its network kind; null while there is none. */
+    /** The address requests go to now, with its network kind; null while there is none or the server is offline. */
     val inUse: InUseAddress? = null,
-    /** A check is running: the UI disables Refresh and shows progress. */
+    /** A check is running: the UI shows progress. Refresh stays enabled so it keeps focus, and a press is ignored. */
     val checking: Boolean = false,
 )
 
@@ -131,7 +131,8 @@ class ServerAddressesViewModel internal constructor(
             reachable -> AddressesStatus.Reachable
             else -> AddressesStatus.Offline
         },
-        inUse = saved.addresses.firstOrNull { ServerUrl.parse(it.url).let { url -> url != null && url == inUse } }
+        // While offline the source keeps the last address it proved, but nothing answers there: no row and no block claims it.
+        inUse = saved.addresses.firstOrNull { reachable != false && ServerUrl.parse(it.url).let { url -> url != null && url == inUse } }
             ?.let { InUseAddress(it.url, it.scope) },
         checking = checking,
         addresses = saved.addresses.map { address ->
@@ -140,7 +141,7 @@ class ServerAddressesViewModel internal constructor(
                 url = address.url,
                 scope = address.scope,
                 plainHttpOnInternet = url != null && !url.isHttps && address.scope == AddressScope.Internet,
-                inUse = url != null && url == inUse,
+                inUse = reachable != false && url != null && url == inUse,
                 canRemove = saved.canRemoveAddress(address.url),
             )
         },

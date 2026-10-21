@@ -181,6 +181,22 @@ class ServerAddressesViewModelTest {
     }
 
     @Test
+    fun noAddressIsInUseWhileTheServerIsOffline() = runTest {
+        // A missed check keeps the last proved address in the source, but nothing answers there.
+        capabilities.put(ServerStatus(ref, reachable = true))
+        source.current.value = ServerUrl.parse(lan.url)
+        val viewModel = viewModel()
+        assertEquals(listOf(false, true, false), shown(viewModel).addresses.map { it.inUse })
+        capabilities.update(ref) { it.copy(reachable = false) }
+        val offline = shown(viewModel)
+        assertEquals(AddressesStatus.Offline, offline.status)
+        assertEquals(listOf(false, false, false), offline.addresses.map { it.inUse })
+        assertNull(offline.inUse)
+        capabilities.update(ref) { it.copy(reachable = true) }
+        assertEquals(InUseAddress(lan.url, AddressScope.Local), shown(viewModel).inUse)
+    }
+
+    @Test
     fun refreshAsksTheSourceUnlessACheckRuns() = runTest {
         val viewModel = viewModel()
         runCurrent()

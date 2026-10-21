@@ -1429,4 +1429,53 @@ class RoamingServerAddressTest {
         assertEquals(url(local), source.current.value, "the address in use was removed")
         assertEquals(emptyList(), switches)
     }
+
+    @Test
+    fun backFromOfflineAtTheSameAddressIsNotASwitch() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        probe.answers.clear()
+        advance(5.minutes)
+        assertEquals(false, reachable)
+        assertEquals(url(local), source.current.value, "a miss keeps the last proved address")
+        probe.answers[local] = homeId
+        source.refresh()
+        runCurrent()
+        assertEquals(true, reachable)
+        assertEquals(url(local), source.current.value)
+        assertEquals(emptyList(), switches)
+    }
+
+    @Test
+    fun backFromOfflineAtAnotherAddressIsASwitch() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        probe.answers.clear()
+        advance(5.minutes)
+        assertEquals(false, reachable)
+        probe.answers[internet] = homeId
+        source.refresh()
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        assertEquals(listOf(url(internet)), switches)
+    }
+
+    @Test
+    fun theLastAddressIsKeptForSwitchesAcrossANetworkChangeWithNothingAnswering() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        val switches = switchesOf(source)
+        probe.answers.clear()
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertNull(source.current.value, "a network change drops the address")
+        assertEquals(false, reachable)
+        probe.answers[local] = homeId
+        source.refresh()
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        assertEquals(emptyList(), switches, "back at the address used before the gap")
+    }
 }

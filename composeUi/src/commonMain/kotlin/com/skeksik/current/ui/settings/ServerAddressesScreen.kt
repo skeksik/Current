@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.skeksik.current.core.designsystem.CurrentIcons
@@ -215,11 +216,15 @@ private fun CurrentlyUsing(state: ServerAddressesUiState, name: String, refresh:
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
             val refreshLabel = stringResource(Res.string.addresses_refresh_description, name)
-            // Disabled while a check runs, which answers it anyway.
+            val checkingLabel = stringResource(Res.string.addresses_checking)
+            // Never disabled: a check can start while Refresh holds focus (a press, or the periodic recheck), and a disabled button
+            // drops it. A press during a check is ignored by the ViewModel; the spinner and the state description say it is busy.
             OutlinedButton(
                 refresh,
-                Modifier.focusRing(MaterialTheme.shapes.extraLarge).semantics { contentDescription = refreshLabel },
-                enabled = !state.checking,
+                Modifier.focusRing(MaterialTheme.shapes.extraLarge).semantics {
+                    contentDescription = refreshLabel
+                    if (state.checking) stateDescription = checkingLabel
+                },
             ) {
                 Text(stringResource(Res.string.addresses_refresh), maxLines = 1, softWrap = false)
             }

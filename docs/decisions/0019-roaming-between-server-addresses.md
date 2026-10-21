@@ -139,8 +139,10 @@ is on, so a signal can only mean "something may have changed".
   (`feature:settings`) lists the addresses with their scope and the one in use, and removes and reorders them.
 - **The address screen's status** (`ServerAddressesViewModel`): the server's status (checking, reachable, offline), the address in use
   with its network kind, and Refresh. Status comes from `reachable` in the capabilities state. It reads "checking" only while
-  `reachable` is unknown or a check runs with no address in use, so the periodic check never makes it flicker. A source publishes
-  whether a check runs or a network settles (`ServerAddressSource.checking`). Refresh (`refresh()`) is ignored while one does:
+  `reachable` is unknown or a check runs with no address in use, so the periodic check never makes it flicker. While offline, no
+  address is shown in use, though the source keeps the last proved one. A source publishes whether a check runs or a network settles
+  (`ServerAddressSource.checking`). Refresh (`refresh()`) stays enabled during a check, so it keeps keyboard focus, and is ignored
+  while one runs:
   - a full check, a pending settle or a suspension already answers it;
   - a periodic (partial) check is replaced by a full one;
   - it asks marked names too and starts the retry waits over, keeping the address in use;
