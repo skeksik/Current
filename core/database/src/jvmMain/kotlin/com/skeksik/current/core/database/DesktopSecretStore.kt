@@ -11,6 +11,9 @@ import kotlinx.coroutines.withContext
 
 /** An OS credential store. Calls block and throw [SecretBackendException] when the store refuses or is unavailable. */
 internal interface SecretBackend {
+    /** Which store this is, for the UI to name it. */
+    val storage: SecretStorage
+
     fun get(key: String): String?
 
     fun put(key: String, value: String)
@@ -37,7 +40,7 @@ internal class DesktopSecretStore(
 
     private val _storage = MutableStateFlow(
         when {
-            keyring != null -> SecretStorage.Keyring
+            keyring != null -> keyring.storage
             file != null -> SecretStorage.File
             else -> SecretStorage.Memory
         },
@@ -46,7 +49,7 @@ internal class DesktopSecretStore(
 
     override val fileOffered: Boolean get() = keyring == null && file == null
 
-    private val usingKeyring: Boolean get() = keyring != null && _storage.value == SecretStorage.Keyring
+    private val usingKeyring: Boolean get() = keyring != null && _storage.value == keyring.storage
 
     override suspend fun keepInFile() {
         io {

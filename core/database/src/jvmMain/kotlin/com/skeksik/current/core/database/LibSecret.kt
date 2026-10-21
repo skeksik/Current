@@ -28,6 +28,8 @@ internal class LibSecret private constructor(
     private val glib: GLibApi,
     private val timeout: Duration,
 ) : SecretBackend {
+    override val storage = SecretStorage.SecretService
+
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "current-secret-service").apply { isDaemon = true } }
 
     override fun get(key: String): String? = timed { lookup(key) }

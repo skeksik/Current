@@ -14,6 +14,7 @@ import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.SettingsRoute
 import com.skeksik.current.ui.navigation.ShellDestination
 import com.skeksik.current.ui.navigation.ShellPage
+import com.skeksik.current.ui.navigation.shellDestination
 import com.skeksik.current.ui.navigation.SidebarEntry
 import com.skeksik.current.ui.navigation.SignInRoute
 import com.skeksik.current.ui.navigation.pageViewModel
@@ -31,7 +32,6 @@ import com.skeksik.current.ui.resources.home_signed_out_title
 import com.skeksik.current.ui.resources.nav_home
 import kotlinx.serialization.Serializable
 import org.jetbrains.compose.resources.stringResource
-import org.koin.dsl.bind
 import org.koin.dsl.module
 
 @Serializable
@@ -45,7 +45,7 @@ object HomeDestination : ShellDestination {
 
 /** Koin definitions of the home pages. */
 val homeUiModule = module {
-    single { HomeDestination } bind ShellDestination::class
+    shellDestination(HomeDestination)
 }
 
 @Composable

@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ import com.skeksik.current.core.database.SecretStorage
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
+import com.skeksik.current.core.designsystem.LocalFocusVisibility
 import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
@@ -36,7 +38,9 @@ import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.SectionTitle
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.designsystem.focusRing
+import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.core.model.AppInfo
+import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.settings.ServerRow
 import com.skeksik.current.feature.settings.ServersViewModel
@@ -57,7 +61,8 @@ import com.skeksik.current.ui.resources.settings_remove_title
 import com.skeksik.current.ui.resources.settings_secrets_browser
 import com.skeksik.current.ui.resources.settings_secrets_file
 import com.skeksik.current.ui.resources.settings_secrets_keep_in_file
-import com.skeksik.current.ui.resources.settings_secrets_keyring
+import com.skeksik.current.ui.resources.settings_secrets_credential_manager
+import com.skeksik.current.ui.resources.settings_secrets_secret_service
 import com.skeksik.current.ui.resources.settings_secrets_memory
 import com.skeksik.current.ui.resources.settings_servers
 import com.skeksik.current.ui.resources.settings_sign_in
@@ -74,20 +79,37 @@ internal fun SettingsScreen(navigator: Navigator) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var removing by remember { mutableStateOf<ServerRow?>(null) }
     val addServer = remember { FocusRequester() }
+    // This page places focus only after keyboard input: after a click or a touch, focus nobody asked for would act on the next Enter.
+    val focusVisibility = LocalFocusVisibility.current
     // After a removal the removed row's buttons are gone; focus goes to Add server rather than nowhere.
     var focusAddServer by remember { mutableStateOf(false) }
     LaunchedEffect(focusAddServer) {
         if (focusAddServer) {
-            addServer.requestFocus()
+            if (focusVisibility.keyboard) addServer.requestFocus()
             focusAddServer = false
         }
     }
     val rows = rememberListFocus(state.servers.size)
+    // What opened the page shown above this one, where focus goes back on return: the server whose Sign in button opened the sign-in
+    // page (by then Sign out), or Add server. Saved, because this page leaves the composition while the other is shown.
+    var signInOpener by rememberSaveable { mutableStateOf<String?>(null) }
+    var addServerOpened by rememberSaveable { mutableStateOf(false) }
+    val signInButton = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (focusVisibility.keyboard) {
+            if (signInOpener != null) signInButton.requestFocus() else if (addServerOpened) addServer.requestFocus()
+        }
+        signInOpener = null
+        addServerOpened = false
+    }
 
     Page(title = stringResource(Res.string.settings_title)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { SectionTitle(stringResource(Res.string.settings_servers)) }
-            Button({ navigator.open(AddServerRoute) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addServer)) {
+            Button({
+                addServerOpened = true
+                navigator.open(AddServerRoute)
+            }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addServer)) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
                 Text(stringResource(Res.string.settings_add_server), Modifier.padding(start = Spacing.s))
             }
@@ -102,10 +124,14 @@ internal fun SettingsScreen(navigator: Navigator) {
                     key(row.ref) {
                         ServerPanel(
                             row,
-                            signIn = { navigator.open(SignInRoute(row.ref, row.name)) },
+                            signIn = {
+                                signInOpener = row.ref.saveKey
+                                navigator.open(SignInRoute(row.ref, row.name))
+                            },
                             signOut = { viewModel.signOut(row.ref) },
                             remove = { removing = row },
                             modifier = Modifier.item(index),
+                            signInModifier = if (row.ref.saveKey == signInOpener) Modifier.focusRequester(signInButton) else Modifier,
                         )
                     }
                 }
@@ -139,7 +165,14 @@ internal fun SettingsScreen(navigator: Navigator) {
 }
 
 @Composable
-private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit, remove: () -> Unit, modifier: Modifier = Modifier) {
+private fun ServerPanel(
+    row: ServerRow,
+    signIn: () -> Unit,
+    signOut: () -> Unit,
+    remove: () -> Unit,
+    modifier: Modifier = Modifier,
+    signInModifier: Modifier = Modifier,
+) {
     Panel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -153,7 +186,10 @@ private fun ServerPanel(row: ServerRow, signIn: () -> Unit, signOut: () -> Unit,
             // One button for both, so focus stays on it when signing out turns it into Sign in.
             val signedIn = row.signedInAs != null
             if (signedIn || row.ref.service == ServiceType.jellyfin) {
-                OutlinedButton(if (signedIn) signOut else signIn, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+                OutlinedButton(
+                    if (signedIn) signOut else signIn,
+                    Modifier.focusRing(MaterialTheme.shapes.extraLarge).then(signInModifier),
+                ) {
                     Text(stringResource(if (signedIn) Res.string.settings_sign_out else Res.string.settings_sign_in))
                 }
             }
@@ -170,6 +206,8 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
     val cancel = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = dismiss,
+        // The dialog gets its keys and clicks apart from the window, so it tells the focus rings itself.
+        modifier = Modifier.trackFocusVisibility(),
         title = { Text(stringResource(Res.string.settings_remove_title, row.name)) },
         text = { Text(stringResource(Res.string.settings_remove_message)) },
         confirmButton = {
@@ -187,8 +225,11 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
     )
 }
 
+private val ServerRef.saveKey get() = "${service.value}/$key"
+
 private fun SecretStorage.description() = when (this) {
-    SecretStorage.Keyring -> Res.string.settings_secrets_keyring
+    SecretStorage.CredentialManager -> Res.string.settings_secrets_credential_manager
+    SecretStorage.SecretService -> Res.string.settings_secrets_secret_service
     SecretStorage.Browser -> Res.string.settings_secrets_browser
     SecretStorage.File -> Res.string.settings_secrets_file
     SecretStorage.Memory -> Res.string.settings_secrets_memory

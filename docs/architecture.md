@@ -69,12 +69,17 @@ skip others silently.
 **Destinations (Compose).** Features are pure Kotlin, so a feature's Compose pages live in its package in `composeUi` and are described by a
 `ShellDestination`: its pages (a `@Serializable` route type and the composable that renders it) and an optional sidebar entry (label, icon,
 `order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
-`settingsUiModule`, with `bind ShellDestination::class`); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
+`settingsUiModule`, with `shellDestination(...)`, which qualifies each binding by its type so none overrides another); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
 checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
-with the keyboard alone: visible focus rings, Tab and arrow keys move focus, Enter submits forms. The highlighted sidebar entry is the
-feature owning the page shown, not the back stack it sits on: Settings pages opened from Home (Add server, Sign in) stay on Home's back
-stack, so Back returns to Home, while Settings is highlighted. A sidebar entry always opens its feature's first page. The web shell has its own router (ADR 0011).
+with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
+focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element.
+Navigation keeps one history, as a browser does (`ShellHistory`): every page opened, from the sidebar or from another page, is a new
+step, except the page already shown, and any Back (the Back button on inner pages, Alt+Left, Esc, a system or remote Back) goes one step
+back through it, so Home → Settings → Add server → Home → Settings goes back through Home, Add server, Settings and Home. A sidebar entry
+always opens its feature's first page; the highlighted entry is the feature owning the page shown (Settings while Add server is shown).
+The history keeps the newest 50 pages; past that, the oldest is dropped (the shell rebuilds the back stack, so the pages it keeps lose
+their saved state). The web shell has its own router (ADR 0011).
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
 forbids passing them on, such as full Dolby Vision processing).

@@ -21,7 +21,10 @@ class DesktopSecretStoreTest {
         folder.toFile().deleteRecursively()
     }
 
-    private class FakeKeyring(var failing: Boolean = false) : SecretBackend {
+    private class FakeKeyring(
+        var failing: Boolean = false,
+        override val storage: SecretStorage = SecretStorage.CredentialManager,
+    ) : SecretBackend {
         val values = mutableMapOf<String, String>()
 
         override fun get(key: String): String? = if (failing) throw SecretBackendException("locked") else values[key]
@@ -41,7 +44,7 @@ class DesktopSecretStoreTest {
     fun aKeyringHoldsTheSecrets() = runBlocking {
         val keyring = FakeKeyring()
         val store = DesktopSecretStore(keyring, local, secretsFile)
-        assertEquals(SecretStorage.Keyring, store.storage.value)
+        assertEquals(SecretStorage.CredentialManager, store.storage.value)
         assertFalse(store.fileOffered)
         store.put("jellyfin/a/token", "t1")
         assertEquals(mapOf("jellyfin/a/token" to "t1"), keyring.values)
@@ -49,6 +52,15 @@ class DesktopSecretStoreTest {
         store.remove("jellyfin/a/token")
         assertNull(store.get("jellyfin/a/token"))
         assertFalse(Files.exists(secretsFile))
+    }
+
+    @Test
+    fun theStoreNamesTheKeyringItUses() = runBlocking {
+        val keyring = FakeKeyring(storage = SecretStorage.SecretService)
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        assertEquals(SecretStorage.SecretService, store.storage.value)
+        store.put("jellyfin/a/token", "t1")
+        assertEquals(mapOf("jellyfin/a/token" to "t1"), keyring.values)
     }
 
     @Test
