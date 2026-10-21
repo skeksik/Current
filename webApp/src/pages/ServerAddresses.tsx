@@ -131,7 +131,8 @@ function AddressPanel({ row, index, count, moveUp, moveDown, remove }: {
 }) {
   return (
     <Panel className="address">
-      <p className="panel-title">{row.url}</p>
+      {/* The panels come right under the page's h1, so each address is an h2 (Settings, with sections, uses h3). */}
+      <h2 className="panel-title">{row.url}</h2>
       <p className="address-meta">
         {/* An unknown scope says nothing rather than something wrong. */}
         <span className="muted">{textFor(strings.addressesScopes, row.scope, '')}</span>

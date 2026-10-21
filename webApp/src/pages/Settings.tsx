@@ -70,7 +70,7 @@ function SettingsContent({ page }: { page: SettingsPage }) {
 
       <h2>{strings.settingsAbout}</h2>
       <Panel>
-        <p className="panel-title">{strings.appName}</p>
+        <h3 className="panel-title">{strings.appName}</h3>
         <p>{strings.settingsVersion(core.version)}</p>
       </Panel>
       <Diagnostics />
@@ -152,7 +152,7 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
   return (
     <Panel className="server">
       <div className="server-text">
-        <p className="panel-title">{row.name}</p>
+        <h3 className="panel-title">{row.name}</h3>
         <p className="muted">{row.address}</p>
         <p>{row.signedInAs != null ? strings.settingsSignedInAs(row.signedInAs) : strings.settingsSignedOut}</p>
         {row.offline && <Notice kind="warning">{strings.settingsOffline}</Notice>}
