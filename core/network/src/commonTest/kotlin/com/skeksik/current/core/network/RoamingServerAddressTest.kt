@@ -542,6 +542,25 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aKeptAddressIsShownButNotProvedUntilItIsCheckedAgain() = runTest {
+        probe.answers[local] = homeId
+        val source = roaming()
+        assertEquals(url(local), source.provedNow())
+        changes.emit(NetworkChange.Suspended)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        assertNull(source.provedNow(), "kept across the suspension, not proved since")
+        changes.emit(NetworkChange.Resumed)
+        runCurrent()
+        assertEquals(url(local), source.provedNow())
+
+        probe.answers[local] = "slow"
+        changes.emit(NetworkChange.Changed)
+        runCurrent()
+        assertNull(source.provedNow())
+    }
+
+    @Test
     fun aKeptAddressThatNothingProvesAfterASuspensionIsDropped() = runTest {
         probe.answers[local] = homeId
         val source = roaming()

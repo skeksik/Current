@@ -205,6 +205,8 @@ class RoamingAddressSources internal constructor(
 
         override suspend fun awaitCurrent(): ServerUrl? = inner.value.awaitCurrent()
 
+        override fun provedNow(): ServerUrl? = inner.value.provedNow()
+
         override fun reportUnreachable(address: ServerUrl) = inner.value.reportUnreachable(address)
 
         override fun reportReachable(address: ServerUrl) = inner.value.reportReachable(address)
