@@ -19,6 +19,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
@@ -48,7 +52,7 @@ fun Page(
             LocalPageTop.current?.invoke()
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                     if (subtitle != null) {
                         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -63,7 +67,13 @@ fun Page(
 /** A heading inside a page. */
 @Composable
 fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = Spacing.s))
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = Spacing.s).semantics { heading() })
+}
+
+/** The title of a [Panel], such as a saved server's name: a heading below [SectionTitle]. */
+@Composable
+fun PanelTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
 }
 
 /** A raised block that groups related content, such as one saved server. */
@@ -80,7 +90,10 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
     }
 }
 
-/** A message under a form: an error in the error colour, a warning in the warning colour. */
+/**
+ * A message under a form: an error in the error colour, a warning in the warning colour. Only errors, which the user's last action caused,
+ * are announced as they appear (politely); warnings and info, such as Offline on a server, are part of the page and are read with it.
+ */
 @Composable
 fun Notice(text: String, kind: NoticeKind = NoticeKind.Error) {
     val color = when (kind) {
@@ -88,7 +101,8 @@ fun Notice(text: String, kind: NoticeKind = NoticeKind.Error) {
         NoticeKind.Warning -> MaterialTheme.colorScheme.tertiary
         NoticeKind.Info -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Text(text, style = MaterialTheme.typography.bodyMedium, color = color)
+    val announce = if (kind != NoticeKind.Error) Modifier else Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = color, modifier = announce)
 }
 
 enum class NoticeKind { Error, Warning, Info }
