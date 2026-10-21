@@ -10,8 +10,9 @@ import org.koin.core.scope.Scope
  * Whether the app may reach servers on the local network (ADR 0020). Only Android 17 asks today (`ACCESS_LOCAL_NETWORK`); Apple's
  * local network prompt will be another implementation.
  *
- * While it is not granted, local addresses cannot be reached and internet addresses still work. A denied HTTP request to a local
- * address does not fail fast, it only times out, so read [status] before probing a local address rather than reading the error.
+ * While it is not granted, local addresses cannot be reached, nor can an internet name that resolves to one (split DNS at home); other
+ * internet addresses still work. A denied HTTP request to a local address does not fail fast, it only times out, so read [status]
+ * before probing a local address rather than reading the error.
  */
 interface LocalNetworkAccess {
     /** The current state, without asking the user. Cheap; call it again whenever the answer matters, it can change in the settings. */
