@@ -1032,6 +1032,23 @@ research agent reading the same files.
   unregister them). `NetworkCallback` has `onAvailable`, `onLosing`, `onLost`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`,
   `onBlockedStatusChanged`. AOSP `ConnectivityManager.java`. Nothing run.
 
+## Local network permission on Android: the API (checked 2026-10-21 in the Android reference and guides; nothing run for this section)
+- `Manifest.permission.ACCESS_LOCAL_NETWORK`: "Added in API level 37", constant value `"android.permission.ACCESS_LOCAL_NETWORK"`,
+  protection level dangerous. "A local network refers to an IP network that utilizes a broadcast-capable network interface, such as Wi-Fi
+  or Ethernet, but excludes cellular (WWAN) or VPN connections." https://developer.android.com/reference/android/Manifest.permission
+  So an overlay VPN address (Tailscale, which ADR 0016 counts as `Local`) presumably does not need it. Not verified on a device.
+- https://developer.android.com/privacy-and-security/local-network-permission : "required only if your app targets Android 17 (SDK 37) or
+  higher"; declare it in the manifest; "Before attempting any local network access, applications must check if the permission has been
+  granted"; apps must handle a denial or a later revocation in settings, after which "local network traffic will be blocked". If another
+  permission of the group is already granted (such as Bluetooth), the user is not prompted again. The page mentions a mechanism that resets
+  the denial count for this permission, giving the app further chances to ask; how it is triggered was not read.
+- Runtime requests, https://developer.android.com/training/permissions/requesting (last updated 2026-10-16): "if the user taps Deny for a
+  specific permission more than once ... the user will no longer see the system permissions dialog ... considered a permanent denial";
+  once denied it is flagged `USER_SET`, twice `USER_FIXED`. `shouldShowRequestPermissionRationale()` returning true means show an
+  explanation; the page does not define `false`. The Activity Result API's `RequestPermission` contract needs `androidx.activity` 1.2.0+,
+  and the dialog cannot be customised.
+- What the app does with it: ADR 0020.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
