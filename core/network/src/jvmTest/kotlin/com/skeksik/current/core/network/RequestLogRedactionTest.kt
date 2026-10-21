@@ -55,7 +55,7 @@ class RequestLogRedactionTest {
         }
         val lines = buffer.lines()
         assertEquals(3, lines.size, lines.toString())
-        assertTrue(lines.last().contains("/jellyfin/Users/…/Items/…?ParentId=…&Fields=Overview "), lines.last())
+        assertTrue("/jellyfin/Users/…/Items/…?ParentId=…&Fields=Overview&ApiKey=*** " in lines.last(), lines.last())
         assertTrue(lines.all { it.startsWith("jellyfin/server-1 GET https://…/jellyfin/") }, lines.toString())
         for (secret in secrets) assertFalse(lines.any { secret in it }, "$secret in $lines")
     }
