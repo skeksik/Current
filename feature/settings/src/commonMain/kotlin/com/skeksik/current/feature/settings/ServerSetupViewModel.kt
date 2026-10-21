@@ -16,6 +16,7 @@ import com.skeksik.current.core.network.ServiceException
 import com.skeksik.current.core.network.candidates
 import com.skeksik.current.core.network.newServerRef
 import com.skeksik.current.core.network.scope
+import com.skeksik.current.core.network.withAddress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -130,7 +131,7 @@ class ServerSetupViewModel internal constructor(
             null -> SavedServer(ref, identity.serverId, identity.name.ifBlank { url.host }, listOf(address))
             else -> {
                 val saved = servers.server(addTo) ?: return
-                saved.copy(addresses = saved.addresses + address)
+                if (saved.addresses.any { it.url == address.url }) saved else saved.withAddress(address)
             }
         }
         servers.save(server)

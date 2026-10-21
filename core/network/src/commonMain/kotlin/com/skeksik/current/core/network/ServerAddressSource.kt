@@ -9,12 +9,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * as the network changes (roadmap, M1 server setup), so a [ServerClient] reads [current] for every request instead of fixing a base URL.
  */
 interface ServerAddressSource {
-    /** The address to use now; null while none is known to work, which fails requests as unreachable. */
+    /** The address to use now; null while none is known to work, which fails requests as unreachable. For display and stale reports. */
     val current: StateFlow<ServerUrl?>
 
     /**
-     * A request to [address] could not connect. The source may switch to another address; the failed request is not retried. A report
-     * for an address that is no longer [current] is stale and should be ignored.
+     * The address for a request about to be sent. A source that is still checking where the server is (at start, after a network
+     * change) makes the request wait, for a bounded time, instead of sending it to an unproved address. Null fails it as unreachable.
+     */
+    suspend fun awaitCurrent(): ServerUrl? = current.value
+
+    /**
+     * A request to [address] could not connect or timed out. The source may switch to another address; the failed request is not
+     * retried. A report for an address that is no longer in use is stale and should be ignored.
      */
     fun reportUnreachable(address: ServerUrl)
 }
