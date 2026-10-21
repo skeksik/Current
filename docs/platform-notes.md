@@ -2438,6 +2438,108 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Also seen, already noted above: the sidebar takes about half the width at phone size, and the "No credential store was found" note
   shows on Android.
 
+## Desktop packaging (read 2026-10-21 in the Compose Multiplatform docs and the compose-multiplatform plugin source on `master`; packaged only in CI)
+- jlink copies only listed modules into the packaged runtime. "The Gradle plugin does not automatically determine necessary JDK Modules
+  ... failure to provide the necessary modules can lead to `ClassNotFoundException` at runtime." `suggestModules` runs jdeps, whose
+  "output might be incomplete or list unnecessary modules"; `includeAllModules` is the size-for-safety alternative
+  (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html). In the plugin source on `master` (not the 1.12.1 tag) the task is named
+  `suggestRuntimeModules`, and the defaults are `java.base`, `java.desktop`, `java.logging`, `jdk.crypto.ec`
+  (`gradle-plugins/compose/.../dsl/JvmApplicationDistributions.kt`, `DEFAULT_RUNTIME_MODULES`).
+- Windows screen readers work through Java Access Bridge, "disabled by default" (`jabswitch.exe /enable`). A packaged app needs the
+  `jdk.accessibility` module. The page names NVDA's Speech Viewer and JAWS' speech history for checking announcements
+  (https://kotlinlang.org/docs/multiplatform/compose-desktop-accessibility.html).
+- `packageName` is "the application's name"; `description` and `vendor` have no default. `windows { upgradeUuid }` "enables users to update
+  the application via the installer, when there is a version newer than an installed version. The value must remain constant".
+  `perUserInstall`, `menu`, `menuGroup`, `shortcut` and `dirChooser` (default true) exist in the plugin's `WindowsPlatformSettings`;
+  `linux { packageName, debMaintainer, appCategory, menuGroup, shortcut }` in `LinuxPlatformSettings`. MSI versions are
+  `MAJOR.MINOR.BUILD` (255, 255, 65535 at most); a DEB version must start with a digit (docs page above).
+- jpackage needs JDK 17 or newer, taken from `JAVA_HOME` or `javaHome` (docs page above); the plugin falls back to the `java.home` of the
+  JVM running Gradle (`JvmApplicationData.kt`). The desktop app sets `javaHome` from a Java 21 Gradle toolchain, any vendor (cross-cutting review A7).
+- WiX: on Windows the plugin downloads WiX 3.11 binaries from the wixtoolset GitHub releases (`downloadWix`, `unzipWix`) unless `WIX_PATH` is
+  set or `compose.desktop.application.downloadWix=false` (`internal/wixToolset.kt`).
+- The modules the app needs beyond the defaults: `java.net.http` (ktor-client-java uses the JDK's `HttpClient`) and `jdk.accessibility`.
+  With those two listed, `suggestRuntimeModules` in CI (2026-10-21, Temurin 21.0.12) suggested `java.instrument` and `jdk.unsupported`,
+  so both are listed too. JNA (Credential Manager, libsecret, the title bar) logs through `java.logging`, a default. The packaged runtime
+  also pulled in `java.datatransfer`, `java.xml` and `java.prefs` as dependencies. CI checks the runtime's `release` file
+  (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s: it booted on Windows and under Xvfb on Linux, where Skiko
+  fell back from OpenGL ("Cannot create Linux GL context") to its next renderer. The MSI was about 75 MB.
+- Install folder (read in the plugin source on `master` and OpenJDK `jdk21u`; run in CI 2026-10-21):
+  - `windows { installationPath }` becomes jpackage's `--install-dir` (`configureJvmApplication.kt`, `AbstractJPackageTask.kt`). On
+    Windows that is a "Relative sub-path under the default installation location" (`MSG_Help_win_install_dir`), rejected if it
+    contains `:` or `..`, and defaults to the app name. The default location is `ProgramFiles64Folder` system-wide and
+    `LocalAppDataFolder` per user (`src/jdk.jpackage/windows/classes/jdk/jpackage/internal/WixAppImageFragmentBuilder.java`:
+    `installDir = (systemWide ? PROGRAM_FILES : LOCAL_PROGRAM_FILES).resolve(WINDOWS_INSTALL_DIR...)`).
+  - So a per-user install without it goes to `%LOCALAPPDATA%\Current`, which is `AppFolders.local()`. The generated WiX adds a
+    directory cleaner on `INSTALLDIR` (`addDirectoryCleaner`, "rm -rf", `WixRemoveFoldersEx`), which deleted `local.json` on upgrade
+    and uninstall (section "Desktop installer: Windows run").
+  - `Programs\Current` (the usual place for per-user apps) cannot be built. Passed as `Programs\Current` it installed into
+    `%LOCALAPPDATA%\ProgramsCurrent`: the plugin writes each value quoted into an `@...args.txt` file for jpackage
+    (`AbstractJvmToolOperationTask.kt`, `cliArgUtils.kt`), and a backslash inside quotes there is an escape. Passed as
+    `Programs/Current` or `Programs\\Current`, `packageMsi` failed: `light.exe` exited with 204 (ICE validation). For a per-user
+    install, jpackage adds a `<RemoveFolder>` component only for directories inside `INSTALLDIR` (`addDirectoryHierarchy`: "Per-user
+    install requires <RemoveFolder> component in every directory"); `addRootBranch` creates the folders above it (`Programs`) and
+    returns no components, so WiX's ICE64 rejects a per-user folder without a `RemoveFile` entry. The same code is in `jdk25u` and
+    `jdk` `master` (2026-10-21), so a newer JDK does not help. The plugin does not expose `--resource-dir` for a patched `main.wxs`
+    (it uses its own `build/compose/tmp/resources`).
+  - The app sets `installationPath = "Current App"`, i.e. `%LOCALAPPDATA%\Current App`. Only the folder differs: the installed-apps
+    entry, the Start menu group and shortcut and the desktop shortcut are named Current. CI installs a 0.1.0 MSI, writes
+    `%LOCALAPPDATA%\Current\local.json`, upgrades to 0.1.1 and uninstalls, and checks the file survives, the shortcuts exist and then
+    go, and one entry is left at 0.1.1 (`scripts/check-msi-upgrade.ps1`).
+  - **Rule: nothing may ever be written under the install folder.** Removing the product (uninstall, and the old version during an
+    upgrade) deletes it recursively.
+  - An install of an older build (into `%LOCALAPPDATA%\Current`) still deletes that folder when it is upgraded or removed.
+- Installed-apps icon: jpackage's `main.wxs` sets `ARPPRODUCTICON` from the launcher's icon (`WinMsiBundler.java`, `JpIcon`). Windows
+  Installer keeps it as the product's `ProductIcon` under `HKCU\Software\Microsoft\Installer\Products`, not as `DisplayIcon` in the
+  Uninstall key, which is why the registry showed no `DisplayIcon`; whether Settings > Apps shows it is not checked. The plugin has no
+  option for `DisplayIcon`.
+- Screen readers: AWT loads assistive technologies from `javax.accessibility.assistive_technologies` or the `assistive_technologies`
+  line in `~/.accessibility.properties` (`java.awt.Toolkit`, `jdk21u`). `jabswitch /enable` writes that line
+  (`assistive_technologies=com.sun.java.accessibility.AccessBridge`) and sets the Windows accessibility registry key (`jabswitch.cpp`).
+  The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
+  Bridge DLLs but no `jabswitch.exe`. Not tried: whether passing the property as a JVM argument of the packaged app makes Narrator or
+  NVDA see the Compose content without the user running `jabswitch`. A follow-up.
+- No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
+  follow-up.
+- Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
+  PNG, no new file). Not yet seen on screen.
+- jpackage writes the DEB `Maintainer` field as `<vendor> <debMaintainer>`, so `debMaintainer` is an address only (seen in CI with
+  `dpkg-deb --info`).
+- Not verified: NVDA through the packaged runtime, a DEB on a real Debian or Ubuntu desktop. The MSI: see "Desktop installer: Windows run".
+
+## Desktop installer: Windows run (checked 2026-10-21 on Windows 11 Pro 10.0.26200.9711; PR 45 at db896ed)
+- Build, pass: `packageMsi` took 30 s and wrote `Current-0.1.0.msi`, 75,137,448 bytes. No JDK download: the toolchain took the Zulu
+  21.0.11 already in `~/.gradle/jdks` (the runtime's `release` file says 21.0.11 and lists the expected 11 modules). WiX 3.11 was
+  downloaded (`downloadWix`).
+- Install with `msiexec /i ... /qn`, pass: no elevation (log: "LUA installation capable with no elevation required"), into
+  `%LOCALAPPDATA%\Current` (about 138 MiB). Start menu group "Current" with a "Current" shortcut and a desktop shortcut, both to
+  `Current.exe` with the exe's own icon. One Windows Installer entry (per user): Current 0.1.0, publisher skeksik, no `DisplayIcon`. Read
+  from the registry; Settings > Apps not looked at.
+- Launch from the Start menu shortcut, partly fail: the window title is "Current" and the taskbar button has the Current icon, but the
+  title bar shows a generic icon, not Current's (the owner confirmed it by eye; `main.kt` sets no window `icon`). Added a loopback Jellyfin
+  stand-in (`http://127.0.0.1:18096`), signed in, Settings > About: "Version 0.1.0". Also seen: a second launch starts a second instance
+  (two windows, each with its own state over the same settings files); there is no single-instance check.
+- Upgrade to 0.1.1 (local `current.version` only), partly fail: in place, one entry, version 0.1.1, MSI 75,137,444 bytes; the server was
+  still saved and signed in (token in Credential Manager) and About showed 0.1.1. **Bug:** the install folder is the app's machine-local
+  folder (`AppFolders.local()`, `%LOCALAPPDATA%\Current`). Removing the old product runs `WixRemoveFoldersEx` on `INSTALLDIR` recursively,
+  so `local.json` (the device id, and a secrets file if the user chose one) was deleted; the next launch made a new device id. Not
+  checked: what a new device id does to a session on a real Jellyfin server.
+- Uninstall with `msiexec /x ... /qn`, pass with the same bug: the files, both shortcuts and the entry are gone, and so is all of
+  `%LOCALAPPDATA%\Current` with `local.json`. `%APPDATA%\Current\settings.json` and the Credential Manager tokens stay.
+- Owner check, fail: name and icons right except the title bar (above). Narrator read only "Current window" for the whole window, no
+  button or page title. NVDA was not run (not installed; Access Bridge not enabled). The bundled runtime has the Access Bridge DLLs but
+  no `jabswitch.exe`; the toolchain JDK's works.
+
+Re-run (2026-10-21, same machine, PR 45 at 629e4ce), only what CI can't see: the title bar icon and an upgrade over real app data. No
+earlier build was installed; the existing `local.json` and `settings.json` were backed up first.
+- Build and install 0.1.0, pass: `packageMsi` wrote `Current-0.1.0.msi` (75,190,713 bytes); `msiexec /i ... /qn` exit 0 with no
+  elevation, files in `%LOCALAPPDATA%\Current App` (about 139 MiB), and `%LOCALAPPDATA%\Current` still holds only `local.json`.
+- Launch from the Start menu, pass: the owner confirmed by eye that the title bar and the taskbar both show the Current icon.
+- Device id, pass: the SHA-256 of `local.json` matched the backup after the install and the launch.
+- Upgrade to 0.1.1 (`-Pcurrent.version=0.1.1`, 75,186,617 bytes) over 0.1.0 with `/qn`, pass: exit 0, one entry, Current 0.1.1. The
+  owner saw About "0.1.1", the saved servers and sign-ins still there, and both icons still right. The `local.json` hash was unchanged
+  after the upgrade and after the launch.
+- 0.1.1 left installed at the owner's choice; uninstall not re-run here (CI covers it).
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
@@ -2470,6 +2572,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
 ## Not verified (research before depending on it)
+- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
+  window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015

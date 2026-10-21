@@ -6,11 +6,15 @@ cd "$(dirname "$0")/.."
 echo "==> No team ID in committed Xcode files"
 ./scripts/check-no-team-id.sh
 
+echo "==> Apple MARKETING_VERSION matches current.version"
+./scripts/check-apple-version.sh
+
 echo "==> Unit tests (JVM, and the web facade's on Node)"
 ./gradlew jvmTest :web:jsNodeTest
 
-echo "==> Desktop app compiles"
-./gradlew :desktopApp:classes
+echo "==> Desktop app compiles and packages with the JDK modules it needs (CI also starts it)"
+./gradlew :desktopApp:createDistributable
+./scripts/check-desktop-runtime.sh desktopApp/build/compose/binaries/main/app/Current*
 
 if ! command -v npm > /dev/null; then
   echo "npm not found: the web app needs Node.js 22 or newer" >&2
