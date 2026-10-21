@@ -6,7 +6,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -14,12 +15,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** When a [RoamingServerAddress] asks its addresses again, besides network changes and failed requests (ADR 0019). */
@@ -51,292 +49,293 @@ internal interface ManagedServerAddress : ServerAddressSource {
 }
 
 /**
- * Uses the first address, in the user's priority order, at which the saved server answers (ADR 0019). Every address is asked at
- * once through [probe], without credentials, and only one that reports the saved server id is ever used.
+ * Uses the best address, in the user's priority order, at which the saved server answers (ADR 0019). Every address is asked at once
+ * through [probe], without credentials, and only one that reports the saved server id is ever used.
  *
- * At start and after a network change, requests wait ([awaitCurrent]) until a check has proved an address: on a new network, whatever
- * answers at the old address is not proved to be the server. Other checks (a failed request, an edit, the periodic check) keep the
- * address in use until they find another; when nothing answers, the last proved address stays in use and the server is marked
- * unreachable. Only a network change, or an edit that removes it, clears it. A check made stale by either is cancelled.
+ * One loop handles every input in order from a single queue: edits, network changes and their settle, a resumed network, requests,
+ * timers and probe results. Only the loop changes the state; requests read what it publishes. Timers and probes post events tagged
+ * with what they belong to, and the loop ignores one whose settle, timer or check has been replaced.
  */
 internal class RoamingServerAddress(
     server: SavedServer,
     private val probe: ServerProbe,
     private val capabilities: MutableCapabilitiesState,
     private val timing: RoamingTiming = RoamingTiming(),
-    /** Measures how long ago the last check ended; tests pass their virtual clock. */
+    /** Measures the request window and timers' due times; tests pass their virtual clock. */
     private val time: TimeSource = TimeSource.Monotonic,
 ) : ManagedServerAddress {
-    /** Everything a check's result depends on, changed in one step so that a result never lands on edited addresses. */
-    private data class Roam(
-        val server: SavedServer,
-        /** The proved address requests go to; null while none is known. */
-        val address: ServerUrl?,
-        /** Requests wait: a check runs whose answer they need (start, network change). */
-        val blocking: Boolean,
-        /** Bumped by every edit and network change; a check started under another generation is thrown away. */
-        val generation: Int,
-        /** Bumped by every network change, and when the network is usable again; either starts the retry waits over. */
-        val network: Int = 0,
-    )
+    /** What requests see. [holding]: requests wait (start, network change). [resumes] counts resumed networks, so a wait can restart. */
+    private data class View(val address: ServerUrl?, val holding: Boolean, val resumes: Int)
 
-    private val state = MutableStateFlow(Roam(server, address = null, blocking = true, generation = 0))
+    private sealed interface Event {
+        data class Edited(val server: SavedServer) : Event
+
+        data object Changed : Event
+
+        data object Resumed : Event
+
+        data class Settled(val token: Int) : Event
+
+        /** A request found no address, or the address in use failed. */
+        data object Requested : Event
+
+        data class TimerFired(val token: Int, val full: Boolean, val requested: Boolean) : Event
+
+        data class ProbeResult(val check: Int, val index: Int, val proved: Boolean) : Event
+    }
+
+    private val events = Channel<Event>(Channel.UNLIMITED)
+    private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0))
     private val published = MutableStateFlow<ServerUrl?>(null)
+
+    /** The address list as last edited, written at once: a removed address gets nothing, not even before the loop has run. */
+    private val latest = MutableStateFlow(server)
 
     override val current: StateFlow<ServerUrl?> = published.asStateFlow()
 
-    /** A full check is due (an edit, a resumed network, a granted request). Conflated: any number make one more check. */
-    private val wake = Channel<Unit>(Channel.CONFLATED)
-
-    /** A network change has settled; while one is pending, only this starts the next check. */
-    private val settled = Channel<Unit>(Channel.CONFLATED)
-
-    /** A network change is waiting for its settle; cleared when the loop takes [settled]. */
-    private val settlePending = MutableStateFlow(false)
-
-    /** A request asked for a check too soon after the last one; the wait ends when the 15 s window does. */
-    private val deferredRequest = Channel<Unit>(Channel.CONFLATED)
-
-    /** A check is running; it answers any request that comes meanwhile. */
-    private val checking = MutableStateFlow(true)
-
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
-    /** When the last check ended; null until the first has. */
-    private val lastCheckEnded = MutableStateFlow<TimeMark?>(null)
-
     override suspend fun awaitCurrent(): ServerUrl? {
-        val address = withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
-        // A request that finds no address asks for a check, so a server that came back is found before the next retry. Not while a
-        // network change settles: its own check is about to start.
-        if (address == null && !settlePending.value) checkForRequest()
-        return address
+        while (true) {
+            val resumes = view.value.resumes
+            val seen = withTimeoutOrNull(requestWaitsAtMost) { view.first { !it.holding } }
+            // The app was suspended, or the network was blocked, while this request waited: wait again rather than fail.
+            if (seen == null && view.value.resumes != resumes) continue
+            val address = seen?.address?.takeIf { it in latest.value.urls() }
+            if (address == null) events.trySend(Event.Requested)
+            return address
+        }
     }
 
     override fun reportUnreachable(address: ServerUrl) {
-        if (address == state.value.address) checkForRequest()
-    }
-
-    /**
-     * A request asks for a check, at most once per [RoamingTiming.retryFirst] after the last check ended, so a caller that retries on
-     * every failure cannot drive probe rounds back to back. While a check runs, that check is the answer. A request that comes too soon
-     * is not dropped: the check comes when the window ends.
-     */
-    private fun checkForRequest() {
-        if (checking.value) return
-        val ended = lastCheckEnded.value ?: return
-        if (ended.elapsedNow() >= timing.retryFirst) wake.trySend(Unit) else deferredRequest.trySend(Unit)
+        if (address == view.value.address) events.trySend(Event.Requested)
     }
 
     override fun update(server: SavedServer) {
-        var edited = false
-        state.update { roam ->
-            edited = server.addresses != roam.server.addresses
-            if (!edited) return@update roam.copy(server = server)
-            // A removed address gets nothing more, not even until the check below has run.
-            roam.copy(server = server, address = roam.address?.takeIf { it in server.urls() }, generation = roam.generation + 1)
-        }
-        if (edited) wake.trySend(Unit)
-    }
-
-    /** Network changes not yet settled; the latest restarts the settle window. */
-    private val unsettled = Channel<Unit>(Channel.CONFLATED)
-
-    /** Requests wait from the first change of a burst; the check starts once the burst has settled. */
-    private fun networkChanged() {
-        settlePending.value = true
-        state.update { it.copy(address = null, blocking = true, generation = it.generation + 1, network = it.network + 1) }
-        // A wake left from before (a request's) must not start the check before the network has settled.
-        wake.tryReceive()
-        unsettled.trySend(Unit)
-    }
-
-    /** The same network is usable again: ask again at once, keeping the address in use, and start the retry waits over. */
-    private fun networkResumed() {
-        state.update { it.copy(network = it.network + 1) }
-        wake.trySend(Unit)
+        latest.value = server
+        events.trySend(Event.Edited(server))
     }
 
     override suspend fun run(networkChanges: Flow<NetworkChange>) {
         try {
             coroutineScope {
-                launch { state.collect { published.value = it.address } }
+                launch { view.collect { published.value = it.address } }
                 launch {
                     networkChanges.collect { change ->
-                        when (change) {
-                            NetworkChange.Changed -> networkChanged()
-                            NetworkChange.Resumed -> networkResumed()
-                        }
+                        events.send(if (change == NetworkChange.Changed) Event.Changed else Event.Resumed)
                     }
                 }
-                launch { unsettled.receiveAsFlow().collectLatest { delay(timing.networkSettles); settled.trySend(Unit) } }
-                roam()
+                Loop(this).run()
             }
         } finally {
-            state.update { it.copy(address = null, blocking = false) }
+            view.update { it.copy(address = null, holding = false) }
             published.value = null
         }
     }
 
-    private suspend fun roam(): Nothing {
-        var full = true
-        var woken = false
-        var retry = timing.retryFirst
-        var network = state.value.network
-        while (true) {
-            checking.value = true
-            // This check answers any request deferred before it.
-            deferredRequest.tryReceive()
-            val start = state.value
-            if (start.network != network) {
-                network = start.network
-                retry = timing.retryFirst
-            }
-            full = full || start.address == null
-            val addresses = start.server.urls()
-            // The periodic check asks the address in use and those above it; all of them only when none of those answers.
-            val candidates = if (full) addresses else addresses.subList(0, addresses.indexOf(start.address) + 1)
-            val checked = unlessStale(start.generation) {
-                firstAnswering(start.server, candidates) { proved -> useMeanwhile(start, proved) }
-            }
-            var applied = false
-            if (checked != null) {
-                state.update { now ->
-                    applied = now.generation == start.generation
-                    when {
-                        !applied -> now
-                        checked.found != null -> now.copy(address = checked.found, blocking = false)
-                        // A miss keeps the last proved address: only a network change or an edit that removes it clears it.
-                        else -> now.copy(blocking = false)
-                    }
-                }
-            }
-            if (!applied) {
-                // An edit or a network change made the check stale. An edit wakes at once, a network change once it has settled.
-                checking.value = false
-                // Whichever comes: an edit's wake, or the settle of a change.
-                select {
-                    wake.onReceive {}
-                    settled.onReceive { settlePending.value = false }
-                }
-                full = true
-                woken = true
-                continue
-            }
-            lastCheckEnded.value = time.markNow()
-            val found = checked?.found
-            if (found == null && !full) {
-                full = true
-                continue
-            }
-            capabilities.update(start.server.ref) { it.copy(reachable = found != null) }
-            val wait = if (found == null) {
-                // Only a miss on the timer makes the next wait longer; one that something woke does not.
-                retry.also { if (!woken) retry = (retry * 2).coerceAtMost(timing.retryAtMost) }
-            } else {
-                retry = timing.retryFirst
-                timing.recheckEvery
-            }
-            checking.value = false
-            woken = waitForNextCheck(wait)
-            full = woken || found == null
-        }
-    }
-
-    /**
-     * Waits up to [wait] for the next check; true when something asked for it rather than the timer. A pending network change waits
-     * for its settle and nothing else, the timer included. A request deferred by the rate limit shortens the wait to the end of the 15 s window.
-     */
-    private suspend fun waitForNextCheck(wait: Duration): Boolean {
-        var ends = time.markNow() + wait
-        var requested = false
-        while (true) {
-            if (settlePending.value) {
-                settled.receive()
-                settlePending.value = false
-                return true
-            }
-            val left = -ends.elapsedNow()
-            if (left <= Duration.ZERO) return requested
-            val event = withTimeoutOrNull(left) {
-                select<Int> {
-                    wake.onReceive { WAKE }
-                    settled.onReceive { SETTLED }
-                    deferredRequest.onReceive { DEFERRED }
-                }
-            } ?: continue
-            if (event == SETTLED) {
-                settlePending.value = false
-                return true
-            }
-            // A wake while a network change settles waits for the settle instead.
-            if (event == WAKE && !settlePending.value) return true
-            if (event == DEFERRED) {
-                requested = true
-                val windowLeft = timing.retryFirst - (lastCheckEnded.value?.elapsedNow() ?: timing.retryFirst)
-                if (windowLeft < left) ends = time.markNow() + windowLeft
-            }
-        }
-    }
-
-    private class Checked(val found: ServerUrl?)
-
-    /** Runs [check], or gives up on it as soon as an edit or a network change moves past [generation]; null then. */
-    private suspend fun unlessStale(generation: Int, check: suspend () -> ServerUrl?): Checked? = coroutineScope {
-        val stale = async { state.first { it.generation != generation } }
-        val work = async { Checked(check()) }
-        select {
-            work.onAwait { it }
-            stale.onAwait { null }
-        }.also {
-            stale.cancel()
-            work.cancel()
-        }
-    }
-
-    /**
-     * An address proved while higher ones are still being asked: requests use it until the check ends or a higher one answers. Only
-     * when no address is in use, or when it ranks above the one in use, so a healthy address is never swapped for a lower one mid-check.
-     */
-    private fun useMeanwhile(start: Roam, proved: ServerUrl) {
-        var used = false
-        state.update { now ->
-            val urls = now.server.urls()
-            val inUse = now.address?.let(urls::indexOf)?.takeIf { it >= 0 }
-            val rank = urls.indexOf(proved)
-            used = now.generation == start.generation && rank >= 0 && (inUse == null || rank < inUse)
-            if (used) now.copy(address = proved, blocking = false) else now
-        }
-        if (used) capabilities.update(start.server.ref) { it.copy(reachable = true) }
-    }
-
-    /**
-     * Asks every candidate at once and returns the first, in priority order, that reports the saved server id; null when none does.
-     * An address that proves itself while a higher one is still being asked goes to [meanwhile] at once, and so does each higher one
-     * that answers later, so requests do not wait for an address that hangs until the probe's timeout.
-     */
-    private suspend fun firstAnswering(
-        server: SavedServer,
-        candidates: List<ServerUrl>,
-        meanwhile: (ServerUrl) -> Unit,
-    ): ServerUrl? = coroutineScope {
-        val results = Channel<Pair<Int, Boolean>>(Channel.UNLIMITED)
-        val attempts = candidates.mapIndexed { index, url -> launch { results.send(index to isSavedServer(server, url)) } }
+    private inner class Check(val id: Int, val candidates: List<ServerUrl>, val full: Boolean, val woken: Boolean) {
+        lateinit var job: Job
         val done = BooleanArray(candidates.size)
         var best: Int? = null
-        repeat(candidates.size) {
-            val (index, answered) = results.receive()
-            done[index] = true
-            val before = best
-            if (answered && (before == null || index < before)) best = index
-            val found = best ?: return@repeat
-            if ((0 until found).all { done[it] }) {
-                attempts.forEach { it.cancel() }
-                return@coroutineScope candidates[found]
-            }
-            if (answered && index == found) meanwhile(candidates[found])
+    }
+
+    /** The state, owned by [run]; nothing else touches it. */
+    private inner class Loop(private val scope: CoroutineScope) {
+        private var server = latest.value
+        private var address: ServerUrl? = null
+        private var holding = true
+        private var resumes = view.value.resumes
+        private var settlePending = false
+        private var settleToken = 0
+        private var settleJob: Job? = null
+        private var timerToken = 0
+        private var timerJob: Job? = null
+        private var timerDue: TimeMark? = null
+        private var checks = 0
+        private var check: Check? = null
+
+        /** Something asked for a check while one ran (a resumed network): one more follows it. */
+        private var again = false
+        private var retry = timing.retryFirst
+        private var lastCheckEnded: TimeMark? = null
+
+        suspend fun run(): Nothing {
+            startCheck(full = true, woken = false)
+            for (event in events) handle(event)
+            error("The event queue is never closed")
         }
-        null
+
+        private fun handle(event: Event) {
+            when (event) {
+                is Event.Edited -> edited(event.server)
+                Event.Changed -> changed()
+                Event.Resumed -> resumed()
+                is Event.Settled -> if (event.token == settleToken && settlePending) {
+                    settlePending = false
+                    startCheck(full = true, woken = true)
+                }
+                Event.Requested -> requested()
+                is Event.TimerFired -> if (event.token == timerToken && check == null && !settlePending) {
+                    timerDue = null
+                    startCheck(full = event.full, woken = event.requested)
+                }
+                is Event.ProbeResult -> probed(event)
+            }
+        }
+
+        private fun edited(edit: SavedServer) {
+            val reordered = edit.addresses != server.addresses
+            server = edit
+            if (!reordered) return
+            if (address != null && address !in edit.urls()) address = null
+            publish()
+            // A pending settle starts the next check; otherwise the edit does, at once.
+            if (!settlePending) startCheck(full = true, woken = true)
+        }
+
+        /** The old address may now be another server's: drop it, hold requests, and check once updates have settled. */
+        private fun changed() {
+            address = null
+            holding = true
+            again = false
+            retry = timing.retryFirst
+            cancelCheck()
+            cancelTimer()
+            settlePending = true
+            settleJob?.cancel()
+            val token = ++settleToken
+            settleJob = scope.launch {
+                delay(timing.networkSettles)
+                events.send(Event.Settled(token))
+            }
+            publish()
+        }
+
+        /** The same network is usable again: ask again at once, keep the address, and start the retry waits over. */
+        private fun resumed() {
+            resumes++
+            retry = timing.retryFirst
+            publish()
+            when {
+                settlePending -> Unit
+                check != null -> again = true
+                else -> startCheck(full = true, woken = true)
+            }
+        }
+
+        /**
+         * A request asks for a check: never while one runs or a settle is pending (those answer it), and at most once per
+         * [RoamingTiming.retryFirst] after the last check ended. One that comes sooner gets a check when that window ends.
+         */
+        private fun requested() {
+            if (check != null || settlePending) return
+            val ended = lastCheckEnded ?: return
+            val left = timing.retryFirst - ended.elapsedNow()
+            if (left <= Duration.ZERO) startCheck(full = true, woken = true)
+            else schedule(left, full = true, requested = true, onlyIfSooner = true)
+        }
+
+        private fun startCheck(full: Boolean, woken: Boolean) {
+            cancelCheck()
+            cancelTimer()
+            val urls = server.urls()
+            val inUse = address?.let(urls::indexOf) ?: -1
+            // The periodic check asks the address in use and those above it; all of them only when none of those answers.
+            val partial = !full && inUse >= 0
+            val candidates = if (partial) urls.subList(0, inUse + 1) else urls
+            val started = Check(++checks, candidates, full = !partial, woken = woken)
+            val asked = server
+            started.job = scope.launch {
+                candidates.forEachIndexed { index, url ->
+                    launch { events.send(Event.ProbeResult(started.id, index, isSavedServer(asked, url))) }
+                }
+            }
+            check = started
+            if (candidates.isEmpty()) finish(started, null)
+        }
+
+        private fun probed(result: Event.ProbeResult) {
+            val running = check?.takeIf { it.id == result.check } ?: return
+            running.done[result.index] = true
+            val before = running.best
+            if (result.proved && (before == null || result.index < before)) running.best = result.index
+            val best = running.best
+            when {
+                best != null && (0 until best).all { running.done[it] } -> finish(running, running.candidates[best])
+                result.proved && result.index == best -> useMeanwhile(running.candidates[best])
+                running.done.all { it } -> finish(running, null)
+            }
+        }
+
+        /**
+         * An address proved while higher ones are still being asked: used when none is in use, or when it ranks above the one in use,
+         * so a healthy address is never swapped for a lower one mid-check.
+         */
+        private fun useMeanwhile(proved: ServerUrl) {
+            val urls = server.urls()
+            val inUse = address?.let(urls::indexOf)?.takeIf { it >= 0 }
+            if (inUse != null && urls.indexOf(proved) >= inUse) return
+            address = proved
+            holding = false
+            publish()
+            capabilities.update(server.ref) { it.copy(reachable = true) }
+        }
+
+        private fun finish(done: Check, found: ServerUrl?) {
+            check = null
+            done.job.cancel()
+            lastCheckEnded = time.markNow()
+            // A miss keeps the last proved address: only a network change, or an edit that removes it, clears it.
+            if (found != null) address = found
+            holding = false
+            publish()
+            if (found == null && !done.full) {
+                startCheck(full = true, woken = done.woken)
+                return
+            }
+            capabilities.update(server.ref) { it.copy(reachable = found != null) }
+            if (again) {
+                again = false
+                startCheck(full = true, woken = true)
+                return
+            }
+            if (found == null) {
+                // Only a miss on the timer makes the next wait longer; one that something woke does not.
+                val wait = retry
+                if (!done.woken) retry = (retry * 2).coerceAtMost(timing.retryAtMost)
+                schedule(wait, full = true, requested = false)
+            } else {
+                retry = timing.retryFirst
+                schedule(timing.recheckEvery, full = false, requested = false)
+            }
+        }
+
+        private fun schedule(after: Duration, full: Boolean, requested: Boolean, onlyIfSooner: Boolean = false) {
+            val due = timerDue
+            if (onlyIfSooner && due != null && -due.elapsedNow() <= after) return
+            cancelTimer()
+            val token = ++timerToken
+            timerDue = time.markNow() + after
+            timerJob = scope.launch {
+                delay(after)
+                events.send(Event.TimerFired(token, full, requested))
+            }
+        }
+
+        private fun cancelTimer() {
+            timerJob?.cancel()
+            timerJob = null
+            timerDue = null
+        }
+
+        private fun cancelCheck() {
+            check?.job?.cancel()
+            check = null
+        }
+
+        private fun publish() {
+            view.value = View(address, holding, resumes)
+        }
     }
 
     private suspend fun isSavedServer(server: SavedServer, url: ServerUrl): Boolean = try {
@@ -383,9 +382,5 @@ internal class OrderedServerAddress(server: SavedServer) : ManagedServerAddress 
         }
     }
 }
-
-private const val WAKE = 0
-private const val SETTLED = 1
-private const val DEFERRED = 2
 
 private fun SavedServer.urls(): List<ServerUrl> = addresses.mapNotNull { ServerUrl.parse(it.url) }

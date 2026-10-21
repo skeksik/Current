@@ -387,6 +387,22 @@ class RoamingServerAddressTest {
     }
 
     @Test
+    fun aWaitThatSpansAResumedNetworkStartsAgainInsteadOfFailing() = runTest {
+        probe.answers += mapOf(local to "hang", internet to "hang")
+        val source = roaming()
+        val request = async { source.awaitCurrent() }
+        // The app comes back to the foreground just before the request's 11 s bound.
+        advance(10.seconds)
+        changes.emit(NetworkChange.Resumed)
+        advance(1.5.seconds)
+        assertFalse(request.isCompleted, "the wait started again")
+        probe.answers[internet] = homeId
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertEquals(url(internet), request.await())
+    }
+
+    @Test
     fun aResumedNetworkStartsTheRetryWaitsOver() = runTest {
         roaming()
         // Misses at 0, 15 and 45 s; the next wait would be 60 s.
