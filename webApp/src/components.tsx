@@ -49,9 +49,13 @@ export function Panel({ children, className }: { children: ReactNode; className?
   return <section className={className ? `panel ${className}` : 'panel'}>{children}</section>;
 }
 
-/** A message under a form. Errors and warnings are announced as they appear. */
-export function Notice({ kind = 'error', children }: { kind?: 'error' | 'warning' | 'info'; children: ReactNode }) {
-  return <p className={`notice notice-${kind}`} role={kind === 'info' ? undefined : 'alert'}>{children}</p>;
+/**
+ * A message under a form. Only errors, which the user's last action caused, are announced as they appear (`role="alert"`). Warnings and
+ * information are part of the page: an assertive announcement for a state the user did not just cause (Offline) would interrupt them.
+ * A warning that must be heard goes into the description of the control it concerns (`id` and `aria-describedby`).
+ */
+export function Notice({ kind = 'error', id, children }: { kind?: 'error' | 'warning' | 'info'; id?: string; children: ReactNode }) {
+  return <p id={id} className={`notice notice-${kind}`} role={kind === 'error' ? 'alert' : undefined}>{children}</p>;
 }
 
 /** Something is on its way: a spinner and what is being waited for. */
