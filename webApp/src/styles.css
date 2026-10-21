@@ -1,12 +1,12 @@
 /* The desktop shell's look (core/designsystem: Tokens.kt and Theme.kt), light or dark with the system. Keep the two in step. */
 :root {
   color-scheme: dark;
-  /* Dark, the default look of a media app. */
+  /* Dark, the default look of a media app. Same WCAG AA rule as light: text 4.5:1, borders 3:1 (ContrastTest, check-contrast.mjs). */
   --background: #0e1113;
   --surface: #15191c;
   --surface-raised: #1d2226;
   --panel-edge: transparent;
-  --outline: #3a4247;
+  --outline: #6b767d;
   --text: #e7ecee;
   --text-muted: #9aa5ab;
   --primary: #2bb3a6;
@@ -14,7 +14,7 @@
   /* The accent at 16% over the sidebar. */
   --selected: #183232;
   --on-selected: #e7ecee;
-  --error: #e5484d;
+  --error: #ec6a6e;
   --warning: #f5a524;
 
   --space-xs: 4px;
@@ -36,7 +36,7 @@
   color: var(--text);
 }
 
-/* Light pairs meet WCAG AA against every light background (ContrastTest on desktop): text 4.5:1, borders 3:1. */
+/* Light pairs meet WCAG AA against every light background (ContrastTest on desktop, check-contrast.mjs here): text 4.5:1, borders 3:1. */
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
