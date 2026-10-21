@@ -87,13 +87,16 @@ is on, so a signal can only mean "something may have changed".
     woke), back to 15 s after a success.
   Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
-- Whether the server answered goes into the capabilities state (`reachable`).
+- Whether the server answered goes into the capabilities state (`reachable`). A request that succeeds marks it reachable too, for the
+  address in use only (it never proves an address), so a server is not shown offline while its requests succeed. Stash, with no
+  probe, is reachable after a request succeeds and unreachable once each address failed in turn since then or since the last network
+  change; a saved server with no address source at all is unreachable.
 - **While local network access is denied** (ADR 0020), checks skip local addresses. Denied means `LocalNetworkAccess.status()` is
   `CanAsk` or `Blocked`: Android 17 never shows the dialog by itself, so until the app asks and the user allows, local traffic is
   blocked as after a denial. PR 27's runs found that a denied request to a local address doesn't fail, it times out
   (docs/platform-notes.md). So:
   - Every local address (scope `Local` by host, ADR 0016) is left out of every check, except an overlay VPN address (Tailscale's
-    `100.64.0.0/10` and `.ts.net`): the permission most likely does not cover VPN interfaces (not verified), so those are probed like
+    `100.64.0.0/10`, `fd7a:115c:a1e0::/48` and `.ts.net`): the permission most likely does not cover VPN interfaces (not verified), so those are probed like
     internet ones and fall under the next rule if they do need it. A skipped address is never probed, so it never proves and never gets
     credentials. Skipping is preferred over ranking these addresses last: ranking last still waits for each one's timeout, and a grant
     brings them back within one probe anyway. A check left with no address ends at once. A server with only local addresses then has
