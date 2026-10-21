@@ -4,6 +4,8 @@ import com.skeksik.current.core.database.SecretStore
 import com.skeksik.current.core.network.CapabilitiesState
 import com.skeksik.current.core.network.LocalNetworkAccess
 import com.skeksik.current.core.network.MutableCapabilitiesState
+import com.skeksik.current.core.network.PlatformInfo
+import com.skeksik.current.core.network.RequestLogHistory
 import com.skeksik.current.core.network.ServerAddressSources
 import com.skeksik.current.core.network.ServerProbe
 import com.skeksik.current.core.network.ServerRepository
@@ -30,6 +32,7 @@ class AppModulesTest {
     private val pageNeeds: Map<String, List<KClass<*>>> = mapOf(
         "Home" to listOf(ServerRepository::class, CapabilitiesState::class, LocalNetworkAccess::class),
         "Settings" to listOf(ServerRepository::class, CapabilitiesState::class, JellyfinAccounts::class, SecretStore::class),
+        "About" to listOf(RequestLogHistory::class, PlatformInfo::class),
         "Add server" to listOf(ServerProbe::class, ServerRepository::class, MutableCapabilitiesState::class, LocalNetworkAccess::class),
         "Sign in" to listOf(JellyfinAccounts::class),
         "Addresses" to listOf(ServerRepository::class, ServerAddressSources::class, CapabilitiesState::class),
