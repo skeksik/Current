@@ -183,14 +183,18 @@ is on, so a signal can only mean "something may have changed".
   `br-*` bridges, a VPN's tunnel), and an IPv6 temporary address that rotates.
 - A server answering at several addresses is asked at all of them on each full check; with a handful of addresses per server that is cheap.
 
-## Addendum 2026-10-21: the address screen (candidates)
-The Addresses page today lists the addresses in priority order with their scope and the one in use, adds one through
-`ServerSetupViewModel`, removes one, and reorders with Move up and Move down. Candidates for a later PR, none decided:
-- A "Currently using" block at the top: the server's status, the address in use, its network kind (local or internet), and a Refresh
-  button that starts a full check.
-- Local addresses added by hand or found by discovery (the spike in docs/platform-notes.md, "Local server discovery, run on devices"),
-  which stops by itself after a short time.
-- Internet addresses in priority order, reordered by dragging as well as by Move up and Move down.
-- Custom HTTP headers per address, for reverse proxies. They touch credentials and redaction (ADR 0015), so header values are secrets:
-  never logged, never copied into diagnostics, and stored like other secrets (ADR 0017).
-- A brief notice when roaming switches to another address.
+## Addendum 2026-10-21: the address screen
+The Addresses page lists the addresses in priority order with their scope and the one in use, adds one through
+`ServerSetupViewModel`, removes one, and reorders with Move up and Move down. The candidates, and what became of them:
+- **Built:** a "Currently using" block at the top: the server's status, the address in use, its network kind (local or internet), and
+  a Refresh button that starts a full check (Decision, "The address screen's status").
+- **Built:** a brief notice when roaming switches to another address (Decision, "Switch notice"), in the Compose shell; the web can
+  render the same state later.
+- **Left out:** reordering internet addresses by dragging. Compose has no reorderable list, and a hand-written long-press drag with
+  auto-scroll for touch and mouse is not small. Move up and Move down stay, and `ServerAddressesViewModel.move(from, to)` is there for
+  a later drag.
+- **Still candidates:** local addresses added by hand or found by discovery (the spike in docs/platform-notes.md, "Local server
+  discovery, run on devices"), which stops by itself after a short time.
+- **Still candidates:** custom HTTP headers per address, for reverse proxies. They touch credentials and redaction (ADR 0015), so
+  header values are secrets: never logged, never copied into diagnostics, and stored like other secrets (ADR 0017). Needs an owner
+  decision on how they are stored.
