@@ -69,7 +69,10 @@ class ServersViewModel internal constructor(
         scope.launch { signOutNow(server) }
     }
 
-    /** Signs out first, so the server forgets the session and the keyring forgets the token, then forgets the server. */
+    /**
+     * Signs out first, which forgets the session here at once and ends it on the server in the background (with the token captured),
+     * then forgets the server. Nothing here waits on the network, so leaving the page cannot stop it halfway.
+     */
     fun remove(server: ServerRef) {
         scope.launch {
             signOutNow(server)

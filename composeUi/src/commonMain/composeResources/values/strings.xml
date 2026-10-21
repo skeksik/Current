@@ -83,6 +83,7 @@
     <string name="add_server_refused">The server refused the request.</string>
     <string name="add_server_already_added">This server is already added.</string>
     <string name="add_server_different_server">Another server answers at this address.</string>
+    <string name="add_address_server_not_saved">This server is no longer saved.</string>
     <string name="add_address_title">Add an address</string>
     <string name="add_address_subtitle">Enter another address of %1$s, such as media.example.com or 192.168.1.10:8096. It is added only if %1$s answers there.</string>
     <string name="add_address_confirm">Add this address</string>

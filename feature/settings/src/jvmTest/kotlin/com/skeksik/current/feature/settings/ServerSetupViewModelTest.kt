@@ -1,5 +1,6 @@
 package com.skeksik.current.feature.settings
 
+import com.skeksik.current.core.database.InMemoryKeyValueStore
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
@@ -13,12 +14,14 @@ import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
+import com.skeksik.current.core.network.StoredServerRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -158,6 +161,25 @@ class ServerSetupViewModelTest {
             servers.servers.value.single().addresses.map { it.url },
         )
         assertEquals(true, capabilities.capabilities.value.status(saved.ref)?.reachable)
+    }
+
+    @Test
+    fun anAddressForARemovedServerSaysSo() = runTest {
+        val saved = SavedServer(ServerRef(ServiceType.jellyfin, "a"), home.serverId, "Home", listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Local)))
+        val servers = StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { save(saved) }
+        val probe = FakeProbe(mapOf("https://media.example.com" to home))
+
+        // Removed on another page before the check.
+        val early = viewModel(probe, servers, addTo = saved.ref)
+        val late = viewModel(probe, servers, addTo = saved.ref)
+        assertIs<ServerSetupUiState.Found>(late.checked("media.example.com"))
+        servers.remove(saved.ref)
+        assertEquals(ServerSetupProblem.ServerNotSaved, early.checked("media.example.com").problem())
+
+        // Removed between the check and the confirmation.
+        late.confirm()
+        assertEquals(ServerSetupUiState.Editing("media.example.com", ServerSetupProblem.ServerNotSaved), late.state.value)
+        assertTrue(servers.servers.value.isEmpty())
     }
 
     @Test
