@@ -2244,7 +2244,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   server is no longer saved." Sign in asks `GET /QuickConnect/Enabled` once for its button and again when Quick Connect starts.
 - Not run: Firefox, Safari, Edge; Chrome's local network access prompt (the dev page is on loopback).
 
-## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e)
+## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
   committed, CORS open) answered `/System/Info/Public`, `/Users/AuthenticateByName`, `/Users/Me` (the restore check) and
@@ -2268,6 +2268,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   load) shows "Something went wrong" with Reload instead of a blank page, through `main.tsx`; a render that throws (on the way to
   Settings) shows the same, through the error boundary. Blocking `localStorage` does not force an error: the core's storage calls
   catch it, and the app runs without keeping anything.
+- The scripted cases ran at both commits with the same results. The hand check below ran on the e3a365e build only.
 - Hand check by the owner, in their own Edge against their own Jellyfin server: add it, sign in, reload (still signed in), no policy
   violation from the app in the console: pass. The only console errors came from a browser extension's own background script.
 - Also seen, not failures of this PR: with `localStorage` blocked, Settings still says "Sign-ins are kept in this browser." although
