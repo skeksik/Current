@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup rules for Android 11 and earlier: the same files as data_extraction_rules.xml, which explains them. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="current-local.xml" />
+    <exclude domain="sharedpref" path="current-secrets.xml" />
+</full-backup-content>

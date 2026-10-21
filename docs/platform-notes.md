@@ -1251,6 +1251,26 @@ research agent reading the same files.
 - What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
   shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
 
+## Android backup rules (read 2026-10-21 at https://developer.android.com/identity/data/autobackup; not yet run with `bmgr`)
+- Auto Backup "includes almost all app files" by default, shared preferences among them. It uploads at most 25 MB per app to the user's
+  Google Drive, and "only the most recent backup is stored". Since Android 12, device-to-device transfer has its own rules.
+- Apps that target Android 12 (API 31) or later name their rules in `android:dataExtractionRules`, with separate `<cloud-backup>` and
+  `<device-transfer>` sections. For Android 11 (API 30) and earlier they need a second file in `android:fullBackupContent`
+  (`<full-backup-content>`). The page's own sample excludes one shared preferences file with
+  `<exclude domain="sharedpref" path="device.xml"/>`.
+- "If you specify an `<include>` element, the system no longer includes any files by default and backs up only the files specified."
+  An exclude-only file therefore keeps everything else backed up.
+- Files in `getCacheDir()`, `getCodeCacheDir()` and `getNoBackupFilesDir()` "are always excluded even if you try to include them". The
+  page recommends Block Store, not shared preferences or a file, for credentials that should move to a new device.
+- On API 31+ some manufacturers keep device-to-device transfer even with `android:allowBackup="false"`, so rules are the reliable way
+  to keep a file out.
+- What the app does (`androidApp/src/main/res/xml`):
+  - It backs up settings (`current.xml`) and excludes the machine-local store (`current-local.xml`, with the device id, ADR 0017) from
+    both cloud backup and device transfer.
+  - It also excludes `current-secrets.xml`, reserved for M4's Keystore-backed secret store. Keystore keys never leave the device.
+  - Not verified: `adb shell bmgr backupnow com.skeksik.current` followed by a restore on another emulator, checking that
+    `current-local.xml` is missing.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
