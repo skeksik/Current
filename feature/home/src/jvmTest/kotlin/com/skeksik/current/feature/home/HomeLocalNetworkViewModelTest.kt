@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -52,6 +53,8 @@ private class FakeAccess(
     override fun status() = status
 
     override fun deniedBefore() = denied && (status == LocalNetworkPermission.CanAsk || status == LocalNetworkPermission.Blocked)
+
+    override val changes = emptyFlow<Unit>()
 
     override suspend fun request(): LocalNetworkPermission {
         requests++
@@ -155,6 +158,7 @@ class HomeLocalNetworkViewModelTest {
             var requests = 0
             override fun status() = LocalNetworkPermission.CanAsk
             override fun deniedBefore() = false
+            override val changes = emptyFlow<Unit>()
             override suspend fun request(): LocalNetworkPermission {
                 requests++
                 return LocalNetworkPermission.CanAsk
@@ -175,6 +179,7 @@ class HomeLocalNetworkViewModelTest {
             var requests = 0
             override fun status() = LocalNetworkPermission.CanAsk
             override fun deniedBefore() = false
+            override val changes = emptyFlow<Unit>()
             override suspend fun request(): LocalNetworkPermission {
                 requests++
                 return gate.await()

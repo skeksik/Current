@@ -41,6 +41,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // A grant or denial in the settings reaches roaming only this way (ADR 0019).
+    override fun onResume() {
+        super.onResume()
+        localNetworkRequests.resumed()
+    }
+
     override fun onDestroy() {
         window.decorView.viewTreeObserver.takeIf { it.isAlive }?.removeOnTouchModeChangeListener(touchModeListener)
         localNetworkRequests.detach(launchLocalNetworkRequest, finishing = !isChangingConfigurations)

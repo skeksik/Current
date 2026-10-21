@@ -5,11 +5,13 @@ import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServiceType
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 
 class LocalNetworkAccessTest {
     private val local = ServerAddress("http://192.168.1.10:8096", AddressScope.Local)
@@ -117,5 +119,26 @@ class LocalNetworkAccessTest {
         assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = true))
         assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = true, granted = false))
         assertFalse(LocalNetworkPermissionState(store).deniedBefore(apiSupported = false, granted = false))
+    }
+
+    @Test
+    fun onlyNotNeededAndGrantedAllowLocalAddresses() {
+        assertEquals(
+            listOf(LocalNetworkPermission.NotNeeded, LocalNetworkPermission.Granted),
+            LocalNetworkPermission.entries.filter { it.allowsLocal },
+        )
+    }
+
+    @Test
+    fun theBridgeReportsAChangeAfterEachAnswerAndEachResume() = runTest {
+        val bridge = LocalNetworkRequestBridge()
+        val seen = mutableListOf<Unit>()
+        backgroundScope.launch { bridge.changes.collect { seen += it } }
+        runCurrent()
+        bridge.resumed()
+        runCurrent()
+        bridge.onResult(PermissionAnswer(granted = true))
+        runCurrent()
+        assertEquals(2, seen.size)
     }
 }

@@ -1886,6 +1886,40 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   when the check ended, the case PR 33 found. Not checked further.
 - Not run here: case A (a switch while in the background), offline, the VPN.
 
+## Roaming with local network access denied: Android Emulator run (checked 2026-10-21 on the Android Emulator, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05; ADR 0019, ADR 0020)
+- What ran: PR 38 (`feat/roaming-skip-denied-local`) at 4f4bda3, debug build, no local change. A fresh AVD from that image (Pixel 8
+  profile), driven with `adb shell input` and `uiautomator dump`. Server: a throwaway stand-in on the host answering
+  `System/Info/Public`, `QuickConnect/Enabled` and `Users/AuthenticateByName`, logging each request with the address it was asked on
+  and the host's time; the cases' moments were stamped from the same clock. One server id on two addresses:
+  - local: the host's LAN address (written here as `http://192.168.1.10:8096`);
+  - internet: the host's own global IPv6 address as a literal (written here as `http://media.example.com:8096`), which the app
+    classifies as `Internet` and Android does not treat as local network; it reached the stand-in through the emulator's NAT. The
+    emulator's host alias (`10.0.2.2`) could not serve: it is `Local` by host, and Android blocks it while access is denied.
+- How: this branch has no screen for a second address (PR 35), so the server was added and signed in through "Add server", then the
+  internet address was appended to the saved server in the app's preferences with `run-as`. Android has no credential store yet, so
+  each start is signed out; the requests timed below are the sign-in page's (`QuickConnect/Enabled` when it opens, then
+  `Users/AuthenticateByName`). The app's request log is not wired to logcat (`NetworkLogger.None`), so the stand-in's log is the
+  evidence. Denied was `CanAsk` for (a) and (b) (`pm revoke`, no `USER_SET`).
+- (a) Local first, internet second, denied: **pass.** With access granted (baseline) a start probed both addresses; denied, a start
+  probed only the internet address, 1.9 s after `am start` (process start included). Sign-in went there with no wait:
+  `AuthenticateByName` arrived 77 ms after Enter. Nothing reached the local address during the case (about a minute).
+- (b) Only the local address, denied: **pass.** Nothing reached the stand-in. Sign-in showed "The server cannot be reached." at the
+  first screen read after Enter (within 2.2 s, most of it the read itself), not after the 11 s bound; Settings showed the server as
+  "Offline" at its first read, 3.5-5.7 s after a cold start.
+- (c) Grant in system Settings (App info > Permissions > Nearby devices > Allow), back to the app: **pass.** The process kept running
+  (same pid), and nothing was probed while away. Back in the app one check ran at once: local only, its probe came 0.23 s after the
+  return; both addresses saved, both were probed 0.08 s after it. "Offline" was gone, and sign-in (`QuickConnect/Enabled`,
+  `AuthenticateByName`) used the local address.
+- (d) Deny again in system Settings: **the process restarted.** Android killed the app when "Don't allow" was tapped (no pid; a new
+  one on return), as for `pm revoke`. After it, a start with both addresses probed only the internet one (1.6 s after the return); with
+  only the local address nothing was probed and the server showed "Offline". So the path where a flip to denied drops a local address
+  in use was not reached by a revoke on this image.
+- Seen, not from this PR: nothing in the app asks for Nearby devices for a saved server. `shouldAskForLocalNetwork` with
+  `LocalNetworkAskReason.SavedServers` is called only in tests; only "Add server" asks. With this PR, a server whose addresses are all
+  local shows "Offline" while `CanAsk`, and Home and Settings offer no way to grant except adding a server or the system settings.
+- Not run here: a denial in the app's own dialog, `Blocked`, an internet name that resolves to a local address, the overlay VPN
+  exception, the periodic check while denied.
+
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
   It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
