@@ -1,7 +1,9 @@
 package com.skeksik.current.ui.shell
 
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -45,6 +47,7 @@ import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.ui.navigation.ShellGraph
 import com.skeksik.current.ui.navigation.ShellHistory
 import com.skeksik.current.ui.navigation.ShellNavigator
+import com.skeksik.current.ui.navigation.ShellOverlay
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.app_name
 import com.skeksik.current.ui.resources.nav_back
@@ -66,7 +69,7 @@ import kotlin.reflect.KClass
  * so a tap that opens it on Android also opens the soft keyboard.
  */
 @Composable
-fun Shell(graph: ShellGraph, back: BackInput) {
+fun Shell(graph: ShellGraph, back: BackInput, overlays: List<ShellOverlay> = emptyList()) {
     val controller = rememberNavController()
     // Back stack entries shown so far: one shown again is a return. Saved with the back stack, whose entries keep their ids when restored.
     val shownEntries = rememberSaveable(saver = shownEntriesSaver) { mutableSetOf<String>() }
@@ -124,8 +127,14 @@ fun Shell(graph: ShellGraph, back: BackInput) {
                     }
                 }
             }
-            // Over the page, at the bottom, where it covers the least.
-            RoamingNoticeHost(Modifier.align(Alignment.BottomCenter).padding(Spacing.l))
+            // Over the page, at the bottom, where they cover the least.
+            Column(
+                Modifier.align(Alignment.BottomCenter).padding(Spacing.l),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                overlays.forEach { it.Content(Modifier) }
+            }
         }
     }
     // After NavHost, whose own back handler is then the older one (ShellBackHandler).

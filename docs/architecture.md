@@ -70,7 +70,7 @@ skip others silently.
 `ShellDestination`: its pages (a `@Serializable` route type and the composable that renders it) and an optional sidebar entry (label, icon,
 `order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
 `settingsUiModule`, with `shellDestination(...)`, which qualifies each binding by its type so none overrides another); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
-checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
+checks that each route is registered once, and orders the sidebar. A feature can also bind a `ShellOverlay` (`shellOverlay(...)`), drawn over every page at the bottom of the page area and never taking focus, such as the roaming notice from `settingsUiModule`; the shell draws every binding without naming the feature. Pages move through a `Navigator` (open, replace, back). Routes another
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other; routes only their own feature opens (a server's addresses) stay in its package. Every page works
 with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
 focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element.

@@ -1,4 +1,4 @@
-package com.skeksik.current.ui.shell
+package com.skeksik.current.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -22,6 +22,7 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.feature.settings.RoamingNoticesViewModel
+import com.skeksik.current.ui.navigation.ShellOverlay
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.roaming_dismiss
 import com.skeksik.current.ui.resources.roaming_now_internet
@@ -29,12 +30,18 @@ import com.skeksik.current.ui.resources.roaming_now_local
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.getKoin
 
+/** The roaming notice over every page, bound in [settingsUiModule]: the shell draws it without naming this feature (ADR 0014). */
+internal object RoamingNoticeOverlay : ShellOverlay {
+    @Composable
+    override fun Content(modifier: Modifier) = RoamingNotice(modifier)
+}
+
 /**
  * A brief notice when roaming switches a server to another address (ADR 0019): the server and the network kind, never the address. It
  * clears itself after a few seconds and never takes focus, so it does not interrupt the page; a screen reader reads it out.
  */
 @Composable
-internal fun RoamingNoticeHost(modifier: Modifier = Modifier) {
+private fun RoamingNotice(modifier: Modifier) {
     val koin = getKoin()
     // One for the window, outside the pages: it lives as long as the shell.
     val viewModel = viewModel { RoamingNoticesViewModel(koin.get(), koin.get()) }

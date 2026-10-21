@@ -13,6 +13,7 @@ import com.skeksik.current.core.network.networkModule
 import com.skeksik.current.data.jellyfin.jellyfinModule
 import com.skeksik.current.ui.home.homeUiModule
 import com.skeksik.current.ui.navigation.ShellDestination
+import com.skeksik.current.ui.navigation.ShellOverlay
 import com.skeksik.current.ui.navigation.ShellGraph
 import com.skeksik.current.ui.settings.settingsUiModule
 import com.skeksik.current.ui.shell.BackInput
@@ -88,8 +89,9 @@ class MainWindowInput(escapeIsWindowBack: Boolean = false) {
 fun AppContent(input: MainWindowInput = remember { MainWindowInput() }) {
     val koin = getKoin()
     val graph = remember(koin) { ShellGraph(koin.getAll<ShellDestination>()) }
+    val overlays = remember(koin) { koin.getAll<ShellOverlay>() }
     CompositionLocalProvider(LocalFocusVisibility provides input.focusVisibility) {
-        CurrentTheme { Shell(graph, input.back) }
+        CurrentTheme { Shell(graph, input.back, overlays) }
     }
 }
 

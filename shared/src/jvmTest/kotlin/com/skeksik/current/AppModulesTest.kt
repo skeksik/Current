@@ -12,6 +12,7 @@ import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.data.jellyfin.JellyfinAccounts
 import com.skeksik.current.ui.navigation.ShellDestination
 import com.skeksik.current.ui.navigation.ShellGraph
+import com.skeksik.current.ui.navigation.ShellOverlay
 import org.koin.core.Koin
 import org.koin.core.annotation.KoinInternalApi
 import org.koin.dsl.koinApplication
@@ -36,6 +37,7 @@ class AppModulesTest {
         "Add server" to listOf(ServerProbe::class, ServerRepository::class, MutableCapabilitiesState::class, LocalNetworkAccess::class),
         "Sign in" to listOf(JellyfinAccounts::class),
         "Addresses" to listOf(ServerRepository::class, ServerAddressSources::class, CapabilitiesState::class),
+        "Roaming notice (overlay)" to listOf(ServerRepository::class, ServerAddressSources::class),
     )
 
     @Test
@@ -48,6 +50,11 @@ class AppModulesTest {
     fun theShellGetsEveryDestination() {
         val graph = ShellGraph(koin.getAll<ShellDestination>())
         assertEquals(2, graph.sidebar.size)
+    }
+
+    @Test
+    fun theShellGetsEveryOverlay() {
+        assertEquals(1, koin.getAll<ShellOverlay>().size)
     }
 }
 
