@@ -8,6 +8,8 @@ kotlin {
     js {
         outputModuleName = "current-core"
         browser()
+        // Only to run the facade's tests (`:web:jsNodeTest`): they test routes and view mapping, nothing that needs a browser.
+        nodejs()
         binaries.library()
         useEsModules()
         generateTypeScriptDefinitions()
@@ -34,6 +36,9 @@ kotlin {
 
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.kotlinx.coroutinesCore)
+        }
+        jsTest.dependencies {
+            implementation(libs.kotlin.test)
         }
     }
 }
