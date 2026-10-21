@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), several addresses per server with roaming (ADR 0019), the web probes and device profile, the `web`
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), several addresses per server with roaming (ADR 0019), the Compose desktop shell (home and settings), the web probes and device profile, the `web`
 > facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
@@ -29,11 +29,11 @@ offer Play from Jellyfin; Jellyfin items carry provider ids (TMDB and others), s
 ```
  appleApp (SwiftUI: iOS/macOS/tvOS) androidApp   desktopApp     webApp (React + TypeScript, Vite)
             |                                \         /                |
-         apple (framework "Shared")       shared (App, nav, DI)       web (Kotlin/JS library "current-core",
+         apple (framework "Shared")    shared (App, modules, Koin)    web (Kotlin/JS library "current-core",
             |                                    |                    @JsExport facade, History API router)
             |                                    |                      |
-            |                                composeUi (Compose screens, |
-            |                                player UI, video surfaces)  |
+            |                                composeUi (screens, Shell + |
+            |                                nav, player UI, surfaces)   |
             |                                    |                      |
             +------------ feature:* (ViewModels, UI state, PlayerController) ------------+
                                   data:{jellyfin,seerr,stash}
@@ -49,12 +49,13 @@ Dependencies point down. Features never import each other. Pure-Kotlin modules h
 | `core:network` | One client per server that follows the server's current address, credentials added by the data layer, error model (`ServiceException`), redacted request log (ADR 0015); saved servers, address scope and `ServerProbe` (ADR 0016); roaming between a server's addresses, with requests waiting for a proved address, and `NetworkChanges` (ADR 0019); the capabilities state |
 | `core:database` | `KeyValueStore` for settings per platform (ADR 0016: JSON file on desktop, `localStorage`, `SharedPreferences`, `NSUserDefaults`); `SecretStore` for tokens, a machine-local store and `DeviceIdentity` (ADR 0017); later the cache. Web persistence for the cache is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
-| `core:designsystem` | Compose theme and components (Android/desktop) |
+| `core:designsystem` | Compose theme from design tokens (`CurrentTokens`), loading, error and empty states, sidebar and page layout, the app's own icons, keyboard focus helpers (Android/desktop) |
 | `data:jellyfin` | The server probe (ADR 0016) and `JellyfinAccounts`: sign-in, Quick Connect, sign-out, restored sessions, authorized clients (ADR 0018) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
+| `feature:home` | `HomeViewModel`: where every shell starts; no server, signed out, or signed in |
 | `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
-| `composeUi` | Compose screens for every feature, custom player controls, per-platform video surface |
-| `shared` | Compose umbrella: `App()`, navigation, DI wiring of the modules it includes |
+| `composeUi` | Compose screens for every feature, the destination contract and `Shell` (sidebar + pages), custom player controls, per-platform video surface |
+| `shared` | Compose umbrella: `App()`, the list of modules it includes, Koin start (`CurrentKoin`, `AppContent`) |
 | `apple` | Static framework `Shared` exporting core/data/feature to Swift |
 | `web` | Kotlin/JS ES module library `current-core` (with `.d.ts`): an `@JsExport` facade over the ViewModels and the History API router, consumed by the React app in `webApp` (ADR 0011) |
 
@@ -64,6 +65,16 @@ the capabilities state as interfaces in its constructor, and each module binds i
 component is one new implementation and one changed binding; tests pass fakes the same way. Each feature contributes its own destinations to
 the shell's navigation, so the shell's list of modules is the only place that names them all. Lists show the media kinds the app renders and
 skip others silently.
+
+**Destinations (Compose).** Features are pure Kotlin, so a feature's Compose pages live in its package in `composeUi` and are described by a
+`ShellDestination`: its pages (a `@Serializable` route type and the composable that renders it) and an optional sidebar entry (label, icon,
+`order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
+`settingsUiModule`, with `bind ShellDestination::class`); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
+checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
+feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
+with the keyboard alone: visible focus rings, Tab and arrow keys move focus, Enter submits forms. The highlighted sidebar entry is the
+feature owning the page shown, not the back stack it sits on: Settings pages opened from Home (Add server, Sign in) stay on Home's back
+stack, so Back returns to Home, while Settings is highlighted. A sidebar entry always opens its feature's first page. The web shell has its own router (ADR 0011).
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
 forbids passing them on, such as full Dolby Vision processing).
