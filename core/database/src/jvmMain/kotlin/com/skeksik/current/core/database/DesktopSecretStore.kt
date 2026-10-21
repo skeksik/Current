@@ -21,12 +21,15 @@ internal interface SecretBackend {
     fun remove(key: String)
 }
 
-internal class SecretBackendException(message: String) : Exception(message)
+/** [retryable] is false when calling again cannot help or must not happen (a call that timed out may leave the store blocked). */
+internal class SecretBackendException(message: String, val retryable: Boolean = true) : Exception(message)
 
 /**
  * Secrets on the desktop (ADR 0017): the [keyring] (Windows Credential Manager, or the Secret Service on Linux) when there is one.
- * Without one, memory, unless the user chose a file only they can read ([keepInFile]), which is remembered in [local]. If the keyring
- * fails at run time (a locked keyring the user dismisses), values stay in memory for the rest of the run; removals still try the keyring.
+ * Without one, memory, unless the user chose a file only they can read ([keepInFile]), which is remembered in [local]. A keyring call
+ * that fails is tried once more at once, unless it timed out. If that fails too (a locked keyring the user dismisses twice), values
+ * stay in memory for the rest of the run, so the user is not asked again at every sign-in; removals still try the keyring. The next
+ * start tries the keyring again.
  */
 internal class DesktopSecretStore(
     private val keyring: SecretBackend?,
@@ -95,9 +98,17 @@ internal class DesktopSecretStore(
         }
     }
 
-    /** Runs [action] on the keyring; on failure switches to memory for the rest of the run and returns null. */
+    /**
+     * Runs [action] on the keyring, once more after a failure that may pass. If it still fails, switches to memory for the rest of the
+     * run and returns null.
+     */
     private fun <T> keyringOrNull(action: (SecretBackend) -> T): T? = try {
-        action(keyring!!)
+        try {
+            action(keyring!!)
+        } catch (e: SecretBackendException) {
+            if (!e.retryable) throw e
+            action(keyring!!)
+        }
     } catch (e: SecretBackendException) {
         _storage.value = SecretStorage.Memory
         null

@@ -22,21 +22,38 @@ class DesktopSecretStoreTest {
         folder.toFile().deleteRecursively()
     }
 
+    /** Fails every call while [failing], or the next [failures] calls; a timeout is a failure not to be retried. */
     private class FakeKeyring(
         var failing: Boolean = false,
         override val storage: SecretStorage = SecretStorage.CredentialManager,
     ) : SecretBackend {
         val values = mutableMapOf<String, String>()
+        var failures = 0
+        var timingOut = false
+        var calls = 0
 
-        override fun get(key: String): String? = if (failing) throw SecretBackendException("locked") else values[key]
+        private fun call() {
+            calls++
+            if (timingOut) throw SecretBackendException("no answer", retryable = false)
+            if (failures > 0) {
+                failures--
+                throw SecretBackendException("locked")
+            }
+            if (failing) throw SecretBackendException("locked")
+        }
+
+        override fun get(key: String): String? {
+            call()
+            return values[key]
+        }
 
         override fun put(key: String, value: String) {
-            if (failing) throw SecretBackendException("locked")
+            call()
             values[key] = value
         }
 
         override fun remove(key: String) {
-            if (failing) throw SecretBackendException("locked")
+            call()
             values.remove(key)
         }
     }
@@ -74,6 +91,53 @@ class DesktopSecretStoreTest {
         keyring.failing = false
         store.put("jellyfin/b/token", "t2")
         assertTrue(keyring.values.isEmpty())
+    }
+
+    @Test
+    fun oneFailureIsRetriedAndTheKeyringStaysInUse() = runBlocking {
+        val keyring = FakeKeyring().apply { failures = 1 }
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        store.put("jellyfin/a/token", "t1")
+        assertEquals(mapOf("jellyfin/a/token" to "t1"), keyring.values)
+        assertEquals(SecretStorage.CredentialManager, store.storage.value)
+        keyring.failures = 1
+        assertEquals("t1", store.get("jellyfin/a/token"))
+        assertEquals(SecretStorage.CredentialManager, store.storage.value)
+    }
+
+    @Test
+    fun aFailureThatRecursFallsBackAfterOneRetry() = runBlocking {
+        val keyring = FakeKeyring().apply { failures = 2 }
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        store.put("jellyfin/a/token", "t1")
+        assertEquals(2, keyring.calls)
+        assertEquals(SecretStorage.Memory, store.storage.value)
+        // Not asked again for the rest of the run, so a dismissed unlock prompt does not come back at every sign-in.
+        store.put("jellyfin/b/token", "t2")
+        assertEquals(2, keyring.calls)
+        assertEquals("t2", store.get("jellyfin/b/token"))
+    }
+
+    @Test
+    fun aTimeoutIsNotRetried() = runBlocking {
+        val keyring = FakeKeyring().apply { timingOut = true }
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        store.put("jellyfin/a/token", "t1")
+        assertEquals(1, keyring.calls)
+        assertEquals(SecretStorage.Memory, store.storage.value)
+        assertEquals("t1", store.get("jellyfin/a/token"))
+    }
+
+    @Test
+    fun theNextStartUsesTheKeyringAgain() = runBlocking {
+        val keyring = FakeKeyring(failing = true)
+        DesktopSecretStore(keyring, local, secretsFile).put("jellyfin/a/token", "t1")
+        keyring.failing = false
+        val next = DesktopSecretStore(keyring, local, secretsFile)
+        assertEquals(SecretStorage.CredentialManager, next.storage.value)
+        next.put("jellyfin/a/token", "t2")
+        assertEquals(mapOf("jellyfin/a/token" to "t2"), keyring.values)
+        assertFalse(Files.exists(secretsFile), "never a plain file without the user's choice")
     }
 
     @Test
