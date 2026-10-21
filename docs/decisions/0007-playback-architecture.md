@@ -1,6 +1,6 @@
 # 0007: Headless engines, shared controller, custom player UI
 
-Status: accepted (feature target and staging updated 2026-10-18)
+Status: accepted (feature target and staging updated 2026-10-18; amended 2026-10-21)
 
 ## Decision
 Three layers, whichever engine is used:
@@ -60,3 +60,39 @@ vlcj is GPLv3+ (commercial licence available) and vlcj 5 requires LibVLC 4. Re-c
 
 ## Platform notes
 See docs/platform-notes.md: Picture in Picture, Now Playing and remote commands, subtitles and tvOS remote handling all become the app's responsibility with a custom UI.
+
+## Amendment 2026-10-21
+**Apple: the system player's functionality with our own UI.** On Apple platforms the player UI stays the app's own on every engine,
+and it still provides everything the system player does. Each item is the app's job with a custom UI; the APIs are recorded in
+docs/platform-notes.md ("Apple system integration with a custom player"):
+- remote commands and Now Playing: Lock Screen, Control Center, the macOS menu bar, media keys;
+- Picture in Picture on every engine, not only AVPlayer (the fallback engine renders into a sample-buffer layer);
+- the AirPlay route picker;
+- skip intro and credits;
+- display criteria: matching frame rate and dynamic range, tvOS especially;
+- keeping the display awake during playback.
+
+**Now Playing content.** Title; a second line (series · S1E2, or the year); artwork; duration and position; ±N s skip commands; a
+change-position (scrubbing) command; play/pause; a next-episode command when there is a next episode. An existing third-party Jellyfin
+client on Apple platforms shows the title only, with no second line and no next command.
+
+**Route transparency.** The planner's output is shown to the user:
+- A playback information view lists the engine, the method (direct play, remux, direct stream, transcode), protocol, container, video
+  (codec, profile, resolution, frame rate, dynamic range, bitrate), audio (codec, channels, language), subtitle delivery (drawn by the
+  engine, native, burned in), the planner's reason for the choice, and each earlier failed attempt with its reason.
+- Its fields never contradict each other during a fallback: they all describe the attempt that is playing.
+- A format/HDR badge on the player explains the route in one sentence when tapped (e.g. why a Dolby Vision + HDR10+ file plays its
+  HDR10 base layer on the fallback engine). The user can switch route from there.
+- It pairs with Copy diagnostics (ADR 0015): a report attaches the route and the reasons.
+
+**Fallback chain.** The planner records why each step fell back. A failure shows a card with "Try other engine", Retry and Close,
+never a dead end.
+
+**Remux to local HLS (to be evaluated in the M2 spikes).** Repackaging a compatible MKV into local HLS/fMP4 on the device would let the
+native engine play it, keeping the native system integration, without a server transcode. A candidate route between direct play and
+server transcode; not decided.
+
+**Remembered choices.** Audio and subtitle track, quality and zoom are remembered, with a scope setting: Off, Season or Show. A "smart"
+subtitle mode shows subtitles only when the audio language differs from the preferred one.
+
+The player's UX rules for every platform (keyboard, pointer, touch, subtitles, Next Up, PiP): docs/player-ux.md.
