@@ -49,7 +49,7 @@ fun ErrorState(title: String, message: String? = null, retry: StateAction? = nul
     }
 }
 
-/** Nothing to show yet: why, and what the user can do about it. The [action] takes focus, so Enter does it. */
+/** Nothing to show yet: why, and what the user can do about it. After keyboard input the [action] takes focus, so Enter does it. */
 @Composable
 fun EmptyState(
     title: String,
@@ -95,13 +95,15 @@ private fun StateText(title: String, message: String?) {
 @Composable
 private fun StateButtons(primary: StateAction, secondary: StateAction?) {
     val focus = remember { FocusRequester() }
+    val focusVisibility = LocalFocusVisibility.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
         Button(primary.onClick, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(focus)) { Text(primary.label) }
         if (secondary != null) {
             OutlinedButton(secondary.onClick, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) { Text(secondary.label) }
         }
     }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    // Not after a click or a touch, nor at start: focus nobody asked for would act on the next Enter.
+    LaunchedEffect(Unit) { if (focusVisibility.keyboard) focus.requestFocus() }
 }
 
 /** A small spinner with [message], inside a form or a list rather than in place of the page. */

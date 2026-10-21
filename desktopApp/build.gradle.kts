@@ -11,6 +11,8 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
+    // The dark title bar on Windows (WindowsTitleBar); already used by core:database (ADR 0017).
+    implementation(libs.jna)
 
     implementation(libs.compose.uiToolingPreview)
 }
