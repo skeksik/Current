@@ -1095,6 +1095,51 @@ research agent reading the same files.
 - So `appleApp/Current/Info.plist`, shared by iOS, macOS and tvOS (ADR 0012), carries both keys. On tvOS the ATS key is set anyway; whether
   tvOS allows plain `http` to a LAN address with it, or without it, is not verified.
 
+## Privacy manifest: Apple (checked 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com, and in the Kotlin/Native, kotlinx.coroutines and Ktor sources; nothing built for this section)
+- "Privacy manifest files": "Apps and third-party SDKs [...] can contain a privacy manifest file, named `PrivacyInfo.xcprivacy`", which
+  records "The types of data collected by your app or third-party SDK. You need to provide this information for your app or third-party
+  SDK on all platforms" and "The required reasons APIs your app or third-party SDK uses. You need to provide this information for your app
+  or third-party SDK on iOS, iPadOS, tvOS, visionOS, and watchOS." "You need to add the privacy manifest file to your target's resources
+  for Xcode to use it when you generate a privacy report." https://developer.apple.com/documentation/bundleresources/privacy-manifest-files
+- "Describing use of required reason API": "Starting May 1, 2024, apps that don't describe their use of required reason API in their
+  privacy manifest file aren't accepted by App Store Connect." "If you use the API in your app's code, then you need to report the API in
+  your app's privacy manifest file." "For each executable or dynamic library in an app that uses a required reason API, the bundle that
+  includes the executable or dynamic library needs to include a privacy manifest file that reports the API."
+  https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+  `Shared` is a static framework linked into the app's executable (`apple/build.gradle.kts`), so the app's manifest covers its code.
+- The categories and reasons are on the `NSPrivacyAccessedAPIType` page
+  (https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype):
+  - `NSPrivacyAccessedAPICategoryUserDefaults`, `CA92.1`: "Declare this reason to access user defaults to read and write information that
+    is only accessible to the app itself. This reason does not permit reading information that was written by other apps or the system, or
+    writing information that can be accessed by other apps." Used: `UserDefaultsKeyValueStore` (core:database `appleMain`) reads and writes
+    `NSUserDefaults.standardUserDefaults` under its own `current.` keys. Declared.
+  - `NSPrivacyAccessedAPICategorySystemBootTime`: `systemUptime` and `mach_absolute_time()`. Not called by our Kotlin or Swift code (grep).
+    `TimeSource.Monotonic` (roaming, request durations; kotlinx.coroutines' native `nanoTime()` and `delay` use it too) is
+    `getTimeNanos()` in the Kotlin/Native runtime (`kotlin-native/runtime/src/main/cpp/Porting.cpp`, tag `v2.4.20`), which reads
+    `std::chrono::steady_clock` (or `high_resolution_clock` when steady), not either listed API. What Apple's libc++ calls under
+    `steady_clock` is not verified, nor whether App Store Connect flags it. Not declared; if App Store Connect asks, the reason is `35F9.1`
+    (elapsed time between events within the app).
+  - `NSPrivacyAccessedAPICategoryFileTimestamp` (`creationDate`, `modificationDate`, `stat`, `fstat`, `getattrlist`, ...),
+    `NSPrivacyAccessedAPICategoryDiskSpace` (`statfs`, `volumeAvailableCapacity...Key`, `systemFreeSize`, ...),
+    `NSPrivacyAccessedAPICategoryActiveKeyboards` (`activeInputModes`): none in our Kotlin `appleMain`/`iosMain`/`macosMain`/`tvosMain`
+    code or in `appleApp/` (grep), none in the Kotlin/Native runtime's Apple code (`fstat` appears only in its ELF reader), none in
+    kotlinx.coroutines 1.11.0 `native`/`nativeDarwin` or in Ktor 3.6.0's client, utils, io and http sources (the "modification-date" hits
+    there are HTTP header names). Not declared. Not verified: kotlinx-io's file system code (not called by us) and whatever the system
+    frameworks call on our behalf.
+  - macOS: `SCDynamicStoreCopyComputerName` (device name) is not on the list.
+- Collected data. "Describing data use in privacy manifests": "Record the categories of data that your app or third-party SDK collects about
+  the person using the app". https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests
+  The definition is on "App privacy details on the App Store": "\"Collect\" refers to transmitting data off the device in a way that
+  allows you and/or your third-party partners to access it for a period longer than what is necessary to service the transmitted request
+  in real time." and "Data that is processed only on device is not \"collected\"". https://developer.apple.com/app-store/app-privacy-details/
+  Current sends sign-in details, the device name and id and playback requests only to the servers the user adds; the developer and no
+  partner can read them. So `NSPrivacyCollectedDataTypes` is empty. This is a reading of "you and/or your third-party partners", not a
+  case Apple names: the owner confirms it before the first App Store submission. "Copy diagnostics" only copies to the clipboard.
+- `NSPrivacyTracking` is false and `NSPrivacyTrackingDomains` empty: no tracking, no analytics, no third-party SDK that contacts a domain.
+- The file is `appleApp/Current/PrivacyInfo.xcprivacy`. The target's folder is a synchronized group, so the file is a target member with no
+  `project.pbxproj` change. `scripts/build-apple-app.sh` fails when a built bundle lacks it. The privacy report (Product > Archive >
+  Generate Privacy Report) has not been generated.
+
 ## Local network, discovery and cleartext HTTP: Android (checked 2026-10-19 in the Android docs and AOSP `main`; nothing run on a device)
 - Android 17 local network permission, https://developer.android.com/privacy-and-security/local-network-permission and
   https://developer.android.com/about/versions/17/behavior-changes-17
