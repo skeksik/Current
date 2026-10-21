@@ -394,9 +394,9 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   Windows and macOS (`ComposeUiFlags.pollSystemTheme`, on by default except Linux; `ProvideSystemTheme.desktop.kt`). A
   `LaunchedEffect` keyed on it can repeat the DWM call when the theme flips.
 - The desktop app does this (`WindowsTitleBar`, 2026-10-21, Windows 11 build 26200, JDK 21): set from a `LaunchedEffect` after the
-  window is shown, the frame turned dark without a nudge such as `SetWindowPos` with `SWP_FRAMECHANGED`.
-- Not verified: value 20 (or the undocumented 19) on Windows 10; the frame following a theme change while the app runs; that the JBR
-  API returns null on another JDK.
+  window is shown, the frame turned dark without a nudge such as `SetWindowPos` with `SWP_FRAMECHANGED`. Switching the system mode
+  while the app ran, dark to light and back, turned the frame and the app's colours with it within the next capture (about 4 s).
+- Not verified: value 20 (or the undocumented 19) on Windows 10; that the JBR API returns null on another JDK.
 
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
