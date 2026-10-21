@@ -40,6 +40,21 @@
     <string name="settings_secrets_keep_in_file">Keep sign-ins in a file</string>
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s</string>
+    <string name="settings_addresses">Addresses</string>
+
+    <!-- Server addresses -->
+    <string name="addresses_title">Addresses</string>
+    <string name="addresses_subtitle">%1$s is tried at these addresses from the top. The first one that answers is used.</string>
+    <string name="addresses_add">Add address</string>
+    <string name="addresses_local">Local network</string>
+    <string name="addresses_internet">Internet</string>
+    <string name="addresses_in_use">In use</string>
+    <string name="addresses_unreachable">%1$s does not answer at any of these addresses right now.</string>
+    <string name="addresses_move_up">Move up</string>
+    <string name="addresses_move_down">Move down</string>
+    <string name="addresses_keep_one">A server keeps at least one address, so this one cannot be removed.</string>
+    <string name="addresses_remove_title">Remove %1$s?</string>
+    <string name="addresses_remove_message">Current stops trying this address. You can add it again later, while the server answers there.</string>
 
     <!-- Add server -->
     <string name="add_server_title">Add a server</string>
@@ -62,6 +77,10 @@
     <string name="add_server_refused">The server refused the request.</string>
     <string name="add_server_already_added">This server is already added.</string>
     <string name="add_server_different_server">Another server answers at this address.</string>
+    <string name="add_address_title">Add an address</string>
+    <string name="add_address_subtitle">Enter another address of %1$s, such as media.example.com or 192.168.1.10:8096. It is added only if %1$s answers there.</string>
+    <string name="add_address_confirm">Add this address</string>
+    <string name="add_address_already_added">This address is already added.</string>
     <string name="local_network_explain">To reach a server on your home network, Current needs the permission Android calls "Nearby devices".</string>
     <string name="local_network_continue">Continue</string>
     <string name="local_network_denied">Without "Nearby devices", servers on your home network cannot be reached, even by an internet name that leads to them at home. Other servers on the internet still work.</string>
