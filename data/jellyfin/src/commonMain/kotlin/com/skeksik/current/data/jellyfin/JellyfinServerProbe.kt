@@ -24,7 +24,7 @@ import kotlinx.serialization.Serializable
  */
 internal class JellyfinServerProbe(
     private val clients: ServerClients,
-    private val timeout: Duration = 5.seconds,
+    override val timeout: Duration = 5.seconds,
 ) : ServerProbe {
     override val service: ServiceType = ServiceType.jellyfin
 

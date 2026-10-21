@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), the Compose desktop shell (home and settings), the web probes and device profile, the `web`
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), several addresses per server with roaming (ADR 0019), the Compose desktop shell (home and settings), the web probes and device profile, the `web`
 > facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
@@ -46,7 +46,7 @@ Dependencies point down. Features never import each other. Pure-Kotlin modules h
 | Module | Responsibility |
 |---|---|
 | `core:model` | Domain models (ADR 0013): media identity (server + id), open values for services, media kinds, image types and permissions, artwork with aspect ratio and blurhash, users, capabilities (ADR 0014). Request status comes with Seerr requests (M3) |
-| `core:network` | One client per server that follows the server's current address, credentials added by the data layer, error model (`ServiceException`), redacted request log (ADR 0015); saved servers, address scope and `ServerProbe` (ADR 0016); the capabilities state |
+| `core:network` | One client per server that follows the server's current address, credentials added by the data layer, error model (`ServiceException`), redacted request log (ADR 0015); saved servers, address scope and `ServerProbe` (ADR 0016); roaming between a server's addresses, with requests waiting for a proved address, and `NetworkChanges` (ADR 0019); the capabilities state |
 | `core:database` | `KeyValueStore` for settings per platform (ADR 0016: JSON file on desktop, `localStorage`, `SharedPreferences`, `NSUserDefaults`); `SecretStore` for tokens, a machine-local store and `DeviceIdentity` (ADR 0017); later the cache. Web persistence for the cache is open (ADR 0004) |
 | `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
 | `core:designsystem` | Compose theme from design tokens (`CurrentTokens`), loading, error and empty states, sidebar and page layout, the app's own icons, keyboard focus helpers (Android/desktop) |
