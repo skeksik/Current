@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.skeksik.current.core.model.AppInfo
 import java.awt.Dimension
 
 fun main() = application {
@@ -15,8 +16,8 @@ fun main() = application {
         val input = remember { MainWindowInput() }
         Window(
             onCloseRequest = ::exitApplication,
-            // The product name, the same in every language (AppInfo.NAME); not a string resource.
-            title = "Current",
+            // The product name, the same in every language; not a string resource.
+            title = AppInfo.NAME,
             state = rememberWindowState(width = 1200.dp, height = 780.dp),
             onPreviewKeyEvent = input::onPreviewKeyEvent,
         ) {

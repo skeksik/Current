@@ -8,6 +8,8 @@ plugins {
 
 dependencies {
     implementation(project(":shared"))
+    // AppInfo.NAME for the window title.
+    implementation(project(":core:model"))
 
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
@@ -17,14 +19,52 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
 }
 
+// The one version source (gradle.properties), also used by AppInfo and the Android app.
+val appVersion = providers.gradleProperty("current.version").get()
+
+// The JDK that jpackage runs from and copies into the installer, so the bundled runtime does not depend on the JDK that runs Gradle.
+// Same major version as CI; the foojay resolver (settings.gradle.kts) downloads it when no matching JDK is installed.
+val packagingJdk = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
+    vendor = JvmVendorSpec.ADOPTIUM
+}
+
 compose.desktop {
     application {
         mainClass = "com.skeksik.current.MainKt"
+        javaHome = packagingJdk.get().metadata.installationPath.asFile.absolutePath
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.skeksik.current"
-            packageVersion = "1.0.0"
+            // The installed app's name (installer, Start menu, launcher); the app ID stays com.skeksik.current.
+            packageName = "Current"
+            packageVersion = appVersion
+            description = "Media client for Jellyfin, Seerr and Stash"
+            vendor = "skeksik"
+
+            // Added to the plugin's defaults (java.base, java.desktop, java.logging, jdk.crypto.ec), which jlink copies into the
+            // runtime. java.net.http: ktor-client-java. jdk.accessibility: Java Access Bridge for screen readers on Windows.
+            // jdk.unsupported: sun.misc.Unsafe for libraries that look for it. CI checks the packaged runtime has them.
+            modules("java.net.http", "jdk.accessibility", "jdk.unsupported")
+
+            windows {
+                // Never change: it ties every version's MSI together, so a newer one upgrades in place.
+                upgradeUuid = "420fb9fa-28cd-429a-8bf8-bccfb857d4b4"
+                // Installs under the user's profile without an administrator prompt; upgrades are per user too.
+                perUserInstall = true
+                menu = true
+                menuGroup = "Current"
+                shortcut = true
+            }
+            linux {
+                // Debian package names are lowercase.
+                packageName = "current"
+                // TODO: the owner replaces this placeholder before the first DEB is handed out.
+                debMaintainer = "Current maintainers <maintainer@example.com>"
+                appCategory = "video"
+                menuGroup = "AudioVideo;Video;Player"
+                shortcut = true
+            }
         }
     }
 }
