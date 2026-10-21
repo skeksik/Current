@@ -137,6 +137,18 @@ is on, so a signal can only mean "something may have changed".
 - **Editing addresses:** `withAddress`, `withoutAddress` (never the last) and `withAddressMoved` on `SavedServer` (`core:network`);
   adding still goes through `ServerSetupViewModel(addTo = …)`, which accepts only the same server id. `ServerAddressesViewModel`
   (`feature:settings`) lists the addresses with their scope and the one in use, and removes and reorders them.
+- **The address screen's status** (`ServerAddressesViewModel`): the server's status (checking, reachable, offline), the address in use
+  with its network kind, and Refresh. Status comes from `reachable` in the capabilities state. It reads "checking" only while
+  `reachable` is unknown or a check runs with no address in use, so the periodic check never makes it flicker. A source publishes
+  whether a check runs or a network settles (`ServerAddressSource.checking`). Refresh (`refresh()`) is ignored while one does:
+  - a full check, a pending settle or a suspension already answers it;
+  - a periodic (partial) check is replaced by a full one;
+  - it asks marked names too and starts the retry waits over, keeping the address in use;
+  - Stash goes back to its first address.
+- **Switch notice:** `ServerAddressSource.switches` reports each address roaming moved to from another one it used before. Not a switch:
+  the first address after start, the addresses the first check moves through, or an address an edit of the addresses moved to.
+  `RoamingNoticesViewModel` (`feature:settings`) turns them into a brief notice. It names the server and the network kind, never the
+  address, and clears itself after 4 s. The Compose shell shows it over the page; the web can render the same state later.
 
 ## Consequences
 - Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
