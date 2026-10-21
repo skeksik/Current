@@ -127,7 +127,10 @@ fun interface LocalNetworkRequester {
  */
 class LocalNetworkRequestBridge : LocalNetworkRequester {
     private var launch: (() -> Unit)? = null
+
+    /** The request in progress, shared by every caller; it ends with an answer, a finishing detach, or when its last caller leaves. */
     private var pending: CompletableDeferred<PermissionAnswer?>? = null
+    private var waiting = 0
     private val changed = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** [LocalNetworkAccess.changes]: after each answer and each [resumed]. */
@@ -145,26 +148,32 @@ class LocalNetworkRequestBridge : LocalNetworkRequester {
     /** [finishing] is false when the activity is only being recreated, so the dialog's answer will still come. */
     fun detach(launch: () -> Unit, finishing: Boolean) {
         if (this.launch === launch) this.launch = null
-        if (finishing) pending?.complete(null)
+        if (finishing) end(null)
     }
 
-    /** An answer nobody waits for (the request was cancelled, or the process restarted) is dropped: [LocalNetworkAccess.status] reads the grant anyway. */
+    /** An answer nobody waits for (every caller was cancelled, or the process restarted) is dropped: [LocalNetworkAccess.status] reads the grant anyway. */
     fun onResult(answer: PermissionAnswer) {
-        pending?.complete(answer)
+        end(answer)
         changed.tryEmit(Unit)
     }
 
     override suspend fun request(): PermissionAnswer? {
-        pending?.let { return it.await() }
-        val launch = launch ?: return null
-        val answer = CompletableDeferred<PermissionAnswer?>()
-        pending = answer
+        val joined = pending
+        val launch = if (joined == null) launch ?: return null else null
+        val answer = joined ?: CompletableDeferred<PermissionAnswer?>().also { pending = it }
+        waiting++
         try {
-            launch()
+            launch?.invoke()
             return answer.await()
         } finally {
-            if (pending === answer) pending = null
+            // A caller cancelled while others still wait leaves the request open for them.
+            if (--waiting == 0 && pending === answer) pending = null
         }
+    }
+
+    private fun end(answer: PermissionAnswer?) {
+        pending?.complete(answer)
+        pending = null
     }
 }
 
