@@ -8,6 +8,7 @@ import com.skeksik.current.core.network.networkModule
 import com.skeksik.current.core.playback.web.probeMediaSupport
 import com.skeksik.current.data.jellyfin.jellyfinModule
 import com.skeksik.current.feature.home.HomeViewModel
+import com.skeksik.current.feature.settings.AboutViewModel
 import com.skeksik.current.feature.settings.PlaybackSupportViewModel
 import com.skeksik.current.feature.settings.ServerSetupViewModel
 import com.skeksik.current.feature.settings.ServersViewModel
@@ -42,6 +43,12 @@ class CurrentWeb {
     val route: Observable<RouteView> = router.shown.observe { it.route.toView(it.opener) }
 
     val version: String = AppInfo.VERSION
+
+    // Holds no state or coroutines, so it lives as long as the page load.
+    private val about by lazy { AboutViewModel(koin.get(), koin.get()) }
+
+    /** Settings > About's "Copy diagnostics": the version, the browser and the request log's last lines, without hosts or secrets. */
+    fun diagnostics(): String = about.diagnostics()
 
     /**
      * Navigates for a plain click and returns true (call `preventDefault`); leaves other clicks to the browser. [opener] is the link's

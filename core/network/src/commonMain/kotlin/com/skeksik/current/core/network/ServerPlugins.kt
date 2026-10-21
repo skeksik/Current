@@ -67,6 +67,7 @@ internal val RequestLog = createClientPlugin("RequestLog", ::RequestLogConfig) {
                 RequestLogEntry(
                     server = server,
                     method = request.method.value,
+                    scheme = request.url.protocol.name,
                     path = Redaction.pathAndQuery(request.url.build()),
                     status = status,
                     durationMillis = start.elapsedNow().inWholeMilliseconds,
