@@ -90,8 +90,9 @@ Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/Ai
 The module tree and build files exist; sources are empty except `core:model` (ADR 0013), the capabilities state (ADR 0014),
 the server clients, error model and redacted request log (`core:network`, ADR 0015), saved servers, the settings store and
 `ServerSetupViewModel` with the Jellyfin probe (ADR 0016), secrets and device identity (`core:database`, ADR 0017),
-Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), several addresses per server with roaming and
-`ServerAddressesViewModel` (ADR 0019), cleartext and the local network permission on Android (ADR 0020), `HomeViewModel`
+Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), several addresses per server with roaming
+(which skips local addresses while local network access is denied) and `ServerAddressesViewModel` (ADR 0019), cleartext and the
+local network permission on Android (ADR 0020), `HomeViewModel`
 (`feature:home`), the Compose desktop shell (design tokens and
 shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens with a server's addresses in `composeUi`, Koin
 wiring in `shared`; docs/architecture.md), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the

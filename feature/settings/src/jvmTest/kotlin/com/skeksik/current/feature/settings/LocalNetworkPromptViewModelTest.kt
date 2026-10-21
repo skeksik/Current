@@ -5,6 +5,7 @@ import com.skeksik.current.core.network.LocalNetworkPermission
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.emptyFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,6 +19,8 @@ class LocalNetworkPromptViewModelTest {
         var settingsOpened = 0
 
         override fun status() = status
+
+        override val changes = emptyFlow<Unit>()
 
         override suspend fun request(): LocalNetworkPermission {
             requests++
@@ -92,6 +95,7 @@ class LocalNetworkPromptViewModelTest {
         val access = object : LocalNetworkAccess {
             var requests = 0
             override fun status() = LocalNetworkPermission.CanAsk
+            override val changes = emptyFlow<Unit>()
             override suspend fun request(): LocalNetworkPermission {
                 requests++
                 return gate.await()
