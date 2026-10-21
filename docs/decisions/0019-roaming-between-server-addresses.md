@@ -141,7 +141,7 @@ is on, so a signal can only mean "something may have changed".
 ## Consequences
 - Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
   still needs a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
-  (docs/platform-notes.md, "Roaming on Android"); those come with the shell.
+  (docs/platform-notes.md, "Roaming on Android"); both came with ADR 0020.
 - On Android a DNS lookup runs outside every engine timeout: over a VPN the owner measured 6.0 s for a failed lookup of the internet
   name (docs/platform-notes.md, "Request timeouts on blocking engines"). `RequestDeadline` (`core:network`) bounds every request,
   probes included, so a probe ends at its 5 s timeout while the abandoned lookup finishes on its own. A failed lookup is cached for
@@ -170,3 +170,15 @@ is on, so a signal can only mean "something may have changed".
   `vEthernet (Default Switch)` or WSL's adapter getting a new private address when the host or WSL restarts, Docker's `docker0` and
   `br-*` bridges, a VPN's tunnel), and an IPv6 temporary address that rotates.
 - A server answering at several addresses is asked at all of them on each full check; with a handful of addresses per server that is cheap.
+
+## Addendum 2026-10-21: the address screen (candidates)
+The Addresses page today lists the addresses in priority order with their scope and the one in use, adds one through
+`ServerSetupViewModel`, removes one, and reorders with Move up and Move down. Candidates for a later PR, none decided:
+- A "Currently using" block at the top: the server's status, the address in use, its network kind (local or internet), and a Refresh
+  button that starts a full check.
+- Local addresses added by hand or found by discovery (the spike in docs/platform-notes.md, "Local server discovery, run on devices"),
+  which stops by itself after a short time.
+- Internet addresses in priority order, reordered by dragging as well as by Move up and Move down.
+- Custom HTTP headers per address, for reverse proxies. They touch credentials and redaction (ADR 0015), so header values are secrets:
+  never logged, never copied into diagnostics, and stored like other secrets (ADR 0017).
+- A brief notice when roaming switches to another address.

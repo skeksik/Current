@@ -28,7 +28,8 @@ ship a build without it (app stores restrict such content; check their current p
 ## Consequences
 - More indirection (interfaces and DI multibinding) than a monolith. Worth it for a removable adult extension, and it gives later optional
   features (downloads, local files) a place to plug in.
-- `data:stash` is optional too: only the features that need Stash pull it in, so a build without them does not contain it.
+- `data:stash` is optional too: only the features that need Stash pull it in, so a build without them does not contain it. (Superseded by
+  ADR 0014: with no build switch, every umbrella includes it; Stash stays optional at runtime.)
 - Kinds being open means SwiftUI sees media kinds as values, not an exhaustive enum; renderers are looked up by kind.
 - Navigation is assembled from registered destinations (Compose: each feature contributes to the nav graph; SwiftUI: a registry of views),
   instead of one hand-written graph.

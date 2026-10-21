@@ -25,8 +25,8 @@ so two machines must never share one. `%APPDATA%` roams with domain profiles, an
     on that path.
   - **Android and Apple: memory until M4**, which brings a Keystore-backed store and the Keychain (this device only).
 - **Machine-local store** for values that must not roam: `%LOCALAPPDATA%\Current\local.json` on Windows, `$XDG_STATE_HOME/current/local.json`
-  (default `~/.local/state/current`) on Linux. Elsewhere it is the settings store's kind under its own name; keeping it out of phone
-  backups comes with M4.
+  (default `~/.local/state/current`) on Linux. Elsewhere it is the settings store's kind under its own name; on Android the backup rules
+  keep it out of backups (PR 46).
 - **`DeviceIdentity`**: a random 32-hex device id made once per install in the machine-local store, and a device name for server
   dashboards (the computer's name on desktop, "Chrome on Windows" on the web).
 - **`AppInfo.VERSION`** is generated from `current.version` in `gradle.properties`, for the `Version` servers ask for.
