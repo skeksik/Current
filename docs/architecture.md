@@ -112,6 +112,16 @@ PlayerUI (SwiftUI | Compose | React)  ->  PlayerController (feature:player)  -> 
 ```
 Sources: Jellyfin (the server negotiates routes from a device profile built from `EngineCapabilities`) and Stash
 (direct file or Stash's own transcodes). Each source reports progress back to its own server. See ADR 0007.
+The player's UX rules (keyboard, pointer, scrubber, touch, subtitles, Next Up, PiP, accessibility): docs/player-ux.md.
+
+## UX rules
+- **Home is user-editable:** rows can be shown, hidden and reordered; Continue Watching and Next Up merged or split; watched items
+  hidden in Recently Added; Reset to defaults. When a server offers a home layout, Home follows it, read from `CapabilitiesState`
+  (ADR 0008, ADR 0014).
+- **Offline states per page:** each page shows its own "server unreachable" state with actions (Open settings; Open downloads once
+  downloads exist). Every load has a timeout, never an endless spinner.
+- **Admin and paid features** appear only where they apply. No tab exists only to upsell (a general rule; the app has no paid features).
+- **Settings on the Mac:** a settings window bound to Cmd+, , not a small sheet. Platform-only settings stay off other platforms.
 
 ## Platforms
 | Platform | UI | Engine (planned) |

@@ -111,6 +111,9 @@ server is the owner's hand check.
 - [ ] Media keys: Windows (System Media Transport Controls, in our libmpv build per ADR 0010), Media Session API on web
 - [ ] The rest of the player feature target (ADR 0007) as far as Windows and web allow: HDR output, subtitle appearance, delay and preferred
       languages, remembered quality and zoom, a playback info overlay, a problem report with redacted logs
+- [ ] Player route transparency and choices (ADR 0007, amendment 2026-10-21): the playback information view with the planner's reasons,
+      and remembered audio, subtitle, quality and zoom with a scope (Off, Season, Show)
+- [ ] Spike: remux a compatible MKV to local HLS/fMP4 so the native engine plays it without a server transcode (ADR 0007, to be evaluated)
 - [ ] Deploy the web build (static files) behind a reverse proxy for daily use
 
 Done when: a Jellyfin library is browsable and playable on Windows and web every day, with resume and progress synced to the server.
@@ -135,6 +138,8 @@ Done when: a title can be found, requested and followed to "available", then pla
       Export, which is Alpha; SKIE is the fallback and needs the owner's approval as a dependency
 - [ ] Apple (SwiftUI, iOS/iPadOS and macOS): the M1-M3 screens on the shared ViewModels through that facade, AVPlayer plus the chosen fallback engine,
       Keychain, Now Playing, PiP, AirPlay
+- [ ] Apple system integration on every engine, fallback included: remote commands and Now Playing, PiP, AirPlay picker, display
+      criteria, display kept awake (ADR 0007, amendment 2026-10-21)
 - [ ] Shared design tokens read by both UIs
 
 Done when: everything from M1-M3 works on Android, iPhone/iPad and Mac.
