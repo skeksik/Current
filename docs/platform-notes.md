@@ -2775,6 +2775,36 @@ Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
   nothing is kept. Headless Chrome fetches `favicon.svg` again on most in-app navigations.
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
+## Address screen status: desktop and Android Emulator run (checked 2026-10-22 on Windows 11 Pro build 26200.9711 with Azul Zulu 21, and on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05, Pixel 7 profile 1080x2400 at 420 dpi, landscape; PR 51 at ccfd9a4)
+- What ran: `:desktopApp:run` with `APPDATA` and `LOCALAPPDATA` pointed at throwaway folders, driven by desktop automation; and the
+  debug build on a fresh AVD, driven by `adb shell input`, read with `uiautomator dump` and `screencap`. Two throwaway stand-ins for
+  `System/Info/Public` (not committed), the same server id on both, each stoppable on its own: one on `127.0.0.1` (`10.0.2.2` from
+  the emulator) and one on the LAN address. A delay option on the stand-in made a check last 3 s, so the progress state could be seen.
+  The 5-minute recheck caught each stopped address; the moment of the switch was captured by screenshots fired from the stand-in's
+  request log. Signed out throughout. Every address here is local, so "Internet" and "now on the internet" were not seen.
+- 1, Currently using block: **pass** on both. Status, the address in use, "Local network" and Refresh. "Checking which address
+  answers…" showed on the desktop after the address in use was removed (with the remaining one answering in 3 s), then Reachable.
+- 2, Refresh: **pass** for the button on both: disabled with a spinner and "Checking every address…", enabled again after. Three quick
+  presses gave one probe per address. **Fail for focus:** pressed from the keyboard, Refresh is disabled while it checks
+  (`enabled = !state.checking`) and loses focus. On the desktop the next Tab lands on the sidebar's Home entry; on Android focus jumps
+  to that entry at once. A check that ends at once keeps focus.
+- 3, roaming and notice: **pass** for the switch and the notice on both. With the address in use stopped, the next recheck, 5 minutes
+  after the last check, moved to the other address. "Stand-in: now on the local network" with Dismiss, no address, at the bottom. It
+  stayed about 4 s (desktop: visible for 3.8 s, gone at 4.4 s; Android: visible at 2.2 s, gone at 4.4 s). Dismiss closed it at once on
+  both. Focus: **pass** with focus on an address's Move down, which kept focus and its ring through the switch on both. **Fail** with
+  focus on Refresh: the recheck disables Refresh (case 2), so focus resets to the window's start (desktop, twice; a 2-minute idle
+  control before kept it). In landscape on Android the notice covers part of the focused Move down while it shows.
+- 4, user edits: **pass** on both. Moving the address in use down, and removing it, changed the address in use with no notice
+  (desktop: screenshots for 5 s; Android: about 30 frames in 6 s each).
+- 5, offline and back: **pass** on both. With both stand-ins stopped, Refresh gave "Stand-in does not answer at any of these addresses
+  right now." in 3 to 8 s (desktop) and about 5 s (Android); one stand-in started again and Refresh gave Reachable. Refresh was pressed
+  instead of waiting for the timer. Coming back from offline showed the "now on the local network" notice (desktop). While offline,
+  the list still marks the last address "In use" (desktop).
+- 6, heading: **not verified with a screen reader.** TalkBack (installed on the image) ignored injected taps and Alt+H, and
+  `uiautomator dump` has no heading attribute. In code the title is `PanelTitle`, which sets `semantics { heading() }`.
+- Also seen, already noted above: the sidebar takes about half of a portrait phone and the Addresses title wraps one letter per line,
+  so Android ran in landscape; the "No credential store was found" note shows on Android.
+
 ## Not verified (research before depending on it)
 - Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
   checklist in "Windows screen readers and the desktop app"), the
