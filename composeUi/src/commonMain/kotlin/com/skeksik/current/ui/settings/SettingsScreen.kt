@@ -30,6 +30,7 @@ import com.skeksik.current.core.database.SecretStorage
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
+import com.skeksik.current.core.designsystem.LocalFocusVisibility
 import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
@@ -78,28 +79,37 @@ internal fun SettingsScreen(navigator: Navigator) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var removing by remember { mutableStateOf<ServerRow?>(null) }
     val addServer = remember { FocusRequester() }
+    // This page places focus only after keyboard input: after a click or a touch, focus nobody asked for would act on the next Enter.
+    val focusVisibility = LocalFocusVisibility.current
     // After a removal the removed row's buttons are gone; focus goes to Add server rather than nowhere.
     var focusAddServer by remember { mutableStateOf(false) }
     LaunchedEffect(focusAddServer) {
         if (focusAddServer) {
-            addServer.requestFocus()
+            if (focusVisibility.keyboard) addServer.requestFocus()
             focusAddServer = false
         }
     }
     val rows = rememberListFocus(state.servers.size)
-    // The server whose Sign in button opened the sign-in page; focus goes back to that button (by then Sign out) on return. Saved,
-    // because this page leaves the composition while sign-in is shown.
+    // What opened the page shown above this one, where focus goes back on return: the server whose Sign in button opened the sign-in
+    // page (by then Sign out), or Add server. Saved, because this page leaves the composition while the other is shown.
     var signInOpener by rememberSaveable { mutableStateOf<String?>(null) }
+    var addServerOpened by rememberSaveable { mutableStateOf(false) }
     val signInButton = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        if (signInOpener != null) signInButton.requestFocus()
+        if (focusVisibility.keyboard) {
+            if (signInOpener != null) signInButton.requestFocus() else if (addServerOpened) addServer.requestFocus()
+        }
         signInOpener = null
+        addServerOpened = false
     }
 
     Page(title = stringResource(Res.string.settings_title)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { SectionTitle(stringResource(Res.string.settings_servers)) }
-            Button({ navigator.open(AddServerRoute) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addServer)) {
+            Button({
+                addServerOpened = true
+                navigator.open(AddServerRoute)
+            }, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(addServer)) {
                 Icon(CurrentIcons.Add, contentDescription = null, modifier = Modifier.size(Size.icon))
                 Text(stringResource(Res.string.settings_add_server), Modifier.padding(start = Spacing.s))
             }
