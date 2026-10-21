@@ -93,7 +93,14 @@ a history entry and any Back (the page's Back button, the browser's Back or Alt+
 platform: it closes dialogs and never navigates, so it cannot throw away a half-filled form. Each entry records its
 step, so Back from the first page a tab opened (a link, a bookmark, a reload) shows that page's parent (Settings for Add server and Sign
 in) in its place rather than leaving the app; Back on Home or Settings opened first leaves the history to the browser. Paths name pages
-and their arguments (`/settings/servers/<service>/<key>/sign-in`), so a reload shows the same page.
+and their arguments (`/settings/servers/<service>/<key>/sign-in`, `.../addresses`), so a reload shows the same page. Paths name a server
+by its ref only, never by an address. The router reaches the History API through a `BrowserHistory` interface, so its rules are tested
+with a fake history.
+
+Browser tabs of one origin share `localStorage` but not memory. `KeyValueStore` and `SecretStore` report the keys another copy of the
+app changed (`changedElsewhere`, from the `storage` event on the web, empty elsewhere): the saved servers reload, and the Jellyfin
+sessions take on what the stores hold now (a session another tab started or ended), without writing. The servers' index is always
+changed from the stored one, so a tab that has not heard of a change yet never writes back a stale list.
 
 Two editions: **Store** (everything distributed, every feature) and **Private** (never distributed; adds parts whose licence is paid or
 forbids passing them on, such as full Dolby Vision processing).
