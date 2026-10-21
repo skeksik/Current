@@ -10,8 +10,11 @@ import java.awt.event.MouseEvent
  * dialog, whose layer takes the events. Only the press counts, so one click goes back once.
  */
 class BackButtonListener(private val onBack: () -> Unit) : MouseAdapter() {
-    override fun mousePressed(event: MouseEvent) {
-        if (event.button == BACK_BUTTON) onBack()
+    override fun mousePressed(event: MouseEvent) = onPressed(event.button)
+
+    /** A mouse button went down: the back button goes back. */
+    internal fun onPressed(button: Int) {
+        if (button == BACK_BUTTON) onBack()
     }
 
     private companion object {
