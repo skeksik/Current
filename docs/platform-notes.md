@@ -2600,8 +2600,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
   Bridge DLLs but no `jabswitch.exe`. Narrator cannot read the app with any setting, and an installed NVDA turns the bridge on by itself:
   see "Windows screen readers and the desktop app".
-- No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
-  follow-up.
+- Single instance: a second launch opened a second window over the same settings files (Windows run). Fixed by a file lock and a
+  loopback signal (section "Single instance on desktop").
 - Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
   PNG, no new file). Not yet seen on screen.
 - jpackage writes the DEB `Maintainer` field as `<vendor> <debMaintainer>`, so `debMaintainer` is an address only (seen in CI with
@@ -2831,7 +2831,65 @@ JAWS users need the bridge (fix B or C above).
   nothing is kept. Headless Chrome fetches `favicon.svg` again on most in-app navigations.
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
+## Single instance on desktop (read 2026-10-21 in the JDK 21 javadoc, the Win32 docs and the Compose `application` source on `jb-main`; tested on Linux in a container)
+Design: docs/architecture.md, "Single instance (desktop)". What it relies on:
+- The lock dies with the process. `FileLock`: "A file-lock object is initially valid. It remains valid until the lock is released by
+  invoking the release method, by closing the channel that was used to acquire it, or by the termination of the Java virtual machine,
+  whichever comes first." So a lock file left by a crash does not block: the next `tryLock` succeeds. The test
+  `anotherProcessHoldsTheLockUntilItDies` kills a child JVM that holds it (`destroyForcibly`) and claims it next.
+- `FileChannel.tryLock()` returns "A lock object representing the newly-acquired lock, or null if the lock could not be acquired
+  because another program holds an overlapping lock", and throws "OverlappingFileLockException - If a lock that overlaps the requested
+  region is already held by this Java virtual machine". `FileLock`: "File locks are held on behalf of the entire Java virtual machine.
+  They are not suitable for controlling access to a file by multiple threads within the same virtual machine." Both mean "held"; the
+  second only happens in tests.
+- Advisory is enough: "it is strongly recommended that the locks provided by this API be used as if they were advisory locks"
+  (`FileLock`). Only the app takes this lock and nothing reads `instance.lock`'s content.
+- The port: `ServerSocket(port, backlog, bindAddr)`, "A port number of 0 means that the port number is automatically allocated,
+  typically from an ephemeral port range", and with `bindAddr` the socket "will only accept connect requests to one of its
+  addresses". The address is 127.0.0.1 from its bytes (`InetAddress.getByAddress(byte[])`: "This method doesn't block, i.e. no reverse
+  lookup is performed"), not `getLoopbackAddress()`, which may be `::1`.
+- `instance.port` is written to a temporary file and moved into place. `Files.createTempFile` takes "optional file-attributes to set
+  atomically when creating the file", so on POSIX it is created `rw-------` before the token is in it. On Windows it gets the default
+  ACL of `%LOCALAPPDATA%\Current`; what that ACL is on the owner's machine was not checked. `ATOMIC_MOVE`: "The move is performed as an
+  atomic file system operation and all other options are ignored. If the target file exists then it is implementation specific if the
+  existing file is replaced or this method fails by throwing an IOException." So on that `IOException` the code deletes the old file
+  and moves again; a reader in between finds no file and retries.
+- The token is compared with `MessageDigest.isEqual`; the port and the token are never logged.
+- Exit: `application` ends the process: "Set [exitProcessOnExit] to `false`, if you need to execute some code after [application]
+  block, otherwise the code after it won't be executed, as [application] will exit the process" (`Application.desktop.kt`, `jb-main`;
+  not compared with the 1.12 tag). So the claim is released by a shutdown hook (port file deleted first, then the lock).
+- Bringing the window forward: `Window.toFront()`, "Some platforms may not permit this VM to place its Windows above windows of native
+  applications, or Windows of other VMs. [...] developers should not assume that this method will move this Window above all other
+  windows in every situation." On Windows, `SetForegroundWindow` works for a process only if, among other conditions, "The calling
+  process was started by the foreground process" or "The calling process received the last input event"; otherwise "Windows flashes the
+  taskbar button of the window to notify the user". The later launch was just started by the user, so before signalling it calls
+  `AllowSetForegroundWindow(pid)` for the running app (JNA, `WindowsForeground`): "A process that can set the foreground window can
+  enable another process to set the foreground window by calling AllowSetForegroundWindow." The call "will fail if the calling process
+  cannot set the foreground window"; the result is ignored and the signal goes out anyway. Not read: whether AWT's `toFront` on
+  Windows calls `SetForegroundWindow`. Seen on Windows: the window takes the foreground over another app, and the pid in the file is
+  the inner `Current.exe` that owns the window (section "Single instance: Windows run").
+- Tested in a Linux container: the tests in `FileLockSingleInstanceTest` (claim, signal, close, stale files, wrong token, no answer,
+  a killed child process); CI runs them on Linux and Windows. On the installed MSI: section "Single instance: Windows run".
+
+## Single instance: Windows run (checked 2026-10-22 on Windows 11 Pro 25H2, 10.0.26200.9711; PR 50 at c98d486)
+- Build: `packageMsi` with `-Pcurrent.version=0.1.2`, because the branch says 0.1.0 and 0.1.1 was installed, and a lower version does
+  not upgrade in place. `msiexec /i <msi> /qn` over the per-user 0.1.1: exit code 0, one Installed-apps entry, 0.1.2. Every launch was
+  a click on Current in the Start menu.
+- 1, launch while running: one window, one `Current.exe` pair, Current in front. Pass.
+- 2, minimised, then launch: the window is restored and in front. Pass.
+- 3, Settings > Remove dialog open, then launch: the window is in front and the dialog still open. Pass.
+- 4, a maximised File Explorer in front, then launch: Current takes focus (it is the foreground window), no taskbar flash. Pass.
+- 5, ended with `taskkill /F` (Task Manager runs elevated, so it could not be driven; End task also terminates the processes):
+  `instance.lock` and `instance.port` stay behind, the next launch starts normally with no message and writes a new `instance.port`. Pass.
+- 6, the app's JVM process suspended (`NtSuspendProcess`; Resource Monitor runs elevated), then launch: "Current is already running but
+  isn't responding. Close it in Task Manager and try again." shows between 2 and 5 s after the click (not timed more finely); OK ends
+  the new launch. After a resume, the next launch brings the window forward. Pass.
+- 7, the `local.json` and `settings.json` hashes after all cases match the backup taken before the install. Pass.
+- Also seen: the pid in `instance.port` is the inner `Current.exe`, the child of the outer launcher process and the owner of the window;
+  `AllowSetForegroundWindow` for it is enough for case 4. Closing the window deletes `instance.port` and leaves an empty `instance.lock`.
+
 ## Not verified (research before depending on it)
+- Single instance on a Linux desktop (section "Single instance on desktop"); Windows: section "Single instance: Windows run".
 - Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
   checklist in "Windows screen readers and the desktop app"), the
   window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
