@@ -31,6 +31,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:model"))
+            api(project(":core:network"))
+            api(libs.androidx.lifecycle.viewmodel)
+            api(libs.kotlinx.coroutinesCore)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
