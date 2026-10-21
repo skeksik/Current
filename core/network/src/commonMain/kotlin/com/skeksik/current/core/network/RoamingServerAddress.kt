@@ -158,6 +158,7 @@ internal class RoamingServerAddress(
     override fun reportUnreachable(address: ServerUrl) {
         if (address != view.value.address) return
         if (failureQueued.compareAndSet(expect = null, update = address)) events.trySend(Event.Failed(address))
+        // Another address's failure is queued (the address in use just changed): this one only asks for a check.
         else if (failureQueued.value != address) request()
     }
 
@@ -380,12 +381,19 @@ internal class RoamingServerAddress(
          * unproved, so the first lower address that proves itself replaces it at once instead of when the check ends.
          */
         private fun failedRequest(event: Event.Failed) {
-            // The address is no longer in use (a network change, an edit or a check replaced it): nothing to answer.
+            // The address is no longer in use (a network change, an edit or a check replaced it): nothing to answer. A report sent
+            // before the address was proved again can still mark it; that costs at most one check's early move to a lower address.
             if (event.address != address) return
             // One kept across a suspension is unproved already.
             if (!unproved) {
                 val running = check
-                if (running != null) running.suspect = event.address else failed = event.address
+                if (running == null) {
+                    failed = event.address
+                } else {
+                    running.suspect = event.address
+                    // A lower address already proved in this check takes over now, not when the failing one's probe ends.
+                    running.best?.let(running.candidates::get)?.takeIf { it != address }?.let { useMeanwhile(running, it) }
+                }
             }
             requested()
         }

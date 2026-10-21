@@ -45,9 +45,7 @@ class RoamingServerAddressTest {
 
     /**
      * Answers per address: a server id; "soon" (the saved server, after 0.3 s); "late" (the saved server, after 3 s); "slow" (times
-     * out after 5 s, as Jellyfin's probe does);
-     * "hang" (never answers); anything else
-     * is unreachable.
+     * out after 5 s, as Jellyfin's probe does); "hang" (never answers); anything else is unreachable.
      */
     private inner class FakeProbe(val answers: MutableMap<String, String> = mutableMapOf()) : ServerProbe {
         override val service = ServiceType.jellyfin
@@ -605,7 +603,7 @@ class RoamingServerAddressTest {
         advance(299.milliseconds)
         assertEquals(url(local), source.current.value, "until a lower address proves itself")
         advance(1.milliseconds)
-        assertEquals(url(internet), source.current.value, "not when the local probe times out")
+        assertEquals(url(internet), source.current.value, "not when the check expires at 10 s")
         assertEquals(true, reachable)
     }
 
@@ -651,6 +649,50 @@ class RoamingServerAddressTest {
         // At 10 s the partial check expires, and the full check that follows still treats the local address as failed.
         advance(9.seconds + 300.milliseconds)
         assertEquals(url(internet), source.current.value, "not when the full check ends, 10 s later")
+    }
+
+    @Test
+    fun aFailureAfterALowerAddressProvedItselfInTheCheckSwitchesAtOnce() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers += mapOf(local to "hang", internet to "soon")
+        changes.emit(NetworkChange.Resumed)
+        advance(1.seconds)
+        assertEquals(url(local), source.current.value)
+        source.reportUnreachable(url(local))
+        runCurrent()
+        assertEquals(url(internet), source.current.value, "the internet address proved itself at 0.3 s, in this check")
+    }
+
+    @Test
+    fun aFailureDuringAFullCheckSwitchesWhenALowerAddressAnswersLater() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers += mapOf(local to "hang", internet to "late")
+        changes.emit(NetworkChange.Resumed)
+        advance(1.seconds)
+        source.reportUnreachable(url(local))
+        advance(1999.milliseconds)
+        assertEquals(url(local), source.current.value)
+        advance(1.milliseconds)
+        assertEquals(url(internet), source.current.value, "at 3 s, not when the check expires at 10 s")
+    }
+
+    @Test
+    fun aFailedAddressThatAnswersIsNoLongerSuspectInTheCheckAnEditStarts() = runTest {
+        probe.answers += mapOf(internet to homeId, lan to homeId)
+        val source = roaming(saved.withAddress(ServerAddress(lan, AddressScope.Local)))
+        assertEquals(url(internet), source.current.value)
+        waitOutTheRequestLimit()
+        probe.answers += mapOf(local to "hang", internet to "soon", lan to "late")
+        source.reportUnreachable(url(internet))
+        advance(300.milliseconds)
+        assertEquals(url(internet), source.current.value, "it answered, so it is proved again")
+        // Now only the lower address answers at once; the edit replaces the running check.
+        probe.answers += mapOf(internet to "hang", lan to homeId)
+        source.update(saved.withAddress(ServerAddress(lan, AddressScope.Local)).withoutAddress(local))
+        runCurrent()
+        assertEquals(url(internet), source.current.value, "a healthy address is not swapped down mid-check")
     }
 
     @Test

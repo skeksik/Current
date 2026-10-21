@@ -14,8 +14,8 @@ is on, so a signal can only mean "something may have changed".
   and its settle, a resumed network, a request (no address, or the address in use failing), a timer, and each probe's result. Only the
   loop changes the state (the address in use, whether requests are held, the check running, the retry wait); requests read what it
   publishes and wait on it. The settle and the timers are scheduled events, and probes run as child jobs that post their results;
-  each carries a token of the settle, timer or check it belongs to, and the loop ignores one that has been replaced. Requests and
-  resumed networks are queued only when one is not already waiting, so the queue stays bounded however fast they come. The rules
+  each carries a token of the settle, timer or check it belongs to, and the loop ignores one that has been replaced. Requests,
+  resumed networks and failures (one per address) are queued only when one is not already waiting, so the queue stays bounded however fast they come. The rules
   below are the loop's.
 - **One `RoamingServerAddress` per saved server**, made by `RoamingAddressSources` (bound in Koin in place of the first address),
   started for every saved server and shared by every client of that server. It runs in the app scope until the server is removed,
@@ -26,8 +26,12 @@ is on, so a signal can only mean "something may have changed".
   address that hangs until its probe times out (5 s for Jellyfin). An address already in use is only replaced mid-check by a higher
   one; a lower one takes over only when the check ends without it answering. The exception is an address in use that a request
   just found failing (it reported the address unreachable): the check that answers that report, the one running or the one it
-  starts, counts it as unproved, the way a suspension does, so the first lower address that proves itself is used at once, and the
-  check still moves back up if the failing address answers after all. Credentials still go only to proved addresses. The owner's
+  starts, counts it as unproved for choosing (requests still go to it until another address proves itself), the way a suspension
+  does. So the first lower address that proves itself is used at once, one already proved in that check included, and the check
+  still moves back up if the failing address answers after all. That check is always full; a report deferred by the request limit
+  keeps its mark for the check that comes when the window ends; the mark carries over to the check an edit starts and to the full
+  check after a partial miss; a network change, or an edit that removes the address, clears it. A full miss keeps the failing
+  address in use and drops the mark: the next failure marks it again. Credentials still go only to proved addresses. The owner's
   browser run (docs/platform-notes.md, "Roaming in browsers, final") found a lower address answering within 0.13-0.45 s after a
   hotspot switch while the check waited about 5 s more for the failing one's probe to time out.
   The check ends when the highest proved address has no
@@ -75,7 +79,8 @@ is on, so a signal can only mean "something may have changed".
     check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every
     failure cannot drive checks back to back, and recovery takes at most 15 s plus a probe;
   - every 5 minutes, asking the address in use and those above it: to move back to a higher (local) address, or to notice that the
-    one in use stopped answering, in which case every address is asked;
+    one in use stopped answering, in which case every address is asked; every address is asked at once when a failure of the one in
+    use was reported;
   - while nothing answers, after 15 s, doubling up to 5 minutes after each miss on the timer (not after one a request or a change
     woke), back to 15 s after a success.
   Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
