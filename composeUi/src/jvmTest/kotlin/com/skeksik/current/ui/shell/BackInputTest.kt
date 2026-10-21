@@ -1,7 +1,6 @@
 package com.skeksik.current.ui.shell
 
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.navigationevent.NavigationEventDispatcher
 import androidx.navigationevent.NavigationEventHandler
@@ -85,11 +84,11 @@ class BackInputTest {
 
     @Test
     fun altLeftAloneIsTheBackKey() {
-        assertTrue(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown, isAltPressed = true)))
-        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyUp, isAltPressed = true)))
-        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown)))
-        assertFalse(isBackKey(KeyEvent(Key.DirectionLeft, KeyEventType.KeyDown, isAltPressed = true, isShiftPressed = true)))
-        assertFalse(isBackKey(KeyEvent(Key.Escape, KeyEventType.KeyDown)))
+        assertTrue(isBackKey(KeyEventType.KeyDown, Key.DirectionLeft, alt = true, ctrl = false, shift = false, meta = false))
+        assertFalse(isBackKey(KeyEventType.KeyUp, Key.DirectionLeft, alt = true, ctrl = false, shift = false, meta = false))
+        assertFalse(isBackKey(KeyEventType.KeyDown, Key.DirectionLeft, alt = false, ctrl = false, shift = false, meta = false))
+        assertFalse(isBackKey(KeyEventType.KeyDown, Key.DirectionLeft, alt = true, ctrl = false, shift = true, meta = false))
+        assertFalse(isBackKey(KeyEventType.KeyDown, Key.Escape, alt = false, ctrl = false, shift = false, meta = false))
     }
 
     private fun desktopShell(back: () -> Unit): BackInput {

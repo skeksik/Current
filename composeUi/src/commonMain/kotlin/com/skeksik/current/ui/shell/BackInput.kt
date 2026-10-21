@@ -68,10 +68,12 @@ class BackInput(
     }
 }
 
-/** Alt+Left on its own: Alt with Ctrl, Shift or Meta is another shortcut. */
 internal fun isBackKey(event: KeyEvent): Boolean =
-    event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed &&
-        !event.isCtrlPressed && !event.isShiftPressed && !event.isMetaPressed
+    isBackKey(event.type, event.key, event.isAltPressed, event.isCtrlPressed, event.isShiftPressed, event.isMetaPressed)
+
+/** Alt+Left on its own, as it goes down: Alt with Ctrl, Shift or Meta is another shortcut. */
+internal fun isBackKey(type: KeyEventType, key: Key, alt: Boolean, ctrl: Boolean, shift: Boolean, meta: Boolean): Boolean =
+    type == KeyEventType.KeyDown && key == Key.DirectionLeft && alt && !ctrl && !shift && !meta
 
 /**
  * The shell's back handler where the window's back events are Esc ([BackInput.windowBackIsEscape]). Added after NavHost's own handler,
