@@ -17,7 +17,10 @@ sealed interface LocalNetworkPromptState {
     /** Nothing to ask: granted, or the platform does not ask. */
     data object Hidden : LocalNetworkPromptState
 
-    /** Explain, then ask. With [denied], the user said no: local servers cannot be reached, internet addresses still work. */
+    /**
+     * Explain, then ask. With [denied], the user said no: servers on the local network cannot be reached, and neither can an internet
+     * name that leads there (split DNS at home); other internet servers still work.
+     */
     data class Ask(val denied: Boolean = false) : LocalNetworkPromptState
 
     /** The system dialog is up. */
@@ -47,18 +50,25 @@ class LocalNetworkPromptViewModel internal constructor(
         refresh()
     }
 
-    /** Reads the permission again, for instance when the user comes back from the settings page. */
-    fun refresh() {
-        if (_state.value == LocalNetworkPromptState.Asking) return
+    /**
+     * Reads the permission again, for instance when the user comes back from the settings page. Runs [onGranted] when that turns a
+     * denial into a grant, so the page can retry a check that timed out because of it.
+     */
+    fun refresh(onGranted: () -> Unit = {}) {
+        val before = _state.value
+        if (before == LocalNetworkPromptState.Asking) return
         _state.value = stateFor(access.status())
+        if (before.isDenied && _state.value == LocalNetworkPromptState.Hidden) onGranted()
     }
 
-    /** Shows the system dialog, then runs [then] whatever the answer. */
-    fun allow(then: () -> Unit = {}) {
-        if (_state.value == LocalNetworkPromptState.Asking) return
+    /** Shows the system dialog, then runs [then] whatever the answer, and [onGranted] if it turned an earlier denial into a grant. */
+    fun allow(then: () -> Unit = {}, onGranted: () -> Unit = {}) {
+        val before = _state.value
+        if (before == LocalNetworkPromptState.Asking) return
         _state.value = LocalNetworkPromptState.Asking
         scope.launch {
-            _state.value = stateFor(access.request(), deniedNow = true)
+            _state.value = stateFor(access.request(), deniedNow = true, before = before)
+            if (before.isDenied && _state.value == LocalNetworkPromptState.Hidden) onGranted()
             then()
         }
     }
@@ -74,10 +84,23 @@ class LocalNetworkPromptViewModel internal constructor(
 
     fun openSettings() = access.openSettings()
 
-    private fun stateFor(status: LocalNetworkPermission, deniedNow: Boolean = false): LocalNetworkPromptState = when {
+    private fun stateFor(
+        status: LocalNetworkPermission,
+        deniedNow: Boolean = false,
+        before: LocalNetworkPromptState = _state.value,
+    ): LocalNetworkPromptState = when {
         shouldAskForLocalNetwork(LocalNetworkAskReason.AddServer, emptyList(), status) ->
-            LocalNetworkPromptState.Ask(denied = deniedNow || (_state.value as? LocalNetworkPromptState.Ask)?.denied == true)
+            LocalNetworkPromptState.Ask(denied = deniedNow || before.isDenied)
         status == LocalNetworkPermission.Blocked -> LocalNetworkPromptState.Blocked
         else -> LocalNetworkPromptState.Hidden
     }
 }
+
+/**
+ * Whether a check that ended in [problem] may have failed because local network access is denied: a denied local address does not fail,
+ * it times out, and so does an internet name that leads to the local network. The page then points to the permission.
+ */
+fun LocalNetworkPromptState.mayExplain(problem: ServerSetupProblem?): Boolean = problem == ServerSetupProblem.TimedOut && isDenied
+
+private val LocalNetworkPromptState.isDenied: Boolean
+    get() = this == LocalNetworkPromptState.Blocked || (this as? LocalNetworkPromptState.Ask)?.denied == true

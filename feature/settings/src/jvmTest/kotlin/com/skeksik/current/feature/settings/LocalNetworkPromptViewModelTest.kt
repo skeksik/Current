@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class LocalNetworkPromptViewModelTest {
     /** [answers] are what each request returns, in turn; [status] is what the settings page would show. */
@@ -108,5 +110,47 @@ class LocalNetworkPromptViewModelTest {
         assertEquals(LocalNetworkPromptState.Hidden, viewModel.state.value)
         assertEquals(1, access.requests)
         assertEquals(0, checked)
+    }
+
+    @Test
+    fun aTimeoutPointsToThePermissionOnlyWhileItIsDenied() {
+        val timedOut = ServerSetupProblem.TimedOut
+        assertTrue(LocalNetworkPromptState.Ask(denied = true).mayExplain(timedOut))
+        assertTrue(LocalNetworkPromptState.Blocked.mayExplain(timedOut))
+        assertFalse(LocalNetworkPromptState.Ask().mayExplain(timedOut))
+        assertFalse(LocalNetworkPromptState.Hidden.mayExplain(timedOut))
+        assertFalse(LocalNetworkPromptState.Blocked.mayExplain(ServerSetupProblem.Unreachable))
+        assertFalse(LocalNetworkPromptState.Blocked.mayExplain(null))
+    }
+
+    @Test
+    fun aGrantInTheSettingsRetriesOnceOnResume() {
+        val access = FakeAccess(LocalNetworkPermission.CanAsk, LocalNetworkPermission.Blocked)
+        val viewModel = viewModel(access)
+        var retried = 0
+        viewModel.refresh(onGranted = { retried++ })
+        assertEquals(0, retried)
+        viewModel.allow()
+        viewModel.refresh(onGranted = { retried++ })
+        assertEquals(0, retried)
+        access.status = LocalNetworkPermission.Granted
+        viewModel.refresh(onGranted = { retried++ })
+        viewModel.refresh(onGranted = { retried++ })
+        assertEquals(1, retried)
+    }
+
+    @Test
+    fun askingAgainRetriesOnlyOnAGrant() {
+        val ask = LocalNetworkPermission.CanAsk
+        val access = FakeAccess(ask, ask, ask, LocalNetworkPermission.Granted)
+        val viewModel = viewModel(access)
+        var retried = 0
+        // The first answer follows no denial, so nothing timed out because of it.
+        viewModel.allow(onGranted = { retried++ })
+        viewModel.allow(onGranted = { retried++ })
+        assertEquals(0, retried)
+        viewModel.allow(onGranted = { retried++ })
+        assertEquals(1, retried)
+        assertEquals(LocalNetworkPromptState.Hidden, viewModel.state.value)
     }
 }

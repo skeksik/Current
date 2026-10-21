@@ -28,12 +28,15 @@ HTTP: Android" and "Local network permission on Android: the API" have the docum
   returns at once with no answer and changes nothing.
 - **When to ask** (`shouldAskForLocalNetwork`): when the user opens "Add server", or when a saved server has a local address, and only
   while the dialog can still show. Never at start for a user whose servers are all on the internet. The shell explains why in a sentence
-  first. A denial means local addresses cannot be reached while internet addresses still work; the shell says so and, once `Blocked`,
+  first. A denial means local addresses cannot be reached, and neither can an internet name that resolves to one (split DNS at home);
+  other internet servers still work. The shell says so and, once `Blocked`,
   links to the app's settings page and may offer "Try again" (`request()` still asks then, and notices if Android reset its denials).
 - **"Add server"** (`LocalNetworkPromptViewModel`, `feature:settings`) explains in one line that the next dialog asks for "Nearby
   devices", with a Continue button, and asks before the first check of an address if the user has not answered yet, whatever the
   address: a name on the internet can resolve to a LAN address at home. After a denial it says what that means; once `Blocked` it
-  offers "Open settings" and "Try again", and reads the permission again when the page resumes. On desktop and web it shows nothing.
+  offers "Open settings" and "Try again", and reads the permission again when the page resumes. A check that times out while access is
+  denied gets a hint that the permission is the likely cause, with "Ask again" or "Open settings", and runs again once access is
+  granted. On desktop and web it shows nothing.
 - **`Blocked`** follows Android's rule that a second denial is permanent. A `false` from the rationale check is believed when an earlier
   denial in this run of denials came with `true`; otherwise (no signal, or a `false` with no earlier `true`, which may be a dialog closed
   without an answer) a counter makes the second denial final. A grant clears everything. The state is kept in the machine-local store
