@@ -4,7 +4,7 @@ import { Notice, Page, Panel } from '../components';
 import { Icon } from '../icons';
 import { useObservable, usePage } from '../hooks';
 import { focusSoon, Link, useCore } from '../nav';
-import { strings, webStrings } from '../strings';
+import { strings, textFor, webStrings } from '../strings';
 
 /** Settings: servers (add, sign in, sign out, remove), where sign-ins are kept, what this browser plays, and about. */
 export function Settings() {
@@ -56,7 +56,8 @@ function SettingsContent({ page }: { page: SettingsPage }) {
           ))}
         </ul>
       )}
-      <Notice kind="info">{strings.settingsSecrets[state.secretStorage] ?? ''}</Notice>
+      {/* An unknown store says nothing rather than something wrong. */}
+      <Notice kind="info">{textFor(strings.settingsSecrets, state.secretStorage, '')}</Notice>
       {state.fileOffered && (
         <button type="button" className="button outlined" onClick={() => page.keepSecretsInFile()}>{strings.settingsSecretsKeepInFile}</button>
       )}

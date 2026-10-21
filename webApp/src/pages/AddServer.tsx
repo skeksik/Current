@@ -3,7 +3,7 @@ import type { AddServerPage } from 'current-core';
 import { Notice, Page, Panel, Progress } from '../components';
 import { useObservable, usePage, useRerender } from '../hooks';
 import { useCore, useNav } from '../nav';
-import { strings } from '../strings';
+import { strings, textFor, webStrings } from '../strings';
 
 /** Settings > Servers > Add server. Once saved, the sign-in page for the new server takes this page's place. */
 export function AddServer() {
@@ -68,7 +68,7 @@ function AddServerForm({ page }: { page: AddServerPage }) {
       </label>
       {state.kind === 'editing' && (
         <>
-          {state.problem && <Notice>{strings.addServerProblems[state.problem]}</Notice>}
+          {state.problem && <Notice>{textFor(strings.addServerProblems, state.problem, webStrings.problemFallback)}</Notice>}
           <div className="buttons">
             <button type="submit" className="button" disabled={state.input.trim() === ''}>{strings.addServerCheck}</button>
           </div>

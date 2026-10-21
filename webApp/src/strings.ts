@@ -1,6 +1,33 @@
 // The app's texts. Mirrors composeUi/src/commonMain/composeResources/values/strings.xml, so desktop and web say the same thing:
 // change both together. Keys are the Compose names in camel case; `%1$s` arguments become function parameters.
 
+// Enum names that cross the facade as plain strings (web/ShellPages.kt). ShellPagesTest pins the same lists, so a new Kotlin value
+// fails :web:jsNodeTest until it is added here, and `satisfies` below then fails the TypeScript build until it has a text.
+export type SecretStorageName = 'CredentialManager' | 'SecretService' | 'Browser' | 'File' | 'Memory';
+export type ServerSetupProblemName =
+  | 'InvalidAddress'
+  | 'Unreachable'
+  | 'TimedOut'
+  | 'Redirected'
+  | 'NotThisService'
+  | 'Refused'
+  | 'AlreadyAdded'
+  | 'DifferentServer';
+export type SignInProblemName =
+  | 'WrongCredentials'
+  | 'Unreachable'
+  | 'TimedOut'
+  | 'Refused'
+  | 'DifferentServer'
+  | 'QuickConnectDisabled'
+  | 'QuickConnectExpired'
+  | 'ServerNotSaved';
+
+/** The text for an enum [name] from the facade, or [fallback] for a name this file does not know, rather than an empty message. */
+export function textFor<Name extends string>(texts: Record<Name, string>, name: string, fallback: string): string {
+  return Object.hasOwn(texts, name) ? texts[name as Name] : fallback;
+}
+
 export const strings = {
   appName: 'Current',
 
@@ -38,7 +65,7 @@ export const strings = {
     Browser: 'Sign-ins are kept in this browser.',
     File: 'Sign-ins are kept in a file only your user account can read.',
     Memory: 'No credential store was found, so you are signed out when the app quits.',
-  } as Record<string, string>,
+  } satisfies Record<SecretStorageName, string>,
   settingsSecretsKeepInFile: 'Keep sign-ins in a file',
   settingsAbout: 'About',
   settingsVersion: (version: string) => `Version ${version}`,
@@ -65,7 +92,7 @@ export const strings = {
     Refused: 'The server refused the request.',
     AlreadyAdded: 'This server is already added.',
     DifferentServer: 'Another server answers at this address.',
-  } as Record<string, string>,
+  } satisfies Record<ServerSetupProblemName, string>,
 
   signInTitle: (server: string) => `Sign in to ${server}`,
   signInSubtitle: 'Use your Jellyfin account.',
@@ -88,7 +115,7 @@ export const strings = {
     QuickConnectDisabled: 'Quick Connect is turned off on this server.',
     QuickConnectExpired: 'The code expired. Try again.',
     ServerNotSaved: 'This server is no longer saved.',
-  } as Record<string, string>,
+  } satisfies Record<SignInProblemName, string>,
 };
 
 // Web only: no desktop counterpart yet.
@@ -128,4 +155,6 @@ export const webStrings = {
   notFoundMessage: 'There is no page at this address.',
   notFoundHome: 'Go home',
   skipToContent: 'Skip to content',
+  problemFallback: 'Something went wrong. Try again.',
+  signInServerMissingTitle: 'Server not found',
 };
