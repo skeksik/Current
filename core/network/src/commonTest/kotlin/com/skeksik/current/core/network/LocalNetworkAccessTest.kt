@@ -44,6 +44,28 @@ class LocalNetworkAccessTest {
     }
 
     @Test
+    fun aServerReachedOnlyThroughAnOverlayVpnIsNotAskedAbout() {
+        // Local by scope, but the permission most likely does not cover the VPN: roaming probes it anyway (ADR 0019, ADR 0020).
+        val ask = { servers: List<SavedServer> ->
+            shouldAskForLocalNetwork(LocalNetworkAskReason.SavedServers, servers, LocalNetworkPermission.CanAsk)
+        }
+        val tsNet = ServerAddress("https://media.example.ts.net", AddressScope.Local)
+        val cgnat = ServerAddress("http://100.100.1.2:8096", AddressScope.Local)
+        val tailscaleV6 = ServerAddress("http://[fd7a:115c:a1e0::1]:8096", AddressScope.Local)
+        assertFalse(ask(listOf(server(tsNet))))
+        assertFalse(ask(listOf(server(tsNet, cgnat, tailscaleV6), server(internet))))
+        assertTrue(ask(listOf(server(tsNet, local))))
+    }
+
+    @Test
+    fun theScopeAsSavedDoesNotDecide() {
+        // An address saved under older rules: its URL decides, as roaming's does.
+        val stale = ServerAddress("https://media.example.ts.net", AddressScope.Internet)
+        assertFalse(server(stale).needsLocalNetworkAccess)
+        assertTrue(server(ServerAddress("http://192.168.1.10:8096", AddressScope.Internet)).needsLocalNetworkAccess)
+    }
+
+    @Test
     fun withoutASignalTheSecondDenialIsFinal() {
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
         assertEquals(LocalNetworkPermission.CanAsk, state.status(apiSupported = true, granted = false))

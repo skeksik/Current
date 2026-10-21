@@ -24,12 +24,15 @@ class ServerClient internal constructor(
     private val onUnauthorized: (() -> Unit)?,
     private val platformUnreachable: (Throwable) -> Boolean,
 ) : AutoCloseable {
-    /** Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. */
+    /**
+     * Runs [block] on this server's client. Throws [ServiceException] for request failures; cancellation and bugs pass through. A block
+     * that returns tells the source the server answered ([ServerAddressSource.reportReachable]).
+     */
     suspend fun <T> request(block: suspend HttpClient.() -> T): T {
         // The one wait for the source; the requests in [block] go to this address ([ChosenAddress]), and a failure reports it.
         val used = address.awaitCurrent() ?: throw ServiceException(server, ServiceErrorKind.Unreachable)
         try {
-            return withContext(ChosenAddress(address, used)) { http.block() }
+            return withContext(ChosenAddress(address, used)) { http.block() }.also { address.reportReachable(used) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {

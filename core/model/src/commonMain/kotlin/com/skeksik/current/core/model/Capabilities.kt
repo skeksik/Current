@@ -38,7 +38,8 @@ data class Capabilities(val servers: List<ServerStatus> = emptyList()) {
 }
 
 /**
- * One configured server as the app last saw it. Written by server setup and sign-in; [reachable] by the checks that talk to it.
+ * One configured server as the app last saw it. Written by server setup and sign-in; [reachable] by the checks and requests that talk
+ * to it.
  */
 data class ServerStatus(
     val server: ServerRef,
