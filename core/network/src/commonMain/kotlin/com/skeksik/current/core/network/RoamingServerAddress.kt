@@ -90,8 +90,11 @@ internal class RoamingServerAddress(
 
         data class Settled(val token: Int) : Event
 
-        /** A request found no address, or the address in use failed. */
+        /** A request found no address. */
         data object Requested : Event
+
+        /** A request to [address], the one in use when it was reported, failed. */
+        data class Failed(val address: ServerUrl) : Event
 
         data class TimerFired(val token: Int, val full: Boolean, val requested: Boolean) : Event
 
@@ -109,6 +112,9 @@ internal class RoamingServerAddress(
      */
     private val requestQueued = MutableStateFlow(false)
     private val resumeQueued = MutableStateFlow(false)
+
+    /** The same for a [Event.Failed]: the address it reports, while one is queued. */
+    private val failureQueued = MutableStateFlow<ServerUrl?>(null)
     private val view = MutableStateFlow(View(address = null, holding = true, resumes = 0, changes = 0))
 
     /**
@@ -154,7 +160,10 @@ internal class RoamingServerAddress(
     }
 
     override fun reportUnreachable(address: ServerUrl) {
-        if (address == view.value.address) request()
+        if (address != view.value.address) return
+        if (failureQueued.compareAndSet(expect = null, update = address)) events.trySend(Event.Failed(address))
+        // Another address's failure is queued (the address in use just changed): this one only asks for a check.
+        else if (failureQueued.value != address) request()
     }
 
     private fun request() {
@@ -210,6 +219,9 @@ internal class RoamingServerAddress(
         lateinit var job: Job
         val done = BooleanArray(candidates.size)
         var best: Int? = null
+
+        /** The address in use, which a request found failing: it counts as unproved until it answers in this check. */
+        var suspect: ServerUrl? = null
     }
 
     /** The state, owned by [run]; nothing else touches it. */
@@ -239,6 +251,9 @@ internal class RoamingServerAddress(
         /** The address in use was kept across a suspension and is not proved since: requests wait, and any proved address replaces it. */
         private var unproved = false
 
+        /** The address in use failed a request and no check has asked it since: the next check treats it as unproved. */
+        private var failed: ServerUrl? = null
+
         suspend fun run(): Nothing {
             startCheck(full = true, woken = false)
             for (event in events) handle(event)
@@ -262,6 +277,10 @@ internal class RoamingServerAddress(
                     requestQueued.value = false
                     requested()
                 }
+                is Event.Failed -> {
+                    failureQueued.value = null
+                    failedRequest(event)
+                }
                 is Event.TimerFired -> if (event.token == timerToken && check == null && !settlePending) {
                     timerDue = null
                     startCheck(full = event.full, woken = event.requested)
@@ -280,6 +299,7 @@ internal class RoamingServerAddress(
             if (address != null && address !in edit.urls()) {
                 address = null
                 unproved = false
+                failed = null
             }
             publish()
             // A pending settle starts the next check; otherwise the edit does, at once.
@@ -291,6 +311,7 @@ internal class RoamingServerAddress(
             changes++
             address = null
             unproved = false
+            failed = null
             holding = true
             again = false
             retry = timing.retryFirst
@@ -359,17 +380,45 @@ internal class RoamingServerAddress(
             else schedule(left, full = true, requested = true, onlyIfSooner = true)
         }
 
+        /**
+         * A request to the address in use failed: the check that answers it, the one running or the next, treats that address as
+         * unproved, so the first lower address that proves itself replaces it at once instead of when the check ends.
+         */
+        private fun failedRequest(event: Event.Failed) {
+            // The address is no longer in use (a network change, an edit or a check replaced it): nothing to answer. A report sent
+            // before the address was proved again can still mark it; that costs at most one check's early move to a lower address.
+            if (event.address != address) return
+            // One kept across a suspension is unproved already.
+            if (!unproved) {
+                val running = check
+                if (running == null) {
+                    failed = event.address
+                } else {
+                    running.suspect = event.address
+                    // A lower address already proved in this check takes over now, not when the failing one's probe ends.
+                    running.best?.let(running.candidates::get)?.takeIf { it != address }?.let { useMeanwhile(running, it) }
+                }
+            }
+            requested()
+        }
+
         private fun startCheck(full: Boolean, woken: Boolean) {
+            // A failure the replaced check had not answered yet carries over to this one.
+            failed = (failed ?: check?.suspect)?.takeIf { it == address }
             cancelCheck()
             cancelTimer()
             // The return from the background starts the next one.
             if (suspended) return
             val urls = server.urls()
             val inUse = address?.let(urls::indexOf) ?: -1
-            // The periodic check asks the address in use and those above it; all of them only when none of those answers.
-            val partial = !full && inUse >= 0
+            val suspect = failed
+            failed = null
+            // The periodic check asks the address in use and those above it; all of them only when none of those answers, or when
+            // the one in use failed a request.
+            val partial = !full && inUse >= 0 && suspect == null
             val candidates = if (partial) urls.subList(0, inUse + 1) else urls
             val started = Check(++checks, candidates, full = !partial, woken = woken)
+            started.suspect = suspect
             val asked = server
             started.job = scope.launch {
                 // A probe that never posts (cancelled inside, or an engine that ignores cancellation) must not hold the check forever.
@@ -390,22 +439,23 @@ internal class RoamingServerAddress(
             running.done[result.index] = true
             val before = running.best
             if (result.proved && (before == null || result.index < before)) running.best = result.index
+            if (result.proved && running.candidates[result.index] == running.suspect) running.suspect = null
             val best = running.best
             when {
                 best != null && (0 until best).all { running.done[it] } -> finish(running, running.candidates[best])
-                result.proved && result.index == best -> useMeanwhile(running.candidates[best])
+                result.proved && result.index == best -> useMeanwhile(running, running.candidates[best])
                 running.done.all { it } -> finish(running, null)
             }
         }
 
         /**
          * An address proved while higher ones are still being asked: used when none is in use, or when it ranks above the one in use,
-         * so a healthy address is never swapped for a lower one mid-check. One kept across a suspension is not proved, so it counts as
-         * none.
+         * so a healthy address is never swapped for a lower one mid-check. One kept across a suspension is not proved, and neither is
+         * one that failed a request and has not answered in this check, so those count as none.
          */
-        private fun useMeanwhile(proved: ServerUrl) {
+        private fun useMeanwhile(running: Check, proved: ServerUrl) {
             val urls = server.urls()
-            val inUse = address?.takeUnless { unproved }?.let(urls::indexOf)?.takeIf { it >= 0 }
+            val inUse = address?.takeUnless { unproved || it == running.suspect }?.let(urls::indexOf)?.takeIf { it >= 0 }
             if (inUse != null && urls.indexOf(proved) >= inUse) return
             address = proved
             unproved = false
@@ -426,6 +476,8 @@ internal class RoamingServerAddress(
             holding = again && address == null
             publish()
             if (found == null && !done.full) {
+                // A failure reported during the partial check still applies to the full one.
+                failed = done.suspect
                 startCheck(full = true, woken = done.woken)
                 return
             }
