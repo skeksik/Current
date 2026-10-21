@@ -4,6 +4,12 @@ import com.skeksik.current.core.database.KeyValueStore
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import org.koin.core.scope.Scope
 
 /**
@@ -19,6 +25,12 @@ interface LocalNetworkAccess {
     fun status(): LocalNetworkPermission
 
     /**
+     * Emits when [status] may have changed: a dialog was answered, or the app came back to the foreground (a grant in the settings
+     * comes no other way). It may emit with nothing changed, so read [status] then. Platforms that never ask emit nothing.
+     */
+    val changes: Flow<Unit>
+
+    /**
      * Shows the system dialog when the platform still will, and returns the state after the user answered. Returns at once when it is
      * [LocalNetworkPermission.Granted] or [LocalNetworkPermission.NotNeeded], or when no screen can show the dialog. Explain why
      * before calling it: Android's dialog speaks of "nearby devices", not servers.
@@ -31,6 +43,8 @@ interface LocalNetworkAccess {
     /** For platforms that do not ask: desktop, web, and Apple until its prompt is handled. */
     object NotNeeded : LocalNetworkAccess {
         override fun status() = LocalNetworkPermission.NotNeeded
+
+        override val changes: Flow<Unit> = emptyFlow()
 
         override suspend fun request() = LocalNetworkPermission.NotNeeded
 
@@ -53,6 +67,13 @@ enum class LocalNetworkPermission {
     /** Denied, and the platform will most likely not ask again: the app's settings page is the way back. */
     Blocked,
 }
+
+/**
+ * Whether local addresses can be reached. [LocalNetworkPermission.CanAsk] cannot: on Android 17 nothing shows the dialog by itself,
+ * so until the app asks and the user allows, local traffic is blocked as after a denial.
+ */
+val LocalNetworkPermission.allowsLocal: Boolean
+    get() = this == LocalNetworkPermission.NotNeeded || this == LocalNetworkPermission.Granted
 
 /** What the user is doing when the shell considers asking. */
 enum class LocalNetworkAskReason {
@@ -98,6 +119,15 @@ fun interface LocalNetworkRequester {
 class LocalNetworkRequestBridge : LocalNetworkRequester {
     private var launch: (() -> Unit)? = null
     private var pending: CompletableDeferred<PermissionAnswer?>? = null
+    private val changed = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** [LocalNetworkAccess.changes]: after each answer and each [resumed]. */
+    val changes: SharedFlow<Unit> = changed.asSharedFlow()
+
+    /** The activity came to the foreground: the user may have granted or revoked access in the settings meanwhile. */
+    fun resumed() {
+        changed.tryEmit(Unit)
+    }
 
     fun attach(launch: () -> Unit) {
         this.launch = launch
@@ -112,6 +142,7 @@ class LocalNetworkRequestBridge : LocalNetworkRequester {
     /** An answer nobody waits for (the request was cancelled, or the process restarted) is dropped: [LocalNetworkAccess.status] reads the grant anyway. */
     fun onResult(answer: PermissionAnswer) {
         pending?.complete(answer)
+        changed.tryEmit(Unit)
     }
 
     override suspend fun request(): PermissionAnswer? {

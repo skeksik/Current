@@ -88,6 +88,25 @@ is on, so a signal can only mean "something may have changed".
   Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`).
+- **While local network access is denied** (ADR 0020), checks skip local addresses. Denied means `LocalNetworkAccess.status()` is
+  `CanAsk` or `Blocked`: Android 17 never shows the dialog by itself, so until the app asks and the user allows, local traffic is
+  blocked as after a denial. PR 27's runs found that a denied request to a local address doesn't fail, it times out
+  (docs/platform-notes.md). So:
+  - Every local address (scope `Local` by host, ADR 0016) is left out of every check. It is never probed, so it never proves and never
+    gets credentials. Skipping is preferred over ranking these addresses last: ranking last still waits for each one's timeout, and a
+    grant brings them back within one probe anyway. A check left with no address ends at once. A server with only local addresses then
+    has none, is marked unreachable, and requests fail as unreachable at once instead of after the 11 s bound.
+  - An internet name can still resolve to a local address (split DNS at home), and that can't be known in advance. Such a name is
+    probed. If its probe gets no answer for its whole timeout while access is denied, later checks skip it too. The mark clears on a
+    network change, since another network may resolve it publicly, on a grant, and when the address is removed. A refusal, or any failure
+    that comes sooner, doesn't mark it, so an internet server that is simply down is never hidden.
+  - `LocalNetworkAccess.changes` reports when the status may have changed: after each answer to the dialog, and each time the Android
+    activity resumes, since a grant in the settings comes no other way. Only a flip between allowed and denied counts. It starts a full
+    check at once, which replaces a running one. A flip to denied drops a local address in use. With no address left in use, requests
+    wait for that check, as after a resumed network. Each check also reads the status first, so a change no signal reported is seen by
+    the next one.
+  - A service that can't identify itself (Stash) uses only its internet addresses while access is denied, unless every address is local.
+  - Where the platform doesn't ask (`NotNeeded`: desktop, web, Apple for now, Android before 17), nothing changes.
 - **Connection failures reported outside `IOException`** are request failures (`Unreachable`), not bugs, so they cannot end the roaming
   loop: Android's `SecurityException` for a missing `INTERNET` permission (logged once, so a shell without the permission does not pass
   for a server that is down), and Ktor's browser `Error("Fail to fetch")` for any failed fetch. Only those exact shapes count; any other

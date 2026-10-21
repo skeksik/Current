@@ -12,6 +12,7 @@ import io.ktor.client.engine.mock.respondOk
 import io.ktor.client.request.get
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -33,6 +34,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.testTimeSource
@@ -396,5 +398,55 @@ class RoamingAddressSourcesTest {
         runCurrent()
         request.join()
         assertEquals(listOf("media.example.com"), sent)
+    }
+
+    @Test
+    fun whileDeniedARequestToAServerWithOnlyLocalAddressesFailsAtOnceAsUnreachable() = runTest {
+        val home = server().copy(addresses = listOf(local)).also(repository::save)
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.CanAsk)
+        val sources = RoamingAddressSources(
+            repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource, localAccess = access,
+        )
+        val sent = mutableListOf<String>()
+        val client = client(sources.forServer(home), sent)
+        runCurrent()
+        val started = currentTime
+        val failure = assertFailsWith<ServiceException> { client.request { get("Users/Me") } }
+        assertEquals(ServiceErrorKind.Unreachable, failure.kind)
+        assertEquals(started, currentTime, "not after the 11 s bound")
+        assertTrue(sent.isEmpty())
+        assertTrue(probe.asked.isEmpty())
+    }
+
+    @Test
+    fun whileDeniedAServiceThatCannotIdentifyItselfUsesOnlyItsInternetAddresses() = runTest {
+        val stash = server(ServiceType.stash).also(repository::save)
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.Blocked)
+        val sources = RoamingAddressSources(
+            repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource, localAccess = access,
+        )
+        val source = sources.forServer(stash)
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        source.reportUnreachable(url(internet))
+        assertEquals(url(internet), source.awaitCurrent(), "the local address does not take a turn")
+        changes.emit(NetworkChange.Changed)
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        access.set(LocalNetworkPermission.Granted)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun whileDeniedAServiceThatCannotIdentifyItselfWithOnlyLocalAddressesKeepsThem() = runTest {
+        val stash = server(ServiceType.stash).copy(addresses = listOf(local)).also(repository::save)
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.CanAsk)
+        val sources = RoamingAddressSources(
+            repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource, localAccess = access,
+        )
+        val source = sources.forServer(stash)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
     }
 }

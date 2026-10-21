@@ -45,7 +45,8 @@ class RoamingServerAddressTest {
 
     /**
      * Answers per address: a server id; "soon" (the saved server, after 0.3 s); "late" (the saved server, after 3 s); "slow" (times
-     * out after 5 s, as Jellyfin's probe does); "hang" (never answers); anything else is unreachable.
+     * out after 5 s, as Jellyfin's probe does); "dead" (unreachable after 5 s, as a connect timeout on Android
+     * may report it); "hang" (never answers); anything else is unreachable at once.
      */
     private inner class FakeProbe(val answers: MutableMap<String, String> = mutableMapOf()) : ServerProbe {
         override val service = ServiceType.jellyfin
@@ -59,6 +60,10 @@ class RoamingServerAddressTest {
                 "slow" -> {
                     delay(5.seconds)
                     throw ServiceException(server, ServiceErrorKind.Timeout)
+                }
+                "dead" -> {
+                    delay(5.seconds)
+                    throw ServiceException(server, ServiceErrorKind.Unreachable)
                 }
                 "hang" -> awaitCancellation()
                 "soon" -> {
@@ -79,8 +84,12 @@ class RoamingServerAddressTest {
     private val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(ref)) }
 
     /** Runs the source in the background, so it stops with the test, and lets its first check run as far as it can. */
-    private fun TestScope.roaming(server: SavedServer = saved, timing: RoamingTiming = RoamingTiming()): RoamingServerAddress {
-        val source = RoamingServerAddress(server, probe, capabilities, timing, testTimeSource)
+    private fun TestScope.roaming(
+        server: SavedServer = saved,
+        timing: RoamingTiming = RoamingTiming(),
+        access: LocalNetworkAccess = LocalNetworkAccess.NotNeeded,
+    ): RoamingServerAddress {
+        val source = RoamingServerAddress(server, probe, capabilities, timing, testTimeSource, access)
         backgroundScope.launch { source.run(changes) }
         runCurrent()
         return source
@@ -962,5 +971,173 @@ class RoamingServerAddressTest {
         runCurrent()
         assertNull(source.current.value)
         assertNull(source.awaitCurrent())
+    }
+
+    // Local network access (ADR 0019, ADR 0020).
+
+    /** An internet name that resolves to a local address on this network (split DNS), and a denied platform. */
+    private val splitName = "https://jellyfin.example.net"
+    private val denied get() = FakeLocalNetworkAccess(LocalNetworkPermission.CanAsk)
+
+    private fun server(vararg addresses: String) = saved.copy(
+        addresses = addresses.map { ServerAddress(it, url(it).scope) },
+    )
+
+    @Test
+    fun whileLocalAccessIsDeniedLocalAddressesAreNotAsked() = runTest {
+        for (permission in listOf(LocalNetworkPermission.CanAsk, LocalNetworkPermission.Blocked)) {
+            probe.asked.clear()
+            probe.answers += mapOf(local to "slow", lan to "slow", internet to "late")
+            val source = roaming(server(local, lan, internet), access = FakeLocalNetworkAccess(permission))
+            advance(3.seconds)
+            assertEquals(url(internet), source.current.value)
+            assertEquals(listOf(internet), probe.asked, "$permission")
+            assertEquals(true, reachable)
+        }
+    }
+
+    @Test
+    fun whileDeniedAServerWithOnlyLocalAddressesFailsAtOnce() = runTest {
+        probe.answers += mapOf(local to homeId, lan to homeId)
+        val source = roaming(server(local, lan), access = denied)
+        val started = currentTime
+        assertNull(source.awaitCurrent(), "not after the 11 s bound")
+        assertEquals(started, currentTime)
+        assertEquals(false, reachable)
+        assertTrue(probe.asked.isEmpty())
+    }
+
+    @Test
+    fun aGrantAsksAgainAtOnceAndLocalIsUsedAgain() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val access = denied
+        val source = roaming(access = access)
+        assertEquals(url(internet), source.current.value)
+        val before = currentTime
+        access.set(LocalNetworkPermission.Granted)
+        runCurrent()
+        assertEquals(url(local), source.current.value)
+        assertEquals(before, currentTime)
+        assertEquals(listOf(internet, local, internet), probe.asked)
+    }
+
+    @Test
+    fun aGrantWithOnlyLocalAddressesHoldsRequestsForItsCheck() = runTest {
+        probe.answers += mapOf(local to "soon")
+        val access = denied
+        val source = roaming(server(local), access = access)
+        assertNull(source.current.value)
+        access.set(LocalNetworkPermission.Granted)
+        runCurrent()
+        val request = async { source.awaitCurrent() }
+        advance(300.milliseconds)
+        assertEquals(url(local), request.await(), "the request waits for the check the grant started instead of failing")
+    }
+
+    @Test
+    fun aSignalWithNothingChangedAsksNothing() = runTest {
+        probe.answers += mapOf(internet to homeId)
+        val access = denied
+        roaming(access = access)
+        access.set(LocalNetworkPermission.Blocked)
+        runCurrent()
+        access.changes.tryEmit(Unit)
+        runCurrent()
+        assertEquals(listOf(internet), probe.asked)
+    }
+
+    @Test
+    fun aGrantWithoutASignalIsSeenByTheNextCheck() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val access = denied
+        val source = roaming(access = access)
+        access.permission = LocalNetworkPermission.Granted
+        advance(5.minutes)
+        assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun aDenialDropsALocalAddressInUse() = runTest {
+        probe.answers += mapOf(local to homeId, internet to "soon")
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.Granted)
+        val source = roaming(access = access)
+        advance(300.milliseconds)
+        assertEquals(url(local), source.current.value)
+        probe.asked.clear()
+        access.set(LocalNetworkPermission.CanAsk)
+        runCurrent()
+        assertNull(source.current.value, "nothing at a local address can answer now")
+        val request = async { source.awaitCurrent() }
+        advance(300.milliseconds)
+        assertEquals(url(internet), request.await())
+        assertEquals(listOf(internet), probe.asked)
+    }
+
+    @Test
+    fun aDenialMidCheckRestartsItWithoutTheLocalAddresses() = runTest {
+        probe.answers += mapOf(local to "slow", internet to "slow")
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.Granted)
+        roaming(access = access)
+        probe.answers[internet] = homeId
+        access.set(LocalNetworkPermission.CanAsk)
+        runCurrent()
+        assertEquals(listOf(local, internet, internet), probe.asked)
+        assertEquals(true, reachable, "the check ended without waiting for the local probe")
+    }
+
+    @Test
+    fun anInternetNameThatTimesOutWhileDeniedIsSkippedUntilTheNetworkChanges() = runTest {
+        probe.answers += mapOf(splitName to "slow", internet to homeId)
+        val source = roaming(server(splitName, internet), access = denied)
+        assertEquals(url(internet), source.current.value)
+        advance(5.seconds)
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(internet), probe.asked, "the periodic check skips the name that timed out")
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        assertEquals(listOf(internet, splitName, internet), probe.asked, "on another network it may resolve to a public address")
+    }
+
+    @Test
+    fun aGrantForgetsTheNamesThatTimedOut() = runTest {
+        probe.answers += mapOf(splitName to "slow", internet to homeId)
+        val access = denied
+        roaming(server(splitName, internet), access = access)
+        advance(5.seconds)
+        probe.asked.clear()
+        probe.answers[splitName] = homeId
+        access.set(LocalNetworkPermission.Granted)
+        runCurrent()
+        assertEquals(listOf(splitName, internet), probe.asked)
+    }
+
+    @Test
+    fun anInternetNameThatIsRefusedWhileDeniedIsStillAsked() = runTest {
+        probe.answers += mapOf(internet to homeId)
+        roaming(server(splitName, internet), access = denied)
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(splitName, internet), probe.asked, "a server that is down is not hidden")
+    }
+
+    @Test
+    fun anInternetNameThatTimesOutWhileAllowedIsStillAsked() = runTest {
+        probe.answers += mapOf(splitName to "slow", internet to homeId)
+        roaming(server(splitName, internet), access = FakeLocalNetworkAccess(LocalNetworkPermission.Granted))
+        advance(5.seconds)
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(splitName, internet), probe.asked)
+    }
+
+    @Test
+    fun anInternetNameUnreachableAfterTheWholeTimeoutWhileDeniedIsSkippedToo() = runTest {
+        probe.answers += mapOf(splitName to "dead", internet to homeId)
+        roaming(server(splitName, internet), access = denied)
+        advance(5.seconds)
+        probe.asked.clear()
+        advance(5.minutes)
+        assertEquals(listOf(internet), probe.asked)
     }
 }
