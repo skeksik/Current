@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/check-no-team-id.sh
+      - run: ./scripts/check-apple-version.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

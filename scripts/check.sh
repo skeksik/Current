@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 echo "==> No team ID in committed Xcode files"
 ./scripts/check-no-team-id.sh
 
+echo "==> Apple MARKETING_VERSION matches current.version"
+./scripts/check-apple-version.sh
+
 echo "==> Unit tests (JVM, and the web facade's on Node)"
 ./gradlew jvmTest :web:jsNodeTest
 
