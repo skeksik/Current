@@ -61,12 +61,12 @@ compose.desktop {
                 upgradeUuid = "420fb9fa-28cd-429a-8bf8-bccfb857d4b4"
                 // Installs under the user's profile without an administrator prompt; upgrades are per user too.
                 perUserInstall = true
-                // Relative to %LOCALAPPDATA% for a per-user install (jpackage's default is the app name, %LOCALAPPDATA%\Current, which
-                // is AppFolders.local(): removing the old product deletes INSTALLDIR recursively, so it took local.json with it).
-                // %LOCALAPPDATA%\Programs\<app> is Windows' convention for per-user apps. Never install into an app data folder.
-                // Two backslashes reach jpackage as one: the plugin passes the value quoted in an @argfile, where a backslash is an
-                // escape (a single one installed into "ProgramsCurrent"; a forward slash failed packageMsi).
-                installationPath = "Programs\\\\Current"
+                // The install folder, relative to %LOCALAPPDATA% for a per-user install. Never jpackage's default (the app name):
+                // %LOCALAPPDATA%\Current is AppFolders.local(), and removing the product deletes INSTALLDIR recursively, which took
+                // local.json with it. Not Programs\Current either: jpackage gives intermediate per-user folders no RemoveFolder entry,
+                // which fails WiX's ICE64 (docs/platform-notes.md, "Desktop packaging"). Only the folder differs; every name shown
+                // to users stays "Current". Nothing may ever be written under the install folder: uninstalling deletes it.
+                installationPath = "Current App"
                 menu = true
                 menuGroup = "Current"
                 shortcut = true

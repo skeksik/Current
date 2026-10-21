@@ -1,5 +1,5 @@
 # Installs the desktop MSI per user, upgrades it with a newer one and uninstalls it, checking that the app's files live under
-# %LOCALAPPDATA%\Programs\Current and that the app's own data folder (%LOCALAPPDATA%\Current, AppFolders.local()) survives.
+# %LOCALAPPDATA%\Current App and that the app's own data folder (%LOCALAPPDATA%\Current, AppFolders.local()) survives.
 # Windows only; runs in CI. Usage: pwsh scripts/check-msi-upgrade.ps1 -First <older.msi> -Second <newer.msi> -SecondVersion 0.1.1
 param(
     [Parameter(Mandatory)] [string] $First,
@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $First = (Resolve-Path $First).Path
 $Second = (Resolve-Path $Second).Path
 
-$installDir = Join-Path $env:LOCALAPPDATA 'Programs\Current'
+$installDir = Join-Path $env:LOCALAPPDATA 'Current App'
 $dataDir = Join-Path $env:LOCALAPPDATA 'Current'
 $marker = Join-Path $dataDir 'local.json'
 $logDir = Join-Path ([IO.Path]::GetTempPath()) 'current-msi-logs'
@@ -49,6 +49,19 @@ if (-not (Test-Path (Join-Path $installDir 'Current.exe'))) {
 }
 Assert (Test-Path (Join-Path $installDir 'Current.exe')) "Current.exe is in $installDir"
 Assert (-not (Test-Path (Join-Path $dataDir 'Current.exe'))) "nothing is installed into $dataDir"
+$entry = @(Get-Entries)
+Assert ($entry.Count -eq 1 -and $entry[0].DisplayName -eq 'Current') 'one installed-apps entry named Current'
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Current\Current.lnk'
+$desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Current.lnk'
+if (-not ((Test-Path $startMenu) -and (Test-Path $desktop))) {
+    Write-Host 'Shortcuts found:'
+    @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'),
+      [Environment]::GetFolderPath('CommonPrograms'), [Environment]::GetFolderPath('CommonDesktopDirectory')) | ForEach-Object {
+        Get-ChildItem -Path $_ -Filter 'Current*.lnk' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+    }
+}
+Assert (Test-Path $startMenu) "Start menu shortcut $startMenu"
+Assert (Test-Path $desktop) "desktop shortcut $desktop"
 # Windows Installer keeps ARPPRODUCTICON as the product's ProductIcon here, not as DisplayIcon in the Uninstall key (printed for the record).
 Get-ItemProperty 'HKCU:\Software\Microsoft\Installer\Products\*' -ErrorAction SilentlyContinue |
     Where-Object { $_.ProductName -eq 'Current' } | Format-List ProductName, ProductIcon
@@ -68,3 +81,5 @@ Invoke-Msiexec '/x' $Second 'uninstall'
 Assert (@(Get-Entries).Count -eq 0) 'no installed-apps entry after uninstalling'
 Assert (-not (Test-Path $installDir)) "$installDir is gone"
 Assert (Test-Path $marker) "$marker survives the uninstall"
+Assert (-not (Test-Path $startMenu)) 'the Start menu shortcut is gone'
+Assert (-not (Test-Path $desktop)) 'the desktop shortcut is gone'

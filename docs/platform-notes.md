@@ -2307,19 +2307,31 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   also pulled in `java.datatransfer`, `java.xml` and `java.prefs` as dependencies. CI checks the runtime's `release` file
   (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s: it booted on Windows and under Xvfb on Linux, where Skiko
   fell back from OpenGL ("Cannot create Linux GL context") to its next renderer. The MSI was about 75 MB.
-- Install folder (read in the plugin source on `master` and OpenJDK `jdk21u`): `windows { installationPath }` becomes jpackage's
-  `--install-dir` (`configureJvmApplication.kt`, `AbstractJPackageTask.kt`). On Windows that is a "Relative sub-path under the default
-  installation location" (`MSG_Help_win_install_dir`), rejected if it contains `:` or `..`, and defaults to the app name. The default
-  location is `ProgramFiles64Folder` system-wide and `LocalAppDataFolder` per user (`WixAppImageFragmentBuilder.java`: `installDir =
-  (systemWide ? PROGRAM_FILES : LOCAL_PROGRAM_FILES).resolve(WINDOWS_INSTALL_DIR...)`). So a per-user install without it goes to
-  `%LOCALAPPDATA%\Current`, which is `AppFolders.local()`, and the generated WiX adds a directory cleaner on `INSTALLDIR`
-  (`addDirectoryCleaner`, "rm -rf"), which deleted `local.json` on upgrade and uninstall (section "Desktop installer: Windows run").
-  The app sets `installationPath` to `Programs\\Current` (an escaped backslash), i.e. `%LOCALAPPDATA%\Programs\Current`. With a single
-  backslash it installed into `%LOCALAPPDATA%\ProgramsCurrent` (CI, 2026-10-21): the plugin writes each value quoted into an
-  `@...args.txt` file for jpackage (`AbstractJvmToolOperationTask.kt`, `cliArgUtils.kt`), and a backslash inside quotes there is an
-  escape. `Programs/Current` made `packageMsi` fail in CI. CI installs a 0.1.0 MSI, writes
-  `%LOCALAPPDATA%\Current\local.json`, upgrades to 0.1.1 and uninstalls, and checks the file survives (`scripts/check-msi-upgrade.ps1`).
-  An install of an older build (into `%LOCALAPPDATA%\Current`) still deletes that folder when it is upgraded or removed.
+- Install folder (read in the plugin source on `master` and OpenJDK `jdk21u`; run in CI 2026-10-21):
+  - `windows { installationPath }` becomes jpackage's `--install-dir` (`configureJvmApplication.kt`, `AbstractJPackageTask.kt`). On
+    Windows that is a "Relative sub-path under the default installation location" (`MSG_Help_win_install_dir`), rejected if it
+    contains `:` or `..`, and defaults to the app name. The default location is `ProgramFiles64Folder` system-wide and
+    `LocalAppDataFolder` per user (`src/jdk.jpackage/windows/classes/jdk/jpackage/internal/WixAppImageFragmentBuilder.java`:
+    `installDir = (systemWide ? PROGRAM_FILES : LOCAL_PROGRAM_FILES).resolve(WINDOWS_INSTALL_DIR...)`).
+  - So a per-user install without it goes to `%LOCALAPPDATA%\Current`, which is `AppFolders.local()`. The generated WiX adds a
+    directory cleaner on `INSTALLDIR` (`addDirectoryCleaner`, "rm -rf", `WixRemoveFoldersEx`), which deleted `local.json` on upgrade
+    and uninstall (section "Desktop installer: Windows run").
+  - `Programs\Current` (the usual place for per-user apps) cannot be built. Passed as `Programs\Current` it installed into
+    `%LOCALAPPDATA%\ProgramsCurrent`: the plugin writes each value quoted into an `@...args.txt` file for jpackage
+    (`AbstractJvmToolOperationTask.kt`, `cliArgUtils.kt`), and a backslash inside quotes there is an escape. Passed as
+    `Programs/Current` or `Programs\\Current`, `packageMsi` failed: `light.exe` exited with 204 (ICE validation). For a per-user
+    install, jpackage adds a `<RemoveFolder>` component only for directories inside `INSTALLDIR` (`addDirectoryHierarchy`: "Per-user
+    install requires <RemoveFolder> component in every directory"); `addRootBranch` creates the folders above it (`Programs`) and
+    returns no components, so WiX's ICE64 rejects a per-user folder without a `RemoveFile` entry. The same code is in `jdk25u` and
+    `jdk` `master` (2026-10-21), so a newer JDK does not help. The plugin does not expose `--resource-dir` for a patched `main.wxs`
+    (it uses its own `build/compose/tmp/resources`).
+  - The app sets `installationPath = "Current App"`, i.e. `%LOCALAPPDATA%\Current App`. Only the folder differs: the installed-apps
+    entry, the Start menu group and shortcut and the desktop shortcut are named Current. CI installs a 0.1.0 MSI, writes
+    `%LOCALAPPDATA%\Current\local.json`, upgrades to 0.1.1 and uninstalls, and checks the file survives, the shortcuts exist and then
+    go, and one entry is left at 0.1.1 (`scripts/check-msi-upgrade.ps1`).
+  - **Rule: nothing may ever be written under the install folder.** Removing the product (uninstall, and the old version during an
+    upgrade) deletes it recursively.
+  - An install of an older build (into `%LOCALAPPDATA%\Current`) still deletes that folder when it is upgraded or removed.
 - Installed-apps icon: jpackage's `main.wxs` sets `ARPPRODUCTICON` from the launcher's icon (`WinMsiBundler.java`, `JpIcon`). Windows
   Installer keeps it as the product's `ProductIcon` under `HKCU\Software\Microsoft\Installer\Products`, not as `DisplayIcon` in the
   Uninstall key, which is why the registry showed no `DisplayIcon`; whether Settings > Apps shows it is not checked. The plugin has no
@@ -2394,7 +2406,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 
 ## Not verified (research before depending on it)
 - Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
-  window icon and the new install folder by hand, the Installed-apps icon in Settings, the DEB.
+  window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015

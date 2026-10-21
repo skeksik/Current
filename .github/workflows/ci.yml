@@ -122,7 +122,7 @@ jobs:
       - run: ./gradlew :desktopApp:createDistributable :desktopApp:packageMsi
       - run: ./scripts/check-desktop-runtime.sh desktopApp/build/compose/binaries/main/app/Current
       - run: ./scripts/smoke-desktop-app.sh desktopApp/build/compose/binaries/main/app/Current/Current.exe
-      # Install, upgrade to a newer build and uninstall, per user: the files go to %LOCALAPPDATA%\Programs\Current and the
+      # Install, upgrade to a newer build and uninstall, per user: the files go to %LOCALAPPDATA%\Current App and the
       # app's data folder (%LOCALAPPDATA%\Current) survives both.
       - name: Install, upgrade and uninstall the MSI
         run: |
