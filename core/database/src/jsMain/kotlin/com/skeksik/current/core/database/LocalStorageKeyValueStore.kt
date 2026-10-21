@@ -1,8 +1,13 @@
 package com.skeksik.current.core.database
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import org.koin.core.scope.Scope
 
 internal actual fun Scope.platformKeyValueStore(): KeyValueStore = LocalStorageKeyValueStore()
@@ -26,7 +31,39 @@ class LocalStorageKeyValueStore(private val prefix: String = "current.") : KeyVa
     override fun put(key: String, value: String) = storageSet(prefix + key, value)
 
     override fun remove(key: String) = storageRemove(prefix + key)
+
+    override val changedElsewhere: Flow<String?> = OtherTabs.changes
+        .filter { it == null || keyInStore(it, prefix, PREFIXES) != null }
+        .map { it?.let { key -> keyInStore(key, prefix, PREFIXES) } }
 }
+
+/** Every store's prefix, so a store leaves out the keys of the stores nested in it. */
+private val PREFIXES = listOf("current.", "current.local.", "current.secret.")
+
+/**
+ * Keys other tabs of this origin changed in `localStorage`, from one `storage` event listener: the browser fires it in every other tab
+ * that shares the storage, never in the tab that wrote. Null when one cleared it. Where storage is blocked no event ever comes.
+ */
+private object OtherTabs {
+    private val _changes = MutableSharedFlow<String?>(extraBufferCapacity = 64)
+    val changes = _changes.asSharedFlow()
+
+    init {
+        onStorageEvent { key -> _changes.tryEmit(key) }
+    }
+}
+
+/** Calls [handler] with the key of each change to `localStorage` made in another tab; nothing outside a browser window. */
+@Suppress("UNUSED_PARAMETER")
+private fun onStorageEvent(handler: (String?) -> Unit): Unit = js(
+    """(function () {
+        if (typeof window === 'undefined') return;
+        window.addEventListener('storage', function (e) {
+            try { if (e.storageArea !== window.localStorage) return; } catch (error) { return; }
+            handler(e.key);
+        });
+    })()""",
+)
 
 @Suppress("UNUSED_PARAMETER")
 private fun storageGet(key: String): String? = js("(function () { try { return window.localStorage.getItem(key); } catch (e) { return null; } })()")
@@ -52,6 +89,8 @@ class LocalStorageSecretStore : SecretStore {
     override suspend fun put(key: String, value: String) = store.put(key, value)
 
     override suspend fun remove(key: String) = store.remove(key)
+
+    override val changedElsewhere: Flow<String?> = store.changedElsewhere
 }
 
 private fun userAgent(): String = js("(typeof navigator !== 'undefined' && navigator.userAgent) || ''")

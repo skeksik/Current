@@ -1,8 +1,10 @@
 package com.skeksik.current.core.database
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /** Where [SecretStore] keeps secrets right now, so the UI can say what "stay signed in" means here (ADR 0017). */
 enum class SecretStorage {
@@ -42,6 +44,9 @@ interface SecretStore {
     suspend fun put(key: String, value: String)
 
     suspend fun remove(key: String)
+
+    /** Keys another copy of the app changed, as [KeyValueStore.changedElsewhere]: another browser tab on the web, nothing elsewhere. */
+    val changedElsewhere: Flow<String?> get() = emptyFlow()
 }
 
 /** Secrets that last until the app quits. For tests, and for platforms whose secure store comes later (Android, Apple: M4). */
