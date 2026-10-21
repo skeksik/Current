@@ -141,7 +141,7 @@ is on, so a signal can only mean "something may have changed".
 ## Consequences
 - Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
   still needs a network security config for plain `http` local addresses, and `ACCESS_LOCAL_NETWORK` at target 37
-  (docs/platform-notes.md, "Roaming on Android"); those come with the shell.
+  (docs/platform-notes.md, "Roaming on Android"); both came with ADR 0020.
 - On Android a DNS lookup runs outside every engine timeout: over a VPN the owner measured 6.0 s for a failed lookup of the internet
   name (docs/platform-notes.md, "Request timeouts on blocking engines"). `RequestDeadline` (`core:network`) bounds every request,
   probes included, so a probe ends at its 5 s timeout while the abandoned lookup finishes on its own. A failed lookup is cached for

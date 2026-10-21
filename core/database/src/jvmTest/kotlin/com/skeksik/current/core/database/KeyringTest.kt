@@ -10,11 +10,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
 
 /**
  * The real OS stores. Windows Credential Manager runs wherever the tests run on Windows (entries named `Current-test-…`, removed again).
  * The Secret Service tests run only when `CURRENT_TEST_SECRET_SERVICE` names their setup: `1` (an unlocked keyring; CI's Linux job starts
- * GNOME Keyring in a D-Bus session), `locked` or `absent`.
+ * GNOME Keyring in a D-Bus session), `locked` or `absent`. A test whose setup is missing is reported as skipped, not passed (JUnit 4's
+ * `Assume`, which kotlin.test runs on for the JVM).
  */
 class KeyringTest {
     private val key = "test/" + Random.nextLong().toULong().toString(16)
@@ -32,9 +34,12 @@ class KeyringTest {
         keyring.remove(key)
     }
 
+    private fun assumeSecretService(setup: String) =
+        assumeTrue("needs CURRENT_TEST_SECRET_SERVICE=$setup", System.getenv("CURRENT_TEST_SECRET_SERVICE") == setup)
+
     @Test
     fun windowsCredentialManager() {
-        if (!AppFolders.isWindows) return
+        assumeTrue("Windows only", AppFolders.isWindows)
         val keyring = assertNotNull(WindowsCredentials.openOrNull(prefix = "Current-test-"))
         roundTrip(keyring)
         assertFailsWith<SecretBackendException> { keyring.put(key, "x".repeat(2561)) }
@@ -42,10 +47,8 @@ class KeyringTest {
 
     @Test
     fun linuxSecretService() {
-        if (System.getenv("CURRENT_TEST_SECRET_SERVICE") != "1") return
+        assumeSecretService("1")
         roundTrip(assertNotNull(LibSecret.openOrNull(), "no Secret Service answered"))
-        // CI looks for this line, so a skipped test cannot pass for a run one.
-        println("Secret Service round trip passed")
     }
 
     /**
@@ -54,7 +57,7 @@ class KeyringTest {
      */
     @Test
     fun aKeyringThatCannotAnswerFallsBackToMemory() = runBlocking {
-        if (System.getenv("CURRENT_TEST_SECRET_SERVICE") != "locked") return@runBlocking
+        assumeSecretService("locked")
         val keyring = assertNotNull(LibSecret.openOrNull(timeout = 10.seconds))
         val started = System.nanoTime()
         assertFailsWith<SecretBackendException> { keyring.put(key, "value") }
@@ -69,7 +72,7 @@ class KeyringTest {
     /** With `CURRENT_TEST_SECRET_SERVICE=absent` (libsecret installed, no D-Bus session), the store must fall back instead of failing. */
     @Test
     fun noSecretServiceMeansNoKeyring() {
-        if (System.getenv("CURRENT_TEST_SECRET_SERVICE") != "absent") return
+        assumeSecretService("absent")
         assertNull(LibSecret.openOrNull())
         assertEquals(SecretStorage.Memory, DesktopSecretStore.create(InMemoryKeyValueStore()).storage.value)
     }

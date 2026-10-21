@@ -24,11 +24,11 @@ shared/       Compose umbrella for Android/desktop: App(), the module list, Koin
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
 web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for the React app: @JsExport facade, History API router. NO Compose.
 
-composeUi/                 Compose screens, destination contract, Shell + NavHost, player screen + controls, video surfaces (Android, desktop)
+composeUi/                 Compose screens, destination contract, Shell + NavHost (Android, desktop); planned: player screen + controls, video surfaces
 core/model                 domain models                      (pure Kotlin)
-core/network               HttpClient, server configuration, capabilities state (pure Kotlin)
-core/database              cache                              (pure Kotlin)
-core/playback              PlayerEngine interface, capabilities, playback planner, browser probes (pure Kotlin)
+core/network               HttpClient, server clients, saved servers, roaming, LocalNetworkAccess, capabilities state (pure Kotlin)
+core/database              settings, secrets, device identity; planned: cache (pure Kotlin)
+core/playback              browser probes, DeviceProfile, VideoRanges; planned: PlayerEngine, capabilities, playback planner (pure Kotlin)
 core/designsystem          Compose theme and components       (Compose only)
 data/{jellyfin,seerr,stash}                                   (pure Kotlin)
 feature/{home,library,requests,player,settings}               presentation only: ViewModel + UI state (pure Kotlin)
@@ -43,7 +43,8 @@ Every module's `build.gradle.kts` copies the shape of an existing one of the sam
 Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
 Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
 Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`composeUi`), Coil 3 (`composeUi`).
-Planned, not added yet: SQLDelight, Media3, SKIE for Swift interop.
+Also added: JetBrains lifecycle-viewmodel (features, `web`), navigationevent-compose (`composeUi`), JNA (desktop keyring, `core:database`).
+Planned, not added yet: SQLDelight, Media3. Swift interop: an M4 spike with Swift Export (Alpha); SKIE is the fallback, needing approval (ADR 0006).
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
 ## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)
@@ -52,7 +53,7 @@ Research notes with sources and the list of still-unverified claims: docs/platfo
 ./gradlew :desktopApp:packageMsi                       # Windows installer (packageDeb on Linux); version from current.version
 npm --prefix webApp run dev                            # run web app (npm ci first; builds the Kotlin library, then Vite)
 ./gradlew :androidApp:installDebug                     # install on device/emulator
-./gradlew jvmTest                                      # JVM tests in every module
+./gradlew jvmTest :web:jsNodeTest                      # JVM tests in every module, and the web facade's tests (no JVM target)
 npm --prefix webApp run build                          # production web bundle (webApp/build/vite)
 npm --prefix webApp run licences                       # licences of shipped npm packages (ADR 0009)
 npm --prefix webApp run contrast                       # WCAG AA for the web colour tokens, dark and light (ContrastTest on Compose)
@@ -99,7 +100,8 @@ local network permission on Android (ADR 0020), `HomeViewModel` and `HomeLocalNe
 shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens with a server's addresses in `composeUi`, Koin
 wiring in `shared`; docs/architecture.md), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
 framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app (the same shell as desktop: sidebar, home,
-settings, add server, sign in).
+settings, add server, sign in). The October 2026 fix batch (PRs 41-46, docs/reviews/2026-10) added the web CSP, the packaged desktop app
+(per-user MSI, version from `current.version`), Android backup rules and Back keys that work anywhere while Esc never goes back.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
 ## Git workflow

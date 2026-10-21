@@ -35,7 +35,6 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
-            implementation(libs.compose.uiTooling)
         }
         commonMain.dependencies {
             implementation(project(":composeUi"))
@@ -68,8 +67,4 @@ kotlin {
             implementation(libs.kotlin.test)
         }
     }
-}
-
-dependencies {
-    androidRuntimeClasspath(libs.compose.uiTooling)
 }
