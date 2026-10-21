@@ -1,8 +1,13 @@
 package com.skeksik.current.ui.navigation
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestinationBuilder
+import androidx.navigation.NavHostController
 import androidx.navigation.createGraph
 import androidx.savedstate.SavedState
 import kotlinx.serialization.Serializable
@@ -31,8 +36,15 @@ private class Pages : androidx.navigation.Navigator<NavDestination>(NAME) {
     }
 }
 
+/** A resumed host, as the shell's window or activity is; without one the entries never get to save their state. */
+private object Host : LifecycleOwner {
+    override val lifecycle = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+}
+
 /** A controller like the shell's, restored from [saved] first when given (what an activity recreation or process death does). */
-private fun controller(saved: SavedState? = null): NavController = NavController().apply {
+private fun controller(saved: SavedState? = null): NavController = NavHostController().apply {
+    setLifecycleOwner(Host)
+    setViewModelStore(ViewModelStore())
     val pages = Pages()
     navigatorProvider.addNavigator(Pages.NAME, pages)
     if (saved != null) restoreState(saved)
