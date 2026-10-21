@@ -6,17 +6,24 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import com.skeksik.current.core.designsystem.CurrentTokens.Palette
 import com.skeksik.current.core.designsystem.CurrentTokens.Type
 
-private val darkColors = darkColorScheme(
+internal val darkColors = darkColorScheme(
     primary = Palette.accent,
     onPrimary = Palette.onAccent,
     secondary = Palette.accent,
     onSecondary = Palette.onAccent,
+    // The selected sidebar entry: the accent at 16% over the sidebar.
+    secondaryContainer = Palette.accent.copy(alpha = 0.16f).compositeOver(Palette.surfaceDark),
+    onSecondaryContainer = Palette.textDark,
     background = Palette.ink,
     onBackground = Palette.textDark,
     surface = Palette.surfaceDark,
@@ -31,19 +38,21 @@ private val darkColors = darkColorScheme(
     tertiary = Palette.warning,
 )
 
-private val lightColors = lightColorScheme(
+internal val lightColors = lightColorScheme(
     primary = Palette.accentDark,
     onPrimary = Palette.surfaceLight,
     secondary = Palette.accentDark,
     onSecondary = Palette.surfaceLight,
+    secondaryContainer = Palette.selectedLight,
+    onSecondaryContainer = Palette.textLight,
     background = Palette.paper,
     onBackground = Palette.textLight,
     surface = Palette.surfaceLight,
     onSurface = Palette.textLight,
-    surfaceVariant = Palette.surfaceRaisedLight,
+    surfaceVariant = Palette.surfaceLight,
     onSurfaceVariant = Palette.textMutedLight,
     surfaceContainer = Palette.surfaceLight,
-    surfaceContainerHigh = Palette.surfaceRaisedLight,
+    surfaceContainerHigh = Palette.surfaceLight,
     outline = Palette.outlineLight,
     outlineVariant = Palette.outlineLight,
     error = Palette.dangerDark,
@@ -62,10 +71,15 @@ private val typography = Typography().run {
     )
 }
 
+/** The edge of a [Panel], or null for none: a white panel on a pale page needs one, a dark panel stands out by its fill. */
+internal val LocalPanelEdge = staticCompositionLocalOf<Color?> { null }
+
 /** Material 3 built from [CurrentTokens]; dark or light with the system. */
 @Composable
 fun CurrentTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) darkColors else lightColors, typography = typography, content = content)
+    CompositionLocalProvider(LocalPanelEdge provides if (dark) null else Palette.panelEdgeLight) {
+        MaterialTheme(colorScheme = if (dark) darkColors else lightColors, typography = typography, content = content)
+    }
 }
 
 /** A monospaced, spaced-out style for codes the user reads aloud or types elsewhere, such as a Quick Connect code. */
