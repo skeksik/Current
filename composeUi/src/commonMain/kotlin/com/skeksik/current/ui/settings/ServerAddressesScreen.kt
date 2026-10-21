@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -19,15 +20,19 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.skeksik.current.core.designsystem.CurrentIcons
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
+import com.skeksik.current.core.designsystem.InlineProgress
 import com.skeksik.current.core.designsystem.LocalFocusVisibility
 import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
@@ -37,12 +42,16 @@ import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.feature.settings.AddressRow
+import com.skeksik.current.feature.settings.AddressesStatus
+import com.skeksik.current.feature.settings.ServerAddressesUiState
 import com.skeksik.current.feature.settings.ServerAddressesViewModel
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.pageViewModel
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.add_server_plain_http
 import com.skeksik.current.ui.resources.addresses_add
+import com.skeksik.current.ui.resources.addresses_checking
+import com.skeksik.current.ui.resources.addresses_current_title
 import com.skeksik.current.ui.resources.addresses_in_use
 import com.skeksik.current.ui.resources.addresses_internet
 import com.skeksik.current.ui.resources.addresses_keep_one
@@ -51,9 +60,13 @@ import com.skeksik.current.ui.resources.addresses_move_down
 import com.skeksik.current.ui.resources.addresses_move_down_description
 import com.skeksik.current.ui.resources.addresses_move_up
 import com.skeksik.current.ui.resources.addresses_move_up_description
+import com.skeksik.current.ui.resources.addresses_refresh
+import com.skeksik.current.ui.resources.addresses_refresh_description
 import com.skeksik.current.ui.resources.addresses_remove_description
 import com.skeksik.current.ui.resources.addresses_remove_message
 import com.skeksik.current.ui.resources.addresses_remove_title
+import com.skeksik.current.ui.resources.addresses_status_checking
+import com.skeksik.current.ui.resources.addresses_status_reachable
 import com.skeksik.current.ui.resources.addresses_subtitle
 import com.skeksik.current.ui.resources.addresses_title
 import com.skeksik.current.ui.resources.addresses_unreachable
@@ -119,7 +132,7 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
             }
         },
     ) {
-        if (state.reachable == false) Notice(stringResource(Res.string.addresses_unreachable, name), NoticeKind.Warning)
+        CurrentlyUsing(state, name, refresh = viewModel::refresh)
         // Up and Down move between addresses; Tab moves between an address's buttons.
         with(rows) {
             Column(Modifier.arrowKeys(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
@@ -162,6 +175,60 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
                 removing = null
             },
         )
+    }
+}
+
+/** The server's status, the address in use and its network kind, and Refresh, which asks every address again. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CurrentlyUsing(state: ServerAddressesUiState, name: String, refresh: () -> Unit) {
+    Panel {
+        Text(
+            stringResource(Res.string.addresses_current_title),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Read out when it changes, as a check ends or roaming moves to another address.
+        Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            when (state.status) {
+                AddressesStatus.Checking -> InlineProgress(stringResource(Res.string.addresses_status_checking))
+                AddressesStatus.Offline -> Notice(stringResource(Res.string.addresses_unreachable, name), NoticeKind.Warning)
+                AddressesStatus.Reachable -> {
+                    state.inUse?.let { Text(it.url, style = MaterialTheme.typography.titleMedium) }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        state.inUse?.let {
+                            val scope = if (it.scope == AddressScope.Local) Res.string.addresses_local else Res.string.addresses_internet
+                            Text(
+                                stringResource(scope),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            stringResource(Res.string.addresses_status_reachable),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+            val refreshLabel = stringResource(Res.string.addresses_refresh_description, name)
+            // Disabled while a check runs, which answers it anyway.
+            OutlinedButton(
+                refresh,
+                Modifier.focusRing(MaterialTheme.shapes.extraLarge).semantics { contentDescription = refreshLabel },
+                enabled = !state.checking,
+            ) {
+                Text(stringResource(Res.string.addresses_refresh), maxLines = 1, softWrap = false)
+            }
+            // While the status is already known, a check shows here rather than replacing it.
+            if (state.checking && state.status != AddressesStatus.Checking) InlineProgress(stringResource(Res.string.addresses_checking))
+        }
     }
 }
 
