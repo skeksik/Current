@@ -280,8 +280,8 @@ internal class RoamingServerAddress(
         /**
          * Internet addresses whose probe got no answer for its whole timeout while local access was denied: most likely a name that
          * resolves to a local address on this network (split DNS). Checks skip them while another address is left to ask, except the
-         * periodic check and the one after a resumed network, which ask them again in case the server was only down or slow. A
-         * network change, a grant and an edit that removes the address clear the mark.
+         * periodic check, the one after a resumed network and any with no address in use, which ask them again in case the server
+         * was only down or slow. A network change, a grant and an edit that removes the address clear the mark.
          */
         private val deniedNames = mutableSetOf<ServerUrl>()
 
@@ -496,11 +496,11 @@ internal class RoamingServerAddress(
             failed = null
             // The periodic check asks the address in use and those above it; all of them only when none of those answers, or when
             // the one in use failed a request. Addresses that cannot answer while local access is denied are never asked, so a check
-            // left with none ends at once. Names marked as resolving locally are left out only while another address is left, and
-            // the periodic check asks them anyway.
+            // left with none ends at once. Names marked as resolving locally are left out only while another address is left; the
+            // periodic check, and any check with no address in use (the retry waits bound how often), ask them anyway.
             val partial = !full && inUse >= 0 && suspect == null
             val reachable = (if (partial) urls.subList(0, inUse + 1) else urls).filterNot(::unreachableWhileDenied)
-            val asksMarked = askMarked || !full
+            val asksMarked = askMarked || !full || inUse < 0
             val unmarked = if (asksMarked) reachable else reachable.filterNot { it in deniedNames }
             val candidates = unmarked.ifEmpty { reachable }
             val started = Check(++checks, candidates, full = !partial, woken = woken, askedMarked = asksMarked)

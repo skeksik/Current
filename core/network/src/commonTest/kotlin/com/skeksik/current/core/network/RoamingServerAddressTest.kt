@@ -1239,4 +1239,16 @@ class RoamingServerAddressTest {
         assertEquals(url(internet), source.current.value)
         assertEquals(listOf(internet), probe.asked)
     }
+
+    @Test
+    fun theRetryWhileNothingIsInUseAsksMarkedNamesToo() = runTest {
+        val backup = "https://backup.example.com"
+        probe.answers += mapOf(internet to "slow")
+        val source = roaming(server(internet, backup), access = denied)
+        advance(5.seconds)
+        assertNull(source.current.value, "the first timed out and is marked; the second was refused")
+        probe.answers[internet] = homeId
+        advance(15.seconds)
+        assertEquals(url(internet), source.current.value, "found by the retry, not only after a resume or network change")
+    }
 }

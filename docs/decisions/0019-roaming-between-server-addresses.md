@@ -102,10 +102,11 @@ is on, so a signal can only mean "something may have changed".
     probed. If its probe gets no answer for its whole timeout while access is denied, it is marked, unless it is in use or has proved
     itself since the last network change (a name that answered here does not resolve locally). A server that is down or busy and answers
     slower than the probe's timeout looks the same, so a mark only lowers how often the name is asked: checks leave marked names out
-    only while another address is left to ask, and the periodic check (every 5 minutes) and the check after a resumed network ask them
-    again, so a server that comes back is used again, a higher one moved back to; while denied, that costs one probe timeout per
-    periodic check. The mark clears on a network change, since another network may resolve the name publicly, on a grant, and when the
-    address is removed. A refusal, or any failure that comes sooner, doesn't mark it.
+    only while another address is left to ask, and the periodic check (every 5 minutes), the check after a resumed network and every
+    check while no address is in use (the retry waits bound how often) ask them again, so a server that comes back is used again, a
+    higher one moved back to; while denied, that costs one probe timeout per periodic check. The mark clears on a network change, since
+    another network may resolve the name publicly, on a grant, and when the address is removed. A refusal, or any failure that comes
+    sooner, doesn't mark it.
   - `LocalNetworkAccess.changes` reports when the status may have changed: after each answer to the dialog, and each time the Android
     activity resumes, since a grant in the settings comes no other way. Only a flip between allowed and denied counts. It starts a full
     check at once, which replaces a running one; during a settle or while suspended, the check that follows uses the new status. A flip
