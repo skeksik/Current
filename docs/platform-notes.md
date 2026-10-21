@@ -2809,10 +2809,11 @@ Design: docs/architecture.md, "Single instance (desktop)". What it relies on:
   taskbar button of the window to notify the user". The later launch was just started by the user, so before signalling it calls
   `AllowSetForegroundWindow(pid)` for the running app (JNA, `WindowsForeground`): "A process that can set the foreground window can
   enable another process to set the foreground window by calling AllowSetForegroundWindow." The call "will fail if the calling process
-  cannot set the foreground window"; the result is ignored and the signal goes out anyway. Not checked: that AWT's `toFront` on
-  Windows calls `SetForegroundWindow`, and that the jpackage launcher starts the JVM in the same process (it is the pid in the file).
+  cannot set the foreground window"; the result is ignored and the signal goes out anyway. Not read: whether AWT's `toFront` on
+  Windows calls `SetForegroundWindow`. Seen on Windows: the window takes the foreground over another app, and the pid in the file is
+  the inner `Current.exe` that owns the window (section "Single instance: Windows run").
 - Tested in a Linux container: the tests in `FileLockSingleInstanceTest` (claim, signal, close, stale files, wrong token, no answer,
-  a killed child process). Not run: a window, Windows, two launches of the installed app.
+  a killed child process); CI runs them on Linux and Windows. On the installed MSI: section "Single instance: Windows run".
 
 ## Single instance: Windows run (checked 2026-10-22 on Windows 11 Pro 25H2, 10.0.26200.9711; PR 50 at c98d486)
 - Build: `packageMsi` with `-Pcurrent.version=0.1.2`, because the branch says 0.1.0 and 0.1.1 was installed, and a lower version does
