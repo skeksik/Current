@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
+import com.skeksik.current.core.network.CapabilitiesState
 import com.skeksik.current.core.network.ServerAddressSources
 import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
@@ -15,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -28,6 +30,8 @@ data class ServerAddressesUiState(
     val addresses: List<AddressRow> = emptyList(),
     /** False once the server is no longer saved; the UI leaves the screen. */
     val saved: Boolean = true,
+    /** Null until checked; false while the server answers at none of its addresses, so no row is in use. */
+    val reachable: Boolean? = null,
 )
 
 data class AddressRow(
@@ -45,10 +49,12 @@ class ServerAddressesViewModel internal constructor(
     private val server: ServerRef,
     private val servers: ServerRepository,
     sources: ServerAddressSources,
+    capabilities: CapabilitiesState,
     /** For tests, which have no main dispatcher; otherwise `viewModelScope`. */
     scope: CoroutineScope?,
 ) : ViewModel() {
-    constructor(server: ServerRef, servers: ServerRepository, sources: ServerAddressSources) : this(server, servers, sources, scope = null)
+    constructor(server: ServerRef, servers: ServerRepository, sources: ServerAddressSources, capabilities: CapabilitiesState) :
+        this(server, servers, sources, capabilities, scope = null)
 
     private val scope = scope ?: viewModelScope
 
@@ -58,9 +64,17 @@ class ServerAddressesViewModel internal constructor(
         .distinctUntilChanged()
         .flatMapLatest { saved ->
             if (saved == null) flowOf(ServerAddressesUiState(saved = false))
-            else sources.forServer(saved).current.map { inUse -> stateFor(saved, inUse) }
+            else {
+                val reachable = capabilities.capabilities.map { it.status(server)?.reachable }.distinctUntilChanged()
+                combine(sources.forServer(saved).current, reachable) { inUse, isReachable -> stateFor(saved, inUse, isReachable) }
+            }
         }
-        .stateIn(this.scope, SharingStarted.Eagerly, servers.server(server)?.let { stateFor(it, null) } ?: ServerAddressesUiState(saved = false))
+        .stateIn(
+            this.scope,
+            SharingStarted.Eagerly,
+            servers.server(server)?.let { stateFor(it, null, capabilities.capabilities.value.status(server)?.reachable) }
+                ?: ServerAddressesUiState(saved = false),
+        )
 
     /** Removes [url], unless it is the server's last address. */
     fun remove(url: String) = edit { saved -> if (saved.canRemoveAddress(url)) saved.withoutAddress(url) else null }
@@ -83,8 +97,9 @@ class ServerAddressesViewModel internal constructor(
 
     private fun SavedServer.indexOf(url: String): Int? = addresses.indexOfFirst { it.url == url }.takeIf { it >= 0 }
 
-    private fun stateFor(saved: SavedServer, inUse: ServerUrl?) = ServerAddressesUiState(
+    private fun stateFor(saved: SavedServer, inUse: ServerUrl?, reachable: Boolean?) = ServerAddressesUiState(
         name = saved.name,
+        reachable = reachable,
         addresses = saved.addresses.map { address ->
             val url = ServerUrl.parse(address.url)
             AddressRow(

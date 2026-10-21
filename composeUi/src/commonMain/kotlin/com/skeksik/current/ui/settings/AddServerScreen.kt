@@ -30,6 +30,7 @@ import com.skeksik.current.core.designsystem.Panel
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.formField
 import com.skeksik.current.core.model.AddressScope
+import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.settings.LocalNetworkPromptState
 import com.skeksik.current.feature.settings.LocalNetworkPromptViewModel
@@ -43,6 +44,10 @@ import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.SignInRoute
 import com.skeksik.current.ui.navigation.pageViewModel
 import com.skeksik.current.ui.resources.Res
+import com.skeksik.current.ui.resources.add_address_already_added
+import com.skeksik.current.ui.resources.add_address_confirm
+import com.skeksik.current.ui.resources.add_address_subtitle
+import com.skeksik.current.ui.resources.add_address_title
 import com.skeksik.current.ui.resources.add_server_address
 import com.skeksik.current.ui.resources.add_server_already_added
 import com.skeksik.current.ui.resources.add_server_change
@@ -69,10 +74,13 @@ import com.skeksik.current.ui.resources.local_network_timed_out
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** Settings > Servers > Add server. Once saved, the sign-in page for the new server takes this page's place. */
+/**
+ * Settings > Servers > Add server. Once saved, the sign-in page for the new server takes this page's place. With [addTo], the same page
+ * adds an address to that saved server, named [name], and goes back to its addresses once saved.
+ */
 @Composable
-internal fun AddServerScreen(navigator: Navigator) {
-    val viewModel = pageViewModel { ServerSetupViewModel(get(), get(), get()) }
+internal fun AddServerScreen(navigator: Navigator, addTo: ServerRef? = null, name: String = "") {
+    val viewModel = pageViewModel(key = addTo?.saveKey) { ServerSetupViewModel(get(), get(), get(), addTo) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val localNetwork = pageViewModel { LocalNetworkPromptViewModel(get()) }
     val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
@@ -90,7 +98,9 @@ internal fun AddServerScreen(navigator: Navigator) {
         onPauseOrDispose {}
     }
 
-    Page(title = stringResource(Res.string.add_server_title), subtitle = stringResource(Res.string.add_server_subtitle)) {
+    val title = if (addTo == null) stringResource(Res.string.add_server_title) else stringResource(Res.string.add_address_title)
+    val subtitle = if (addTo == null) stringResource(Res.string.add_server_subtitle) else stringResource(Res.string.add_address_subtitle, name)
+    Page(title = title, subtitle = subtitle) {
         LocalNetworkPrompt(localNetworkState, localNetwork, retryTimedOut)
         OutlinedTextField(
             value = state.input,
@@ -103,7 +113,7 @@ internal fun AddServerScreen(navigator: Navigator) {
         )
         when (val shown = state) {
             is ServerSetupUiState.Editing -> {
-                shown.problem?.let { Notice(stringResource(it.message())) }
+                shown.problem?.let { Notice(stringResource(it.message(addingAddress = addTo != null))) }
                 if (localNetworkState.mayExplain(shown.problem)) LocalNetworkTimeoutHint(localNetworkState, localNetwork, retryTimedOut)
                 Button(check, Modifier.focusRing(MaterialTheme.shapes.extraLarge), enabled = shown.input.isNotBlank()) {
                     Text(stringResource(Res.string.add_server_check))
@@ -123,7 +133,7 @@ internal fun AddServerScreen(navigator: Navigator) {
                 if (shown.plainHttpOnInternet) Notice(stringResource(Res.string.add_server_plain_http), NoticeKind.Warning)
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                     Button(viewModel::confirm, Modifier.focusRing(MaterialTheme.shapes.extraLarge).focusRequester(confirm)) {
-                        Text(stringResource(Res.string.add_server_confirm))
+                        Text(stringResource(if (addTo == null) Res.string.add_server_confirm else Res.string.add_address_confirm))
                     }
                     OutlinedButton({ field.requestFocus() }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
                         Text(stringResource(Res.string.add_server_change))
@@ -134,8 +144,10 @@ internal fun AddServerScreen(navigator: Navigator) {
             }
             is ServerSetupUiState.Saved -> LaunchedEffect(shown) {
                 val server = shown.server
-                // Only Jellyfin has a sign-in page yet; any other service goes back to where Add server was opened.
-                if (server.ref.service == ServiceType.jellyfin) navigator.replace(SignInRoute(server.ref, server.name)) else navigator.back()
+                // An added address goes back to the server's addresses. Only Jellyfin has a sign-in page yet; any other service goes back to
+                // where Add server was opened.
+                if (addTo == null && server.ref.service == ServiceType.jellyfin) navigator.replace(SignInRoute(server.ref, server.name))
+                else navigator.back()
             }
         }
     }
@@ -174,13 +186,13 @@ private fun LocalNetworkTimeoutHint(state: LocalNetworkPromptState, viewModel: L
     }
 }
 
-private fun ServerSetupProblem.message(): StringResource = when (this) {
+private fun ServerSetupProblem.message(addingAddress: Boolean): StringResource = when (this) {
     ServerSetupProblem.InvalidAddress -> Res.string.add_server_invalid
     ServerSetupProblem.Unreachable -> Res.string.add_server_unreachable
     ServerSetupProblem.TimedOut -> Res.string.add_server_timed_out
     ServerSetupProblem.Redirected -> Res.string.add_server_redirected
     ServerSetupProblem.NotThisService -> Res.string.add_server_not_this_service
     ServerSetupProblem.Refused -> Res.string.add_server_refused
-    ServerSetupProblem.AlreadyAdded -> Res.string.add_server_already_added
+    ServerSetupProblem.AlreadyAdded -> if (addingAddress) Res.string.add_address_already_added else Res.string.add_server_already_added
     ServerSetupProblem.DifferentServer -> Res.string.add_server_different_server
 }

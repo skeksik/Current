@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), several addresses per server with roaming (ADR 0019), the Compose desktop shell (home and settings), the web probes and device profile, the `web`
+> Status: module tree and build files exist. Filled in so far: `core:model` (ADR 0013), the capabilities state (ADR 0014), server clients (ADR 0015), saved servers and server setup (ADR 0016), secrets and device identity (ADR 0017), Jellyfin sign-in (ADR 0018), several addresses per server with roaming (ADR 0019), the Compose desktop shell (home and settings, with a server's addresses), the web probes and device profile, the `web`
 > facade and the React app. Most classes named here do not exist yet.
 
 ## Goals
@@ -71,7 +71,7 @@ skip others silently.
 `order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
 `settingsUiModule`, with `shellDestination(...)`, which qualifies each binding by its type so none overrides another); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
 checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
-feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other. Every page works
+feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other; routes only their own feature opens (a server's addresses) stay in its package. Every page works
 with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
 focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element.
 Navigation keeps one history, as a browser does (`ShellHistory`): every page opened, from the sidebar or from another page, is a new

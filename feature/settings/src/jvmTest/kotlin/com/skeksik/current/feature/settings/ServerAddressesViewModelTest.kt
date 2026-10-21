@@ -4,7 +4,9 @@ import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
+import com.skeksik.current.core.model.ServerStatus
 import com.skeksik.current.core.model.ServiceType
+import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerAddressSource
 import com.skeksik.current.core.network.ServerAddressSources
 import com.skeksik.current.core.network.ServerRepository
@@ -17,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerAddressesViewModelTest {
@@ -51,7 +54,8 @@ class ServerAddressesViewModelTest {
 
     private val servers = FakeServers(listOf(home))
     private val source = FakeSource()
-    private fun TestScope.viewModel() = ServerAddressesViewModel(ref, servers, ServerAddressSources { source }, backgroundScope)
+    private val capabilities = MutableCapabilitiesState()
+    private fun TestScope.viewModel() = ServerAddressesViewModel(ref, servers, ServerAddressSources { source }, capabilities, backgroundScope)
 
     /** The state once every change so far has reached it. */
     private fun TestScope.shown(viewModel: ServerAddressesViewModel): ServerAddressesUiState {
@@ -125,5 +129,26 @@ class ServerAddressesViewModelTest {
         assertFalse(shown(viewModel).saved)
         viewModel.remove(ip.url)
         assertTrue(servers.servers.value.isEmpty())
+    }
+
+    @Test
+    fun reachabilityIsUnknownUntilChecked() = runTest {
+        assertNull(viewModel().state.value.reachable)
+    }
+
+    @Test
+    fun reachableFollowsThisServersStatusOnly() = runTest {
+        // Another saved server that cannot be reached says nothing about this one.
+        capabilities.put(ServerStatus(ServerRef(ServiceType.jellyfin, "b"), reachable = false))
+        capabilities.put(ServerStatus(ref, reachable = true))
+        val viewModel = viewModel()
+        assertEquals(true, viewModel.state.value.reachable)
+        capabilities.update(ref) { it.copy(reachable = false) }
+        assertEquals(false, shown(viewModel).reachable)
+        capabilities.update(ref) { it.copy(reachable = true) }
+        source.current.value = ServerUrl.parse(lan.url)
+        val shown = shown(viewModel)
+        assertEquals(true, shown.reachable)
+        assertEquals(listOf(false, true, false), shown.addresses.map { it.inUse })
     }
 }

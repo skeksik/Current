@@ -94,7 +94,7 @@ Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), sever
 (which skips local addresses while local network access is denied) and `ServerAddressesViewModel` (ADR 0019), cleartext and the
 local network permission on Android (ADR 0020), `HomeViewModel` and `HomeLocalNetworkViewModel`
 (`feature:home`), the Compose desktop shell (design tokens and
-shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens in `composeUi`, Koin
+shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens with a server's addresses in `composeUi`, Koin
 wiring in `shared`; docs/architecture.md), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
 framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app (the same shell as desktop: sidebar, home,
 settings, add server, sign in).

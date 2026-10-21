@@ -196,32 +196,51 @@ private class FocusRingNode(var shape: Shape, var gap: Dp, var color: Color, var
 /**
  * Focus within one vertical list: Up and Down move to the previous or next item of this list only, never to other content. At the list's
  * ends the keys are left alone. Put [arrowKeys] on the list and [item] on each item; an item may hold several focusable elements (a row
- * with buttons), and moving to it focuses its first.
+ * with buttons), and moving to it focuses its first. Items are known by key, so the keys follow an item that moves while it keeps focus
+ * (a row moved by its own button).
  */
-class ListFocus internal constructor(size: Int) {
-    internal val requesters = List(size) { FocusRequester() }
-    internal var current by mutableStateOf(-1)
+class ListFocus internal constructor() {
+    private val requesters = mutableMapOf<Any, FocusRequester>()
 
-    /** Marks item [index] of the list. */
-    fun Modifier.item(index: Int): Modifier =
-        focusRequester(requesters[index]).onFocusChanged { if (it.hasFocus) current = index }
+    /** The items' keys in list order, set on each composition by [rememberListFocus]. */
+    internal var keys: List<Any> = emptyList()
+        set(value) {
+            field = value
+            requesters.keys.retainAll(value.toSet())
+        }
+
+    /** The key of the item that has focus, or null. */
+    internal var current by mutableStateOf<Any?>(null)
+
+    /** Marks the item with [key], one of the keys given to [rememberListFocus]. */
+    fun Modifier.item(key: Any): Modifier =
+        focusRequester(requesters.getOrPut(key) { FocusRequester() }).onFocusChanged {
+            if (it.hasFocus) current = key else if (current == key) current = null
+        }
 
     /** Handles Up and Down for the list; put it on the list's container. */
     fun Modifier.arrowKeys(): Modifier = onPreviewKeyEvent { event ->
-        val target = when (event.key) {
-            Key.DirectionDown -> current + 1
-            Key.DirectionUp -> current - 1
+        val step = when (event.key) {
+            Key.DirectionDown -> 1
+            Key.DirectionUp -> -1
             else -> return@onPreviewKeyEvent false
         }
-        if (current < 0 || target !in requesters.indices) return@onPreviewKeyEvent false
-        if (event.type == KeyEventType.KeyDown) requesters[target].requestFocus()
+        val target = neighbour(step) ?: return@onPreviewKeyEvent false
+        if (event.type == KeyEventType.KeyDown) requesters[target]?.requestFocus()
         true
+    }
+
+    /** The key [step] items away from the focused one, where it is now in [keys]; null with no focus or past either end. */
+    internal fun neighbour(step: Int): Any? {
+        val index = keys.indexOf(current ?: return null)
+        if (index < 0) return null
+        return keys.getOrNull(index + step)
     }
 }
 
-/** A [ListFocus] for a list of [size] items. */
+/** A [ListFocus] for a list whose items have these [keys], in list order. */
 @Composable
-fun rememberListFocus(size: Int): ListFocus = remember(size) { ListFocus(size) }
+fun rememberListFocus(keys: List<Any>): ListFocus = remember { ListFocus() }.apply { this.keys = keys }
 
 /**
  * For single-line text fields: Enter (or the keypad's Enter) runs [action], and Tab and Shift+Tab move focus instead of typing a tab.
