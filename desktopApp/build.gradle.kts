@@ -19,6 +19,12 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
 }
 
+// The window icon reads the installer's PNG from the classpath (main.kt), so there is one icon file per format.
+sourceSets.main {
+    resources.srcDir("icons")
+    resources.exclude("*.ico")
+}
+
 // The one version source (gradle.properties), also used by AppInfo and the Android app.
 val appVersion = providers.gradleProperty("current.version").get()
 
