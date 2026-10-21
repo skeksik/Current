@@ -8,7 +8,7 @@ internal actual fun Scope.platformKeyValueStore(): KeyValueStore = JsonFileKeyVa
 
 internal actual fun Scope.platformLocalStore(): KeyValueStore = JsonFileKeyValueStore(AppFolders.local().resolve("local.json"))
 
-internal actual fun Scope.platformSecretStore(): SecretStore = DesktopSecretStore.create(get(LOCAL))
+internal actual fun Scope.platformSecretStore(): SecretStore = DesktopSecretStore.create(get(MachineLocal))
 
 /** The computer's name: `COMPUTERNAME` on Windows, the host name on Linux. Read locally, never through DNS. */
 internal actual fun platformDeviceName(): String {

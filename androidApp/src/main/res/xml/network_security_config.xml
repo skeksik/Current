@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is allowed for every host. The user types the server addresses, so they cannot be listed here at build time.
+  The app enforces its own rule instead (ADR 0016, ADR 0020): plain http is accepted on a local address, and on an internet address
+  only after a warning the user confirms.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

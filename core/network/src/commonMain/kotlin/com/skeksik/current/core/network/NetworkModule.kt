@@ -38,6 +38,7 @@ val networkModule = module {
     single<NetworkChanges> { platformNetworkChanges() }
     // Resolved when the first data layer needs it, after every module's probes are defined.
     single<ServerAddressSources> { RoamingAddressSources(get(), getAll(), get(), get(), get(AppScope)) }
+    single<LocalNetworkAccess> { platformLocalNetworkAccess() }
     // Created at start so the saved servers are in the capabilities state before any feature reads it.
     single<ServerRepository>(createdAtStart = true) { StoredServerRepository(get(), get()) }
 }

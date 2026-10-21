@@ -1,6 +1,8 @@
 package com.skeksik.current.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
@@ -19,6 +21,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 import com.skeksik.current.core.designsystem.InlineProgress
@@ -30,9 +33,12 @@ import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.formField
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.ServiceType
+import com.skeksik.current.feature.settings.LocalNetworkPromptState
+import com.skeksik.current.feature.settings.LocalNetworkPromptViewModel
 import com.skeksik.current.feature.settings.ServerSetupProblem
 import com.skeksik.current.feature.settings.ServerSetupUiState
 import com.skeksik.current.feature.settings.ServerSetupViewModel
+import com.skeksik.current.feature.settings.mayExplain
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.SignInRoute
 import com.skeksik.current.ui.navigation.pageViewModel
@@ -57,6 +63,14 @@ import com.skeksik.current.ui.resources.add_server_timed_out
 import com.skeksik.current.ui.resources.add_server_title
 import com.skeksik.current.ui.resources.add_server_unreachable
 import com.skeksik.current.ui.resources.add_server_version
+import com.skeksik.current.ui.resources.local_network_ask_again
+import com.skeksik.current.ui.resources.local_network_blocked
+import com.skeksik.current.ui.resources.local_network_continue
+import com.skeksik.current.ui.resources.local_network_denied
+import com.skeksik.current.ui.resources.local_network_explain
+import com.skeksik.current.ui.resources.local_network_open_settings
+import com.skeksik.current.ui.resources.local_network_timed_out
+import com.skeksik.current.ui.resources.local_network_try_again
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -65,25 +79,38 @@ import org.jetbrains.compose.resources.stringResource
 internal fun AddServerScreen(navigator: Navigator) {
     val viewModel = pageViewModel { ServerSetupViewModel(get(), get(), get()) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val localNetwork = pageViewModel { LocalNetworkPromptViewModel(get()) }
+    val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
     val field = remember { FocusRequester() }
     val confirm = remember { FocusRequester() }
+    // Asks for local network access first, if the user has not answered yet: a denied local address only times out (ADR 0020).
+    val check = { if (state is ServerSetupUiState.Editing) localNetwork.beforeCheck(viewModel::check) }
+    // A check that timed out while access was denied runs again once it is granted.
+    val retryTimedOut = {
+        if ((viewModel.state.value as? ServerSetupUiState.Editing)?.problem == ServerSetupProblem.TimedOut) viewModel.check()
+    }
+    // Back from the app's settings page, the permission may have changed.
+    LifecycleResumeEffect(localNetwork) {
+        localNetwork.refresh(onGranted = retryTimedOut)
+        onPauseOrDispose {}
+    }
 
     Page(title = stringResource(Res.string.add_server_title), subtitle = stringResource(Res.string.add_server_subtitle)) {
+        LocalNetworkPrompt(localNetworkState, localNetwork, retryTimedOut)
         OutlinedTextField(
             value = state.input,
             onValueChange = viewModel::onInput,
             label = { Text(stringResource(Res.string.add_server_address)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { if (state is ServerSetupUiState.Editing) viewModel.check() }),
-            modifier = Modifier.fillMaxWidth().focusRequester(field).formField {
-                if (state is ServerSetupUiState.Editing) viewModel.check()
-            },
+            keyboardActions = KeyboardActions(onGo = { check() }),
+            modifier = Modifier.fillMaxWidth().focusRequester(field).formField { check() },
         )
         when (val shown = state) {
             is ServerSetupUiState.Editing -> {
                 shown.problem?.let { Notice(stringResource(it.message())) }
-                Button(viewModel::check, Modifier.focusRing(MaterialTheme.shapes.extraLarge), enabled = shown.input.isNotBlank()) {
+                if (localNetworkState.mayExplain(shown.problem)) LocalNetworkTimeoutHint(localNetworkState, localNetwork, retryTimedOut)
+                Button(check, Modifier.focusRing(MaterialTheme.shapes.extraLarge), enabled = shown.input.isNotBlank()) {
                     Text(stringResource(Res.string.add_server_check))
                 }
                 // Check leaves while checking, which drops focus; after a failure it goes back to the address.
@@ -118,6 +145,56 @@ internal fun AddServerScreen(navigator: Navigator) {
         }
     }
     LaunchedEffect(Unit) { field.requestFocus() }
+}
+
+/** Android only: why the next dialog asks for "Nearby devices", what a denial means, and the way back once it is final. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LocalNetworkPrompt(state: LocalNetworkPromptState, viewModel: LocalNetworkPromptViewModel, afterGrant: () -> Unit) {
+    when (val shown = state) {
+        LocalNetworkPromptState.Hidden -> Unit
+        is LocalNetworkPromptState.Ask, LocalNetworkPromptState.Asking -> {
+            val denied = (shown as? LocalNetworkPromptState.Ask)?.denied == true
+            Notice(
+                stringResource(if (denied) Res.string.local_network_denied else Res.string.local_network_explain),
+                if (denied) NoticeKind.Warning else NoticeKind.Info,
+            )
+            OutlinedButton(
+                { viewModel.allow(onGranted = afterGrant) },
+                Modifier.focusRing(MaterialTheme.shapes.extraLarge),
+                enabled = shown != LocalNetworkPromptState.Asking,
+            ) {
+                Text(stringResource(if (denied) Res.string.local_network_ask_again else Res.string.local_network_continue))
+            }
+        }
+        LocalNetworkPromptState.Blocked -> {
+            Notice(stringResource(Res.string.local_network_blocked), NoticeKind.Warning)
+            // Wraps at phone width, where the two buttons do not fit side by side.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                OutlinedButton(viewModel::openSettings, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+                    Text(stringResource(Res.string.local_network_open_settings))
+                }
+                OutlinedButton({ viewModel.allow(onGranted = afterGrant) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+                    Text(stringResource(Res.string.local_network_try_again))
+                }
+            }
+        }
+    }
+}
+
+/** Under a timeout while access is denied: the permission is the likely cause, with the one way to change it from here. */
+@Composable
+private fun LocalNetworkTimeoutHint(state: LocalNetworkPromptState, viewModel: LocalNetworkPromptViewModel, afterGrant: () -> Unit) {
+    Notice(stringResource(Res.string.local_network_timed_out), NoticeKind.Warning)
+    if (state == LocalNetworkPromptState.Blocked) {
+        OutlinedButton(viewModel::openSettings, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+            Text(stringResource(Res.string.local_network_open_settings))
+        }
+    } else {
+        OutlinedButton({ viewModel.allow(onGranted = afterGrant) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
+            Text(stringResource(Res.string.local_network_ask_again))
+        }
+    }
 }
 
 private fun ServerSetupProblem.message(): StringResource = when (this) {
