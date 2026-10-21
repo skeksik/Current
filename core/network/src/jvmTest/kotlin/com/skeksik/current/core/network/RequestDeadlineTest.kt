@@ -19,6 +19,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -51,8 +52,10 @@ class RequestDeadlineTest {
         engine.close()
     }
 
+    private val entries = mutableListOf<RequestLogEntry>()
+
     private fun client(requestTimeout: Duration) =
-        ServerClients(createHttpClient(engine), requestTimeout = requestTimeout).create(server, address)
+        ServerClients(createHttpClient(engine), logger = { entries += it }, requestTimeout = requestTimeout).create(server, address)
 
     private suspend fun timed(block: suspend () -> Unit): Duration {
         val start = TimeSource.Monotonic.markNow()
@@ -69,6 +72,9 @@ class RequestDeadlineTest {
             }
             assertTrue(elapsed < 2_000.milliseconds, "returned after $elapsed")
         }
+        // The deadline ends the call here, not the engine: logged as a failure, not as the caller's cancellation.
+        val entry = entries.single()
+        assertFalse(entry.cancelled, entry.toString())
     }
 
     @Test
@@ -92,5 +98,6 @@ class RequestDeadlineTest {
             }
             assertTrue(elapsed < 2_000.milliseconds, "returned after $elapsed")
         }
+        assertTrue(entries.single().cancelled, entries.single().toString())
     }
 }
