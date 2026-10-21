@@ -2307,6 +2307,30 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   also pulled in `java.datatransfer`, `java.xml` and `java.prefs` as dependencies. CI checks the runtime's `release` file
   (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s: it booted on Windows and under Xvfb on Linux, where Skiko
   fell back from OpenGL ("Cannot create Linux GL context") to its next renderer. The MSI was about 75 MB.
+- Install folder (read in the plugin source on `master` and OpenJDK `jdk21u`): `windows { installationPath }` becomes jpackage's
+  `--install-dir` (`configureJvmApplication.kt`, `AbstractJPackageTask.kt`). On Windows that is a "Relative sub-path under the default
+  installation location" (`MSG_Help_win_install_dir`), rejected if it contains `:` or `..`, and defaults to the app name. The default
+  location is `ProgramFiles64Folder` system-wide and `LocalAppDataFolder` per user (`WixAppImageFragmentBuilder.java`: `installDir =
+  (systemWide ? PROGRAM_FILES : LOCAL_PROGRAM_FILES).resolve(WINDOWS_INSTALL_DIR...)`). So a per-user install without it goes to
+  `%LOCALAPPDATA%\Current`, which is `AppFolders.local()`, and the generated WiX adds a directory cleaner on `INSTALLDIR`
+  (`addDirectoryCleaner`, "rm -rf"), which deleted `local.json` on upgrade and uninstall (section "Desktop installer: Windows run").
+  The app now sets `installationPath = "Programs\\Current"`, i.e. `%LOCALAPPDATA%\Programs\Current`. CI installs a 0.1.0 MSI, writes
+  `%LOCALAPPDATA%\Current\local.json`, upgrades to 0.1.1 and uninstalls, and checks the file survives (`scripts/check-msi-upgrade.ps1`).
+  An install of an older build (into `%LOCALAPPDATA%\Current`) still deletes that folder when it is upgraded or removed.
+- Installed-apps icon: jpackage's `main.wxs` sets `ARPPRODUCTICON` from the launcher's icon (`WinMsiBundler.java`, `JpIcon`). Windows
+  Installer keeps it as the product's `ProductIcon` under `HKCU\Software\Microsoft\Installer\Products`, not as `DisplayIcon` in the
+  Uninstall key, which is why the registry showed no `DisplayIcon`; whether Settings > Apps shows it is not checked. The plugin has no
+  option for `DisplayIcon`.
+- Screen readers: AWT loads assistive technologies from `javax.accessibility.assistive_technologies` or the `assistive_technologies`
+  line in `~/.accessibility.properties` (`java.awt.Toolkit`, `jdk21u`). `jabswitch /enable` writes that line
+  (`assistive_technologies=com.sun.java.accessibility.AccessBridge`) and sets the Windows accessibility registry key (`jabswitch.cpp`).
+  The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
+  Bridge DLLs but no `jabswitch.exe`. Not tried: whether passing the property as a JVM argument of the packaged app makes Narrator or
+  NVDA see the Compose content without the user running `jabswitch`. A follow-up.
+- No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
+  follow-up.
+- Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
+  PNG, no new file). Not yet seen on screen.
 - jpackage writes the DEB `Maintainer` field as `<vendor> <debMaintainer>`, so `debMaintainer` is an address only (seen in CI with
   `dpkg-deb --info`).
 - Not verified: NVDA through the packaged runtime, a DEB on a real Debian or Ubuntu desktop. The MSI: see "Desktop installer: Windows run".
@@ -2335,7 +2359,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   no `jabswitch.exe`; the toolchain JDK's works.
 
 ## Not verified (research before depending on it)
-- Desktop installers on a real machine (see "Desktop installer: Windows run"): NVDA in the packaged app, the DEB.
+- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
+  window icon and the new install folder by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015

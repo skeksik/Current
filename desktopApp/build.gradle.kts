@@ -55,6 +55,10 @@ compose.desktop {
                 upgradeUuid = "420fb9fa-28cd-429a-8bf8-bccfb857d4b4"
                 // Installs under the user's profile without an administrator prompt; upgrades are per user too.
                 perUserInstall = true
+                // Relative to %LOCALAPPDATA% for a per-user install (jpackage's default is the app name, %LOCALAPPDATA%\Current, which
+                // is AppFolders.local(): removing the old product deletes INSTALLDIR recursively, so it took local.json with it).
+                // %LOCALAPPDATA%\Programs\<app> is Windows' convention for per-user apps. Never install into an app data folder.
+                installationPath = "Programs\\Current"
                 menu = true
                 menuGroup = "Current"
                 shortcut = true
