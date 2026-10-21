@@ -10,6 +10,7 @@ import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
 import com.skeksik.current.core.network.createHttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -20,6 +21,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,8 +37,16 @@ class JellyfinServerProbeTest {
 
     private val entries = mutableListOf<RequestLogEntry>()
 
-    private fun probe(answer: MockRequestHandler) =
-        JellyfinServerProbe(ServerClients(createHttpClient(MockEngine { requests += it; answer(it) }), logger = { entries += it }))
+    /** On the test's scheduler, so the request deadline runs in virtual time with the answers. */
+    private fun TestScope.probe(answer: MockRequestHandler) = JellyfinServerProbe(
+        ServerClients(
+            createHttpClient(MockEngine(MockEngineConfig().apply {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { requests += it; answer(it) }
+            })),
+            logger = { entries += it },
+        ),
+    )
 
     private fun json(body: String): MockRequestHandler =
         { respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json")) }
