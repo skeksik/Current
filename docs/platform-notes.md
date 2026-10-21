@@ -1535,6 +1535,61 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   - While this ran, the branch moved on to "Rate-limit request-driven checks, resume without dropping the address, and never swap down
     mid-check", which addresses the check per request and the drop on return. Not run on Android.
 
+## Roaming on Android, final (checked 2026-10-21 on the same Pixel 8 Pro, Android 17, SDK 37, build CP3A.261005.005; ADR 0019)
+- What ran: PR 23 at 95fcead (the event loop, with main and PR 26's `RequestDeadline` merged in), then the cases its successor could
+  change again at c19f3e6 ("Hold requests while the app is suspended, and prove the kept address on return"). Same throwaway harness,
+  server and addresses as "Roaming on Android", with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm grant` and a permissive cleartext
+  config, neither committed. The steps were driven from the computer over adb:
+  - airplane mode with `cmd connectivity airplane-mode`;
+  - Wi-Fi networks picked in the Quick Settings Internet panel by `input tap`;
+  - the background with the Home key, and the return with `am start`;
+  - the VPN turned off by its app's disconnect broadcast, and on in its app (the harness was in the background about 2 s, under the
+    5 s block).
+
+  The networks were:
+  - home Wi-Fi: local answers;
+  - a phone hotspot: local hangs, internet answers;
+  - a guest Wi-Fi with the home DNS and no LAN: neither answers;
+  - the VPN: neither answers.
+
+  Times are from the raw callback. No source logged a bug.
+- **A switch while in the background: pass, with two new issues.** Back in the foreground, the hotspot's internet address was in use
+  356 ms after the unblock at 95fcead and 338 ms at c19f3e6, and local was in use 45 ms after a switch back to home Wi-Fi (first run:
+  18.9-31.5 s). The check made while blocked still misses, as expected.
+  - New: **a request made at the return fails at once.** After a switch in the background the source has no address and is not
+    holding, and `Resumed` checks without holding. So a request made at the return failed as `Unreachable` within 0-4 ms, 45-356 ms
+    before the check proved an address. Seen in all 7 such returns, on both commits (3 of them on the guest network, where nothing
+    answers). c19f3e6 holds requests from `Suspended`, but only Apple sends it. Reported as a bug, not fixed here.
+  - New: **the freezer suspends a background app on Android too.** In one background stay of 84 s, the last 18 s had no log lines.
+    The probe in flight ended at the return after 18.4 s (no deadline fires while frozen). Three requests had been waiting 14.5-19.4 s
+    and failed at the return, 1 ms after `Resumed`, instead of starting their wait again. This is the iOS failure that c19f3e6 fixes
+    through `Suspended` ("Roaming on iOS, final"); without that signal, Android still has it. Reported as a bug, not fixed here.
+- **Offline: pass.** Airplane mode for 75 s made 6 checks, one 15 s after each ended (earlier: 52 in 53 s). Over the VPN, where both
+  probes time out, there was one check every 20 s (15 s plus the probe). The harness requests every 2 s, so request-driven checks kept
+  the 15 s rate and the timer's doubling never showed, as ADR 0019 intends.
+- **A return on the same network: pass.** After 15 s and 50 s away (95fcead) and 15 s and 38 s away (c19f3e6), the address in
+  use stayed. `Resumed` made one check that proved it in 17-79 ms, and the request at the return was held 1-3 ms (earlier: the address
+  was dropped and a request held 0.6 s).
+- **A request's leftover wake and the settle: pass.** With requests waiting and a request-driven check scheduled, airplane mode off and
+  a start offline each made one check, 1.03-1.05 s after the signal.
+- **One check per transition: pass.** VPN off came as two signals 9 ms and 42 ms apart, and made one check. A Wi-Fi switch comes as
+  `onLost`, then `onAvailable` 1.1-6.6 s later, and makes a check after each: the one after `onLost` finds no network within 5-30 ms.
+  Started offline, the source retried at 15 s and 30 s. The first connection, 38 s after start, came as a signal, and it checked
+  1.03 s later.
+- **The network where local hangs: pass.** Joining the hotspot with the app in front, the internet address was in use 1.53-1.54 s after
+  `onAvailable` (both commits): the 1 s settle, then a 421-471 ms probe. The local probe ended at its 5.0 s deadline later and changed
+  nothing (first run: 6.06 s). The second run's 0.36-0.56 s came from skipping the settle, which the loop no longer does.
+- **Over the VPN: pass.** Every probe that timed out, apart from the frozen one above, ended at 5.003-5.033 s, the internet name
+  included (earlier 6.0 s and 11.0 s). The check after the VPN came up ended 6.03 s after `onAvailable`, with requests held up to
+  5.5 s. Off: local in use 1.08 s after `onAvailable`. Rejoining home Wi-Fi otherwise: 1.10-1.28 s.
+- Also seen:
+  - On home Wi-Fi without the VPN, the internet probe failed in 11-167 ms in every check (`no response`; earlier only right after
+    joining). Not investigated; local ranks first there, so nothing changed.
+  - Once at c19f3e6, the hotspot's internet address timed out (5.0 s) in the check at a return, on a validated network. It answered in
+    0.32-0.47 s in the four other hotspot joins. Not reproduced.
+  - Requests sent just before the VPN came up went to the old address and hung 23.5 s and 29.4 s, until the VPN went off. This is the
+    known in-flight case in ADR 0019.
+
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
   It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
