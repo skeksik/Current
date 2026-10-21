@@ -88,9 +88,10 @@ is on, so a signal can only mean "something may have changed".
   Edits and resumed networks that arrive during a check make exactly one more check; requests make none. A check whose addresses are edited, or whose network changes,
   while it runs is cancelled at once; a new one starts at once after an edit, and once the network has settled after a change.
 - Whether the server answered goes into the capabilities state (`reachable`). A request that succeeds marks it reachable too, for the
-  address in use only (it never proves an address), so a server is not shown offline while its requests succeed. Stash, with no
-  probe, is reachable after a request succeeds and unreachable once each address failed in turn since then or since the last network
-  change; a saved server with no address source at all is unreachable.
+  address in use only (it never proves an address), so a server is not shown offline while its requests succeed. After a missed check
+  the two writers can alternate (the check writes false, a request true); the last write wins, and each is true when made. Stash, with
+  no probe, is reachable after a request succeeds and unreachable once each address failed in turn since then or since the last
+  network change; a saved server with no address source at all is unreachable.
 - **While local network access is denied** (ADR 0020), checks skip local addresses. Denied means `LocalNetworkAccess.status()` is
   `CanAsk` or `Blocked`: Android 17 never shows the dialog by itself, so until the app asks and the user allows, local traffic is
   blocked as after a denial. PR 27's runs found that a denied request to a local address doesn't fail, it times out
