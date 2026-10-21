@@ -2598,8 +2598,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   line in `~/.accessibility.properties` (`java.awt.Toolkit`, `jdk21u`). `jabswitch /enable` writes that line
   (`assistive_technologies=com.sun.java.accessibility.AccessBridge`) and sets the Windows accessibility registry key (`jabswitch.cpp`).
   The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
-  Bridge DLLs but no `jabswitch.exe`. Not tried: whether passing the property as a JVM argument of the packaged app makes Narrator or
-  NVDA see the Compose content without the user running `jabswitch`. A follow-up.
+  Bridge DLLs but no `jabswitch.exe`. Narrator cannot read the app with any setting, and an installed NVDA turns the bridge on by itself:
+  see "Windows screen readers and the desktop app".
 - No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
   follow-up.
 - Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
@@ -2642,6 +2642,108 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
   after the upgrade and after the launch.
 - 0.1.1 left installed at the owner's choice; uninstall not re-run here (CI covers it).
 
+## Windows screen readers and the desktop app (read 2026-10-21 in the sources below; nothing run on Windows)
+Sources, all read 2026-10-21: compose-multiplatform-core tag `v1.12.1` (a1a7f35), `compose/ui/ui/src/desktopMain/.../platform/a11y/`;
+skiko tag `v0.150.1` (the version CMP 1.12.1's `libs.versions.toml` names), `skiko/src/awtMain/cpp/windows/`; the compose-multiplatform
+Gradle plugin at tag `v1.12.1`; OpenJDK `jdk21u` at b7833d8; NVDA's source on `master` (https://github.com/nvaccess/nvda, `source/`);
+https://kotlinlang.org/docs/multiplatform/compose-desktop-accessibility.html (the page shows 03 December 2024);
+https://docs.oracle.com/en/java/javase/21/access/java-access-bridge-overview.html;
+https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility-testing (ms.date 2026-07-22);
+https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow (ms.date 2024-03-27).
+
+1. **Compose Desktop on Windows is Java Access Bridge only.**
+   - JetBrains' page: "Windows: Supported via Java Access Bridge", "which is disabled by default"; enable it with
+     `%JAVA_HOME%\bin\jabswitch.exe /enable`, and add `jdk.accessibility` to a native distribution. Linux: "Not supported" (no AT-SPI
+     mention).
+   - In the source, the whole desktop tree is `javax.accessibility`: `ComposeAccessible.kt` (`ComposeAccessibleComponent :
+     AccessibleContext(), AccessibleComponent, AccessibleAction`), `ComposeSceneAccessibility.kt`, `SemanticsOwnerAccessibility.kt`. The
+     one Windows branch fakes an AWT focus event for the bridge (`Accessibility.desktop.kt`, `requestAccessBridgeFocusOnAccessible`);
+     on other systems but macOS the focus helper does nothing. Comments there tune roles for NVDA and VoiceOver; none mention Narrator.
+   - No UI Automation or MSAA code anywhere on the path: none in `ui/src/desktopMain`, none in skiko's Windows natives (no
+     `WM_GETOBJECT`, `UiaReturnRawElementProvider` or `IAccessible`), and in the JDK's `awt_Component.cpp`, `awt_Window.cpp`,
+     `awt_Frame.cpp`, `awt_Canvas.cpp`, `awt_Toolkit.cpp` `WM_GETOBJECT` appears only in the debug message-name table. So a Windows client
+     that does not speak the bridge sees only what Windows itself provides for a top-level window: its title.
+   - Compose's own accessibility is on unless `-Dcompose.accessibility.enable=false` or `COMPOSE_DISABLE_ACCESSIBILITY` is set
+     (`ComposeSceneAccessibility.kt`, `enabled`); it does not look for a screen reader.
+2. **Who reads the bridge.**
+   - Oracle: an AT "communicates with Java Access Bridge DLLs, which in turn communicates with the Java Virtual Machine through Java
+     Access Bridge Java libraries".
+   - NVDA: yes. It loads its own `windowsaccessbridge.dll` from its program folder (`NVDAState.py`, `javaAccessBridgeDLL`), and hands
+     Java windows to it (`IAccessibleHandler/__init__.py`, "If Java access bridge is running, and this is a java window, then pass it to
+     java"). **An installed NVDA turns the bridge on by itself:** at start-up, if `%USERPROFILE%\.accessibility.properties` is not
+     exactly `assistive_technologies=com.sun.java.accessibility.AccessBridge` + `screen_magnifier_present=true`, it overwrites the file
+     with those two lines (`JABHandler.py`, `initialize`, `isBridgeEnabled`, `enableBridge`). It skips this when it is not an installed
+     copy (a portable or launcher copy) and on the secure desktop.
+   - JAWS: JetBrains' page names JAWS' speech history for testing, so JAWS reads the bridge. Freedom Scientific's own bulletin
+     (support.freedomscientific.com, bulletin 1475) returned 403; whether JAWS enables the bridge itself is not checked.
+   - Narrator: Microsoft's testing page describes Narrator through UI Automation only (AccScope "is specifically intended for testing
+     Narrator accessibility scenarios and uses the UI Automation information provided by an app"). No Microsoft or Oracle source found says
+     Narrator uses the Java Access Bridge. With point 1, Narrator cannot read this app with any bridge setting; "Current window" is what
+     the owner heard. A fix for Narrator is a UI Automation provider in Compose or the JDK, not something the app can configure.
+3. **How the bridge gets turned on, and why the packaged app has no `jabswitch`.**
+   - The JVM side: `java.awt.Toolkit`'s static initialiser calls `initAssistiveTechnologies()`; `getDefaultToolkit()` then calls
+     `loadAssistiveTechnologies()`, which activates every `AccessibilityProvider` whose name is listed. Order of lookup: the system
+     property `javax.accessibility.assistive_technologies`; else `assistive_technologies` from `%USERPROFILE%\.accessibility.properties`;
+     and only if that file is missing or empty, from `<java.home>\conf\accessibility.properties`. `screen_magnifier_present` is looked up
+     the same way. It is read once, when AWT starts: a change needs an app restart.
+   - The name is `com.sun.java.accessibility.AccessBridge`, provided by `jdk.accessibility` on Windows only (`ProviderImpl.java`,
+     `module-info.java.extra`); activating it starts the bridge thread and loads `javaaccessbridge.dll` (`AccessBridge.java`).
+   - **A name with no provider is fatal:** `fallbackToLoadClassForAT` throws `AWTError("Assistive Technology not found: ...")` from
+     `getDefaultToolkit()`. So the property must never reach the Linux package, and a runtime without `jdk.accessibility` crashes for
+     every user whose per-user file names the bridge (this one has the module).
+   - `jabswitch /enable` writes or fixes the two lines in `%USERPROFILE%\.accessibility.properties` and adds `oracle_javaaccessbridge` to
+     `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Accessibility\Configuration` (`jabswitch.cpp`). Nothing on the Java side reads
+     that registry value (no match in `AccessBridge.java`, `JavaAccessBridge.cpp`, `WinAccessBridge.cpp`); the file is what matters.
+   - `jabswitch` is a launcher of `jdk.accessibility` (`make/modules/jdk.accessibility/Launcher.gmk`), so a `bin` file of type
+     `NATIVE_CMD`, which jlink's `--strip-native-commands` drops (`StripNativeCommandsPlugin.java`). The Compose plugin always passes it:
+     `stripNativeCommands` is an `internal` property of `AbstractJLinkTask`, default `true`, with no DSL setting.
+   - What the plugin can add: `application.jvmArgs` go to jpackage as `--java-options` (`configureJvmApplication.kt`,
+     `launcherJvmArgs`; `AbstractJPackageTask.kt`) and also to `:desktopApp:run`. There is no per-OS `jvmArgs` (`WindowsPlatformSettings`
+     has none), but the MSI is only built on Windows, so a host-OS check in `build.gradle.kts` keeps it out of the DEB. Nothing in the DSL
+     writes into the runtime; a file there needs a `doLast` on the `createRuntimeImage` task.
+   - jpackage's Windows layout: the launcher in the install folder, `app\Current.cfg` (its `[JavaOptions]` section holds one
+     `java-options=` line per option) and `runtime\` as `java.home` (`ApplicationLayout.windowsAppImage`, `CfgFile.java`). Installed per
+     user, that is `%LOCALAPPDATA%\Current App\app\Current.cfg` and `%LOCALAPPDATA%\Current App\runtime\conf\accessibility.properties`.
+4. **Fixes, smallest first.**
+   - **A. No change.** NVDA users get the bridge from NVDA itself (point 2), once NVDA has run before the app starts. Narrator cannot
+     be helped by any option here. Gaps: a portable NVDA, JAWS (not checked), and a user who starts the app before NVDA (restart it).
+   - **B. One Windows-only JVM argument:** `if (OperatingSystem.current().isWindows) jvmArgs("-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge")`.
+     The bridge is on for every reader that speaks it. Trade-offs: it is on for every user, also without a screen reader (a daemon thread,
+     a DLL and AWT event listeners; startup cost not measured); and the property wins over the per-user file, so `jabswitch /disable` no
+     longer turns it off for this app.
+   - **C. `runtime\conf\accessibility.properties`** with the same line, written by a `doLast` on `createRuntimeImage` (Windows host).
+     The same effect, but a non-empty per-user file still wins, so the user's `jabswitch /disable` or a hand edit is respected. A few
+     lines of build code instead of one.
+   - **D. Only when a screen reader runs:** in `main()`, before anything touches AWT, read `SPI_GETSCREENREADER` through JNA (already a
+     dependency) and set the property only if it is true. NVDA sets that flag unless started with `--no-sr-flag` (`nvda.pyw`,
+     `argsParsing.py`); Microsoft: "Narrator ... does not set the SPI_SETSCREENREADER or SPI_GETSCREENREADER flags" (which does not
+     matter, point 2). Code in the app and a reader started after the app is missed; only worth it if B or C measurably slows startup.
+
+Owner checklist (Windows 11, an installed MSI from `main`; nothing here is shipped). NVDA from https://www.nvaccess.org/download/ is GPL
+and a test tool only: never bundled, never a dependency. Write down, for each run, what the reader says for: a **sidebar** item (Tab
+to Home and Settings), the **page title** (NVDA+T reads the window title, `globalCommands.py`; then the first heading or text of the page with the reader's
+read-next key), a **button** (Settings > Add server), a **dialog** (Settings > Remove on a saved server; then Cancel), plus the
+startup time (launch to window, by eye or stopwatch) and anything odd. NVDA: Tools > Speech viewer shows the text. Narrator:
+Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
+0. Back up: `%LOCALAPPDATA%\Current App\app\Current.cfg` and, if it exists, `%USERPROFILE%\.accessibility.properties` (note its
+   contents). Then move the second one away. Note: anything written under `%LOCALAPPDATA%\Current App` is deleted by an upgrade or an
+   uninstall; these edits are only for this test.
+1. Baseline, Narrator: start Current, then Narrator. Expected: "Current window" only.
+2. Baseline, NVDA without the bridge: run the NVDA download and press "Continue running" (a temporary copy, which does not write the file;
+   `gui/startupDialogs.py`). Start Current after NVDA. Check `%USERPROFILE%\.accessibility.properties` is still absent. Expected: window title only.
+3. Fix B by hand: with Current closed, add `java-options=-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge`
+   as a new line under `[JavaOptions]` in `Current.cfg`. Start Current; repeat with the temporary NVDA, then with Narrator (expected: no
+   change for Narrator). Also once with no reader running, for the startup time. Restore `Current.cfg` from the backup.
+4. Fix C by hand: with Current closed, create `%LOCALAPPDATA%\Current App\runtime\conf\accessibility.properties` containing
+   `assistive_technologies=com.sun.java.accessibility.AccessBridge`. Repeat 3's runs with the temporary NVDA. Then create a per-user
+   `%USERPROFILE%\.accessibility.properties` holding only `#assistive_technologies=com.sun.java.accessibility.AccessBridge` and check
+   NVDA no longer reads the app (the user's opt-out wins). Delete both files.
+5. Fix A, installed NVDA: install NVDA and start it. Check `%USERPROFILE%\.accessibility.properties` now has the two lines. Start Current
+   with the original `Current.cfg`: expected to read like 3. Then quit Current, quit NVDA, start Current, then NVDA: expected nothing
+   until Current is restarted.
+6. Clean up: `Current.cfg` as backed up, no `runtime\conf\accessibility.properties`, and the per-user file as it was in step 0 (an
+   installed NVDA rewrites it at each start; uninstall NVDA if it is not wanted).
+
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`
   served the production build, whose `index.html` carries the `<meta>` policy. A throwaway Jellyfin stand-in on a loopback port (not
@@ -2674,7 +2776,8 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
 ## Not verified (research before depending on it)
-- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
+- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
+  checklist in "Windows screen readers and the desktop app"), the
   window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
