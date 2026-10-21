@@ -29,7 +29,9 @@ val networkModule = module {
     single { createHttpClient() } withOptions { onClose { it?.close() } }
     single { MutableCapabilitiesState() } bind CapabilitiesState::class
     // The request log, in memory ("Copy diagnostics") and printed where the platform's flag allows.
-    single { RequestLogBuffer(echo = platformLogEcho(this)) } bind NetworkLogger::class bind RequestLogHistory::class
+    single { RequestLogBuffer(echo = platformLogEcho(this)) }
+    single<NetworkLogger> { get<RequestLogBuffer>() }
+    single<RequestLogHistory> { get<RequestLogBuffer>() }
     single { platformInfo() }
     single { ServerClients(get(), get()) }
     single<NetworkChanges> { platformNetworkChanges() }
