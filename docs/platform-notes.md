@@ -1677,6 +1677,61 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
   and all of them in Firefox. What is left is the periodic check and failed requests, which PR 23 now maps and reports.
 
+## Roaming in browsers, final (checked 2026-10-21 on the same PC, Windows 11 Pro build 26200, with Edge 155, Chrome 155 and Firefox 158; ADR 0019)
+- What ran: PR 23 at 7cac0e2 (the head at 7cac0e2..c59f387 only adds notes), the web dev server on `http://localhost`, and a throwaway
+  hook (not committed) in the `web` facade. Unlike the first run, the hook started the app's own Koin modules (`databaseModule`,
+  `networkModule`, `jellyfinModule`). So the source was `RoamingAddressSources`' own, with `JellyfinServerProbe`, default `RoamingTiming`
+  and the browser `NetworkChanges`. The saved server had three addresses, in this order:
+  - a refused one (`http://127.0.0.1:9`);
+  - the LAN address (`http://192.168.1.10:8096`);
+  - the internet address (`https://media.example.com`).
+
+  The hook logged with timestamps:
+  - every raw `online`/`offline`/`connection.change`/`visibilitychange` event and every `NetworkChanges` element;
+  - every probe and request (the redacted request log);
+  - the address in use and `reachable`;
+  - one `System/Ping` through `ServerClient` every 10 s.
+
+  The owner made the changes by hand. Windows' NetworkProfile log gave the time each network was lost or joined.
+- **No raw error, and no run that a bug ended.** Every failed request was a `ServiceException` (`Unreachable`, or `Timeout` at the 30 s
+  request timeout). `reachable` was never unknown again after start, which a replaced source would show. The tabs stayed open 7-10 min.
+- **A refused address listed first: pass (Chrome, Edge, Firefox).** Every check asked all three at once. The refused address failed in
+  2-28 ms, and the LAN address was in use 12-23 ms after the server was saved and 115-123 ms after a reload (first run: the loop ended in
+  13 ms). Every later check ran, including the periodic ones.
+- **DevTools "Offline": pass (Chrome, Edge); not testable in Firefox, as before.**
+  - Chrome and Edge: `offline` and `connection.change` came together and made one check 1.02 s later, in which every probe failed in
+    3-5 ms. A request made at the event waited for that check and failed as `Unreachable` after 1.02 s; the later ones failed as
+    `Unreachable` in under 100 ms. The 10 s requests asked for a check every 15.0-15.2 s.
+  - Back online: `online` and `connection.change` made one check, and the LAN address was in use 1.02-1.03 s later, without a reload. A
+    request made at the event waited for it and succeeded (first run: every request failed until a reload).
+  - Firefox fired `offline`, but the page's fetches still went through: a request at the event succeeded in 11 ms. `online` made one
+    check, and the LAN address was proved again 1.04 s later.
+- **A switch to a phone hotspot: pass in all three, through failed requests, in 27-28 s.** The PC joined the hotspot on Wi-Fi, then wired
+  Ethernet was turned off. No `online` or `offline` fired in any browser, nor `connection.change` in Edge. What happened next:
+  - The request sent around the switch hung for 21.1-24.4 s, failed as `Unreachable`, and started a check.
+  - In that check, the refused address failed at once and the internet address answered in 131-448 ms. The LAN address was still the
+    address in use, so it was used until its own probe timed out at 5.0 s: "a healthy address is never swapped for a lower one
+    mid-check".
+  - The internet address was in use 28.1 s (Edge), 27.3 s (Chrome) and 27.5 s (Firefox) after the LAN was lost (first run: never, in
+    2 of 3 runs).
+  - Three requests failed in each browser, all of them sent to the LAN address before the switch to the internet one. In Chrome and Edge
+    they failed after 12.3-25.4 s as `Unreachable`. In Firefox, two of them waited out the 30 s request timeout and failed as `Timeout`.
+    This is the known in-flight case in ADR 0019.
+  - In Chrome only, `connection.change` fired 26 s after the switch, during the check. It cleared the address in use, and the next check
+    used the internet address 1.16 s after the event (the settle, then a 142 ms probe), while the LAN probe was still out.
+- **Back on the LAN: pass.** Requests to the internet address kept working meanwhile.
+  - Edge and Firefox: nothing fired. The periodic check, 5 min 0.0 s after the last one ended, moved back to the LAN address 4 min 29 s
+    (Edge) and 4 min 38 s (Firefox) after the LAN came back.
+  - Chrome: `connection.change` fired 92 s after the LAN came back, and its check moved back 1.02 s later.
+- Also seen:
+  - At home, the internet address failed every check's probe in 5-97 ms, with no response. It answered when probed alone at setup, and
+    requests to it after the switch back succeeded. "Roaming on Android, final" saw the same at home. Not investigated: the LAN address
+    ranks first there.
+  - `connection.change` still fires with no network change (Chrome, Edge: rtt 150 → 0). Each one costs a check, and requests wait about
+    1.02 s for it, as in the first run.
+  - A tab hidden for under a minute kept its timers: the 10 s requests ran every 11 s (Edge).
+- Not run: the VPN, and a tab hidden for longer.
+
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
   Ktor client 3.6.0. It is a new dependency, so it needs approval (CLAUDE.md, ADR 0009).
