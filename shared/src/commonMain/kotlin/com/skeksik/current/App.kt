@@ -25,7 +25,7 @@ import org.koin.dsl.koinConfiguration
  * Every module the Compose app includes, and so the only place that names every feature (ADR 0014): each `*UiModule` adds its pages
  * and sidebar entry to the shell. To leave a feature out, leave out its modules.
  */
-private val appModules: List<Module> = listOf(
+internal val appModules: List<Module> = listOf(
     databaseModule,
     networkModule,
     jellyfinModule,
