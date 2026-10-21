@@ -205,7 +205,7 @@ class JellyfinAccountsTest {
             json("""{"Authenticated":true}"""),
         )
         routes["/QuickConnect/Initiate"] = json("""{"Secret":"s3cret","Code":"123456"}""")
-        routes["/QuickConnect/Connect"] = { request -> answers.removeFirst()(request) }
+        routes["/QuickConnect/Connect"] = { request -> answers.removeAt(0)(request) }
         routes["/Users/AuthenticateWithQuickConnect"] = authResult(token = "qc-token")
 
         val accounts = accounts()
