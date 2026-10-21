@@ -17,6 +17,10 @@ class LocalNetworkAccessTest {
     private fun server(vararg addresses: ServerAddress) =
         SavedServer(newServerRef(ServiceType.jellyfin), "0123456789abcdef0123456789abcdef", "Home", addresses.toList())
 
+    private val denied = PermissionAnswer(granted = false)
+    private val deniedCanAskAgain = PermissionAnswer(granted = false, canAskAgain = true)
+    private val deniedFinal = PermissionAnswer(granted = false, canAskAgain = false)
+
     @Test
     fun addServerAsksWhileTheDialogCanShow() {
         assertTrue(shouldAskForLocalNetwork(LocalNetworkAskReason.AddServer, emptyList(), LocalNetworkPermission.CanAsk))
@@ -39,52 +43,58 @@ class LocalNetworkAccessTest {
     @Test
     fun withoutASignalTheSecondDenialIsFinal() {
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
-        assertEquals(LocalNetworkPermission.CanAsk, state.status(granted = false))
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false)))
-        assertEquals(LocalNetworkPermission.Blocked, state.record(PermissionAnswer(granted = false)))
-        assertEquals(LocalNetworkPermission.Blocked, state.status(granted = false))
+        assertEquals(LocalNetworkPermission.CanAsk, state.status(apiSupported = true, granted = false))
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(denied))
+        assertEquals(LocalNetworkPermission.Blocked, state.record(denied))
+        assertEquals(LocalNetworkPermission.Blocked, state.status(apiSupported = true, granted = false))
     }
 
     @Test
-    fun theSignalDecidesFromTheSecondDenial() {
+    fun aFalseAfterADenialThatCouldAskAgainIsFinal() {
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
-        // A first "false" can be a dismissed dialog: Android makes a denial permanent only on the second.
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false, canAskAgain = false)))
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false, canAskAgain = true)))
-        assertEquals(LocalNetworkPermission.Blocked, state.record(PermissionAnswer(granted = false, canAskAgain = false)))
-        // The platform reset its denials: the dialog can show again.
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false, canAskAgain = true)))
-        assertEquals(LocalNetworkPermission.CanAsk, state.status(granted = false))
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(deniedCanAskAgain))
+        assertEquals(LocalNetworkPermission.Blocked, state.record(deniedFinal))
     }
 
     @Test
-    fun afterAResetADismissedDialogIsNotFinal() {
+    fun aFirstFalseIsNotFinalButTwoAre() {
+        // With no earlier "can ask again", a false may be a dialog closed without an answer: the counter decides.
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
-        repeat(3) { state.record(PermissionAnswer(granted = false, canAskAgain = false)) }
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false, canAskAgain = true)))
-        // The second denial since the reset is believed again.
-        assertEquals(LocalNetworkPermission.Blocked, state.record(PermissionAnswer(granted = false, canAskAgain = false)))
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(deniedFinal))
+        assertEquals(LocalNetworkPermission.Blocked, state.record(deniedFinal))
     }
 
     @Test
-    fun aBlockSurvivesARestartAndAGrantClearsIt() {
+    fun aResetByThePlatformUnblocksAndTheNextDenialIsFinalAgain() {
+        val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
+        state.record(deniedCanAskAgain)
+        assertEquals(LocalNetworkPermission.Blocked, state.record(deniedFinal))
+        // Android reset its denials: the dialog showed again, and after this denial it can show once more.
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(deniedCanAskAgain))
+        assertEquals(LocalNetworkPermission.CanAsk, state.status(apiSupported = true, granted = false))
+        assertEquals(LocalNetworkPermission.Blocked, state.record(deniedFinal))
+    }
+
+    @Test
+    fun aBlockSurvivesARestartAndAGrantClearsEverything() {
         val store = InMemoryKeyValueStore()
         LocalNetworkPermissionState(store).apply {
-            record(PermissionAnswer(granted = false))
-            record(PermissionAnswer(granted = false))
+            record(deniedCanAskAgain)
+            record(deniedFinal)
         }
-        assertEquals(LocalNetworkPermission.Blocked, LocalNetworkPermissionState(store).status(granted = false))
+        assertEquals(LocalNetworkPermission.Blocked, LocalNetworkPermissionState(store).status(apiSupported = true, granted = false))
         // Granted in the system settings.
-        assertEquals(LocalNetworkPermission.Granted, LocalNetworkPermissionState(store).status(granted = true))
-        // Revoked there later: the dialog can show again, and the count starts over.
+        assertEquals(LocalNetworkPermission.Granted, LocalNetworkPermissionState(store).status(apiSupported = true, granted = true))
+        // Revoked there later: the dialog can show again, and a first false is not final.
         val state = LocalNetworkPermissionState(store)
-        assertEquals(LocalNetworkPermission.CanAsk, state.status(granted = false))
-        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false)))
+        assertEquals(LocalNetworkPermission.CanAsk, state.status(apiSupported = true, granted = false))
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(deniedFinal))
     }
 
     @Test
-    fun aGrantIsGranted() {
+    fun aGrantIsGrantedAndBelowTheApiNothingIsNeeded() {
         val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
         assertEquals(LocalNetworkPermission.Granted, state.record(PermissionAnswer(granted = true)))
+        assertEquals(LocalNetworkPermission.NotNeeded, state.status(apiSupported = false, granted = false))
     }
 }

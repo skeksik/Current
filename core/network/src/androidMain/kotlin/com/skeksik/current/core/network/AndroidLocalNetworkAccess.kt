@@ -7,12 +7,21 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import com.skeksik.current.core.database.KeyValueStore
+import com.skeksik.current.core.database.MachineLocal
+import org.koin.core.scope.Scope
+
+/**
+ * The bridge `MainActivity` attaches its permission launcher to (ADR 0020). App-scoped, so it outlives every activity and never holds
+ * one: the activity hands it a launch function and its results.
+ */
+val localNetworkRequests = LocalNetworkRequestBridge()
+
+internal actual fun Scope.platformLocalNetworkAccess(): LocalNetworkAccess =
+    AndroidLocalNetworkAccess(get(), get(MachineLocal), localNetworkRequests)
 
 /**
  * `ACCESS_LOCAL_NETWORK` (ADR 0020): a runtime permission from API 37, required when the app targets 37. Below API 37 the app has
- * local access with `INTERNET` alone and must not ask, so the state is [LocalNetworkPermission.NotNeeded] there. The dialog itself
- * goes through [requester], which the shell implements with an activity (the Activity Result API's `RequestPermission` for
- * [PERMISSION], and `shouldShowRequestPermissionRationale` after a denial for [PermissionAnswer.canAskAgain]).
+ * local access with `INTERNET` alone and must not ask, so the state is [LocalNetworkPermission.NotNeeded] there.
  */
 class AndroidLocalNetworkAccess(
     context: Context,
@@ -22,21 +31,18 @@ class AndroidLocalNetworkAccess(
     private val context = context.applicationContext
     private val state = LocalNetworkPermissionState(store)
 
-    override fun status(): LocalNetworkPermission {
-        if (Build.VERSION.SDK_INT < API_LEVEL) return LocalNetworkPermission.NotNeeded
-        return state.status(context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED)
-    }
+    override fun status() = state.status(apiSupported(), granted())
 
-    // Asks even when Blocked: Android then answers at once without a dialog, unless it has reset the denials since.
-    override suspend fun request(): LocalNetworkPermission = when (val current = status()) {
-        LocalNetworkPermission.NotNeeded, LocalNetworkPermission.Granted -> current
-        LocalNetworkPermission.CanAsk, LocalNetworkPermission.Blocked -> state.record(requester.request())
-    }
+    override suspend fun request() = state.request(apiSupported(), granted(), requester)
 
     override fun openSettings() {
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+
+    private fun apiSupported() = Build.VERSION.SDK_INT >= API_LEVEL
+
+    private fun granted() = apiSupported() && context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
 
     companion object {
         const val PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
