@@ -421,8 +421,21 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   - The API is `org.jetbrains.androidx.navigationevent:navigationevent-compose` 1.1.0. Before this change, navigation-compose-desktop
     2.10.0-rc01 already pulled it in at that version, at runtime only.
 - The mouse back button: AWT button 4 maps to `PointerButton.Back` (`composePointerButton` in the same mediator file: `PointerButton(button - 1)`).
-  Not verified: that Windows reports X1 as button 4 and Linux as the same button, and that Android provides a
+  The run below confirmed that Windows sends XBUTTON1 as that button. Linux is not verified, and neither is that Android provides a
   `LocalNavigationEventDispatcherOwner` (without one, Alt+Left does nothing there).
+- Which hook sees X1 over a dialog (read in the same tag):
+  - Desktop's default layer type is `OnSameCanvas` (`ComposeFeatureFlags.desktop.kt`, `compose.layers.type` unset; the app doesn't set
+    it). A `Dialog` or `Popup` is then a layer of the window's own scene. A modal layer takes the pointer events, so a `pointerInput` on
+    the window's content never sees X1 while the Remove dialog is open. The run below shows exactly that.
+  - `ComposeWindow.addMouseListener` forwards to `ComposeWindowPanel.contentComponent` (`ComposeWindow.desktop.kt`,
+    `ComposeWindowPanel.desktop.kt`). That is the one AWT component that gets every mouse event of the window, its same-canvas layers
+    included.
+  - So the app adds `BackButtonListener`, an AWT `MouseListener`, there. It goes back on the press of button 4 only, and replaces the
+    content's `pointerInput`, so one click goes back once. It feeds the same `BackInput` as Alt+Left, so an open dialog closes first.
+  - Not covered: `compose.layers.type=WINDOW`, where a dialog is a window of its own.
+  - Feeding X1 from the dialog's own root (where `trackFocusVisibility` sits) would need the same code in every dialog and menu, so
+    that option was not taken.
+  - X1 over a dialog is fixed but not yet re-run.
 
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
@@ -2346,6 +2359,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     open, X1 over the dialog and over its scrim did nothing: the dialog stayed open and the page stayed. A likely cause, not checked
     in the source: the X1 listener is a `pointerInput` on the main window's content, and a dialog's pointer events go to the dialog's
     own layer. Esc and Alt+Left do close the dialog.
+    Fixed afterwards: X1 is now an AWT listener on the window (`BackButtonListener`, see "Esc on desktop, and Back keys"). Not yet re-run.
   - 5, long history: **pass.** 56 pages were opened as 14 rounds of Home (sidebar), Settings (sidebar), Addresses, Add address. 49
     Alt+Left presses showed Add address, Addresses, Settings and Home in turn, newest first, with no early Home. They ended on
     Addresses, the 7th page opened and the oldest of the 50 kept. Two more presses stayed there.
