@@ -1670,6 +1670,10 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **Offline: pass.** Airplane mode for 68 s with the app in front: one check 1.03 s after `onLost`, then one every 15.04-15.05 s
   (4 more), each probe failing in 7-20 ms. Airplane mode off: local in use 1.07 s after `onAvailable`.
 - Not run: a switch to mobile data (the phone has none), the VPN, Android 16.
+- Changed after this run (PR 23, not yet run on a device): while the source is suspended, a waiting request, or one made then, waits for
+  `Resumed` without a time limit, and only time not suspended counts toward the bound and the overall limit. This holds whether or not
+  the process is frozen, so the requests that failed after 22 s between the block and the freeze, and those that failed around
+  `Resumed`, should now wait for the return's check.
 
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.

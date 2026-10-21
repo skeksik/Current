@@ -125,28 +125,32 @@ internal class RoamingServerAddress(
     private val requestWaitsAtMost = timing.requestWaitsAtMost ?: (timing.networkSettles + probe.timeout * 2)
 
     override suspend fun awaitCurrent(): ServerUrl? {
-        // At most twice the bound in all, however many resumed networks come; time spent suspended does not count.
+        // At most twice the bound in all, however many resumed networks come. Time while suspended does not count, whether or not
+        // the process is actually frozen: a request waits for the return without a limit.
         var left = requestWaitsAtMost * 2
         while (true) {
+            if (view.value.suspended) {
+                view.first { !it.suspended }
+                continue
+            }
+            if (left <= Duration.ZERO) break
             val resumes = view.value.resumes
             val wait = minOf(requestWaitsAtMost, left)
-            val seen = withTimeoutOrNull(wait) { view.first { !it.holding && it.changes >= changesSeen.value } }
-            if (seen != null) {
+            val started = time.markNow()
+            val seen = withTimeoutOrNull(wait) { view.first { it.suspended || (!it.holding && it.changes >= changesSeen.value) } }
+            if (seen != null && !seen.suspended) {
                 val address = seen.address?.takeIf { it in latest.value.urls() }
                 if (address == null) request()
                 return address
             }
-            left -= wait
-            // A wait that ran out while the app was suspended fires on its return, before the loop has seen it: give the loop a bound
-            // to handle the return.
-            if (view.value.suspended) withTimeoutOrNull(requestWaitsAtMost) { view.first { !it.suspended } }
-            // The app was suspended, or the network was blocked, while this request waited: wait again rather than fail.
-            // Once per resumed network, and only while time is left.
-            if (view.value.resumes == resumes || view.value.suspended || left <= Duration.ZERO) {
-                request()
-                return null
-            }
+            left -= if (seen == null) wait else started.elapsedNow()
+            // Suspended meanwhile, or a wait that ran out during a freeze and fired at the return before the loop saw it.
+            if (view.value.suspended) continue
+            // The network was blocked while this request waited: wait again rather than fail, once per resumed network.
+            if (view.value.resumes == resumes) break
         }
+        request()
+        return null
     }
 
     override fun reportUnreachable(address: ServerUrl) {
