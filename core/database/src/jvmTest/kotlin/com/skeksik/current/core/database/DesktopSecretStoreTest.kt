@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -73,6 +74,40 @@ class DesktopSecretStoreTest {
         keyring.failing = false
         store.put("jellyfin/b/token", "t2")
         assertTrue(keyring.values.isEmpty())
+    }
+
+    @Test
+    fun removingStillClearsTheKeyringAfterAFailure() = runBlocking {
+        val keyring = FakeKeyring()
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        store.put("jellyfin/a/token", "t1")
+
+        // The keyring asks to be unlocked and the user dismisses it: the run switches to memory and the saved token is not seen.
+        keyring.failing = true
+        assertNull(store.get("jellyfin/a/token"))
+        assertEquals(SecretStorage.Memory, store.storage.value)
+
+        // Signing out must not leave the token behind for the next start.
+        keyring.failing = false
+        store.remove("jellyfin/a/token")
+        assertTrue(keyring.values.isEmpty())
+        assertEquals(SecretStorage.Memory, store.storage.value)
+    }
+
+    @Test
+    fun aRemovalThatFailsAgainIsIgnored() = runBlocking {
+        val keyring = FakeKeyring(failing = true)
+        val store = DesktopSecretStore(keyring, local, secretsFile)
+        store.put("jellyfin/a/token", "t1")
+        store.remove("jellyfin/a/token")
+        assertNull(store.get("jellyfin/a/token"))
+        assertEquals(SecretStorage.Memory, store.storage.value)
+    }
+
+    @Test
+    fun aValueTooLongForCredentialManagerIsAStoreFailure() {
+        assertEquals(2560, WindowsCredentials.blobOf("x".repeat(2560)).size)
+        assertFailsWith<SecretBackendException> { WindowsCredentials.blobOf("x".repeat(2561)) }
     }
 
     @Test

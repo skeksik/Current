@@ -26,7 +26,7 @@ internal class SecretBackendException(message: String) : Exception(message)
 /**
  * Secrets on the desktop (ADR 0017): the [keyring] (Windows Credential Manager, or the Secret Service on Linux) when there is one.
  * Without one, memory, unless the user chose a file only they can read ([keepInFile]), which is remembered in [local]. If the keyring
- * fails at run time (a locked keyring the user dismisses), values stay in memory for the rest of the run.
+ * fails at run time (a locked keyring the user dismisses), values stay in memory for the rest of the run; removals still try the keyring.
  */
 internal class DesktopSecretStore(
     private val keyring: SecretBackend?,
@@ -82,7 +82,16 @@ internal class DesktopSecretStore(
         io {
             memory.remove(key)
             file?.remove(key)
-            if (usingKeyring) keyringOrNull { it.remove(key) }
+            when {
+                usingKeyring -> keyringOrNull { it.remove(key) }
+                // Still tried after a failure switched the run to memory: a token left in the keyring would sign the user back in
+                // at the next start. Best effort, so a second failure changes nothing.
+                keyring != null -> try {
+                    keyring.remove(key)
+                } catch (e: SecretBackendException) {
+                    // Nothing more to do this run.
+                }
+            }
         }
     }
 

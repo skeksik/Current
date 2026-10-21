@@ -65,6 +65,7 @@ export const strings = {
     Refused: 'The server refused the request.',
     AlreadyAdded: 'This server is already added.',
     DifferentServer: 'Another server answers at this address.',
+    ServerNotSaved: 'This server is no longer saved.',
   } as Record<string, string>,
 
   signInTitle: (server: string) => `Sign in to ${server}`,

@@ -14,11 +14,12 @@ import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.FirstAddressSources
 import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerClients
-import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
+import com.skeksik.current.core.network.StoredServerRepository
 import com.skeksik.current.core.network.createHttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -36,14 +37,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.yield
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 
 class JellyfinAccountsTest {
     private val serverId = "0123456789abcdef0123456789abcdef"
@@ -56,31 +57,29 @@ class JellyfinAccountsTest {
     private val device = DeviceIdentity("device1", "Desk PC")
     private val secrets = InMemorySecretStore()
     private val settings = InMemoryKeyValueStore()
-    private val capabilities = MutableCapabilitiesState().apply { put(ServerStatus(home.ref)) }
+    private val capabilities = MutableCapabilitiesState()
+    private val servers = StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { save(home) }
     private val requests = mutableListOf<HttpRequestData>()
 
     /** Answers by path; anything else is a 404. */
     private val routes = mutableMapOf<String, suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>()
 
-    private class Servers(initial: List<SavedServer>) : ServerRepository {
-        override val servers: StateFlow<List<SavedServer>> = MutableStateFlow(initial)
-        override fun save(server: SavedServer) = Unit
-        override fun remove(ref: ServerRef) = Unit
-    }
-
-    private fun CoroutineScope.accounts(quickConnectFor: Duration = 2_000.milliseconds) = StoredJellyfinAccounts(
-        servers = Servers(listOf(home)),
+    /** On the test's scheduler, so request timeouts, polling and the Quick Connect limit run in virtual time. */
+    private fun TestScope.accounts(quickConnectFor: Duration = 10.minutes) = StoredJellyfinAccounts(
+        servers = servers,
         addresses = FirstAddressSources(),
-        clients = ServerClients(createHttpClient(MockEngine { request ->
-            requests += request
-            routes[request.url.encodedPath]?.invoke(this, request) ?: respond("", HttpStatusCode.NotFound)
-        })),
+        clients = ServerClients(createHttpClient(MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                requests += request
+                routes[request.url.encodedPath]?.invoke(this, request) ?: respond("", HttpStatusCode.NotFound)
+            }
+        }))),
         device = device,
         secrets = secrets,
         settings = settings,
         capabilities = capabilities,
-        scope = this,
-        pollEvery = 10.milliseconds,
+        scope = backgroundScope,
         quickConnectFor = quickConnectFor,
     )
 
@@ -106,7 +105,7 @@ class JellyfinAccountsTest {
     }
 
     @Test
-    fun aPasswordSignInKeepsTheTokenAndUpdatesTheCapabilities() = runBlocking<Unit> {
+    fun aPasswordSignInKeepsTheTokenAndUpdatesTheCapabilities() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         val user = accounts().signIn(home.ref, "alex", "secret pw")
 
@@ -121,7 +120,7 @@ class JellyfinAccountsTest {
     }
 
     @Test
-    fun wrongCredentialsKeepNothing() = runBlocking<Unit> {
+    fun wrongCredentialsKeepNothing() = runTest {
         routes["/Users/AuthenticateByName"] = status(HttpStatusCode.Unauthorized)
         val failure = assertFailsWith<ServiceException> { accounts().signIn(home.ref, "alex", "wrong") }
         assertEquals(ServiceErrorKind.Unauthorized, failure.kind)
@@ -130,7 +129,7 @@ class JellyfinAccountsTest {
     }
 
     @Test
-    fun anAnswerFromAnotherServerIsDiscardedAndItsSessionEnded() = runBlocking<Unit> {
+    fun anAnswerFromAnotherServerIsDiscardedAndItsSessionEnded() = runTest {
         routes["/Users/AuthenticateByName"] = authResult(token = "foreign", reportedId = "fedcba9876543210fedcba9876543210")
         routes["/Sessions/Logout"] = status(HttpStatusCode.NoContent)
         val failure = assertFailsWith<SignInException> { accounts().signIn(home.ref, "alex", "pw") }
@@ -141,9 +140,8 @@ class JellyfinAccountsTest {
     }
 
     @Test
-    fun quickConnectWaitsForApprovalThenSignsIn() = runBlocking<Unit> {
+    fun quickConnectWaitsForApprovalThenSignsIn() = runTest {
         var polls = 0
-        routes["/QuickConnect/Enabled"] = json("true")
         routes["/QuickConnect/Initiate"] = json("""{"Authenticated":false,"Secret":"s3cret","Code":"123456"}""")
         routes["/QuickConnect/Connect"] = { request ->
             assertEquals("s3cret", request.url.parameters["secret"])
@@ -156,42 +154,86 @@ class JellyfinAccountsTest {
         assertEquals("123456", request.code)
         assertEquals("Alex", accounts.finishQuickConnect(home.ref, request).name)
         assertEquals(3, polls)
+        assertEquals(10.seconds.inWholeMilliseconds, currentTime)
         assertEquals("""{"Secret":"s3cret"}""", (requestTo("/Users/AuthenticateWithQuickConnect").body as TextContent).text)
         assertEquals("qc-token", secrets.get("jellyfin/home/token"))
     }
 
     @Test
-    fun quickConnectThatIsOffOrNeverApprovedFails() = runBlocking<Unit> {
-        routes["/QuickConnect/Enabled"] = json("false")
+    fun startingQuickConnectAsksTheServerOnce() = runTest {
+        routes["/QuickConnect/Initiate"] = json("""{"Secret":"s3cret","Code":"123456"}""")
+        accounts().startQuickConnect(home.ref)
+        assertEquals(listOf("/QuickConnect/Initiate"), requests.map { it.url.encodedPath })
+    }
+
+    @Test
+    fun quickConnectThatIsOffFailsAtStart() = runTest {
+        // Jellyfin refuses Initiate with 401 when Quick Connect is off.
+        routes["/QuickConnect/Initiate"] = status(HttpStatusCode.Unauthorized)
         assertEquals(
             SignInFailure.QuickConnectDisabled,
             assertFailsWith<SignInException> { accounts().startQuickConnect(home.ref) }.failure,
         )
+    }
 
-        routes["/QuickConnect/Enabled"] = json("true")
+    @Test
+    fun aCodeNeverApprovedOrForgottenExpires() = runTest {
         routes["/QuickConnect/Initiate"] = json("""{"Secret":"s3cret","Code":"123456"}""")
         routes["/QuickConnect/Connect"] = json("""{"Authenticated":false}""")
-        val accounts = accounts(quickConnectFor = 100.milliseconds)
+        val accounts = accounts()
         val request = accounts.startQuickConnect(home.ref)
         assertEquals(
             SignInFailure.QuickConnectExpired,
             assertFailsWith<SignInException> { accounts.finishQuickConnect(home.ref, request) }.failure,
         )
+        assertEquals(10.minutes.inWholeMilliseconds, currentTime)
 
         routes["/QuickConnect/Connect"] = status(HttpStatusCode.NotFound)
         assertEquals(
             SignInFailure.QuickConnectExpired,
-            assertFailsWith<SignInException> { accounts().finishQuickConnect(home.ref, request) }.failure,
+            assertFailsWith<SignInException> { accounts.finishQuickConnect(home.ref, request) }.failure,
         )
     }
 
     @Test
-    fun signingOutEndsTheSessionAndForgetsTheTokenEvenOffline() = runBlocking<Unit> {
+    fun quickConnectKeepsWaitingThroughNetworkAndServerFailures() = runTest {
+        val answers = mutableListOf<suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>(
+            { throw java.net.ConnectException("offline") },
+            status(HttpStatusCode.ServiceUnavailable),
+            status(HttpStatusCode.BadGateway),
+            json("""{"Authenticated":true}"""),
+        )
+        routes["/QuickConnect/Initiate"] = json("""{"Secret":"s3cret","Code":"123456"}""")
+        routes["/QuickConnect/Connect"] = { request -> answers.removeAt(0)(request) }
+        routes["/Users/AuthenticateWithQuickConnect"] = authResult(token = "qc-token")
+
+        val accounts = accounts()
+        assertEquals("Alex", accounts.finishQuickConnect(home.ref, accounts.startQuickConnect(home.ref)).name)
+        assertTrue(answers.isEmpty())
+        assertEquals("qc-token", secrets.get("jellyfin/home/token"))
+    }
+
+    @Test
+    fun aServerThatNeverRecoversEndsQuickConnectAtTheTimeLimit() = runTest {
+        routes["/QuickConnect/Initiate"] = json("""{"Secret":"s3cret","Code":"123456"}""")
+        routes["/QuickConnect/Connect"] = status(HttpStatusCode.ServiceUnavailable)
+        val accounts = accounts()
+        val request = accounts.startQuickConnect(home.ref)
+        assertEquals(
+            SignInFailure.QuickConnectExpired,
+            assertFailsWith<SignInException> { accounts.finishQuickConnect(home.ref, request) }.failure,
+        )
+        assertEquals(10.minutes.inWholeMilliseconds, currentTime)
+    }
+
+    @Test
+    fun signingOutEndsTheSessionAndForgetsTheTokenEvenOffline() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         routes["/Sessions/Logout"] = status(HttpStatusCode.NoContent)
         val accounts = accounts()
         accounts.signIn(home.ref, "alex", "pw")
         accounts.signOut(home.ref)
+        runCurrent()
         assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
         assertNull(secrets.get("jellyfin/home/token"))
         assertNull(settings.get("jellyfin.home.user"))
@@ -200,54 +242,96 @@ class JellyfinAccountsTest {
         accounts.signIn(home.ref, "alex", "pw")
         routes["/Sessions/Logout"] = { throw java.net.ConnectException("offline") }
         accounts.signOut(home.ref)
+        runCurrent()
         assertNull(secrets.get("jellyfin/home/token"))
         assertFalse(status.signedIn)
     }
 
     @Test
-    fun aSavedSessionIsRestoredAndRefreshed() = runBlocking<Unit> {
+    fun signingOutActsHereAtOnceAndEndsTheServerSessionInTheBackground() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult()
+        val answered = CompletableDeferred<Unit>()
+        routes["/Sessions/Logout"] = { answered.await(); respond("", HttpStatusCode.NoContent) }
+        val accounts = accounts()
+        accounts.signIn(home.ref, "alex", "pw")
+
+        accounts.signOut(home.ref)
+        // Nothing has run in the background yet: the session is already gone here.
+        assertFalse(status.signedIn)
+        assertNull(status.user)
+        assertNull(settings.get("jellyfin.home.user"))
+        assertNull(accounts.authorizedClient(home.ref))
+
+        runCurrent()
+        assertNull(secrets.get("jellyfin/home/token"))
+        assertNull(accounts.authorizedClient(home.ref))
+        assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
+        answered.complete(Unit)
+    }
+
+    @Test
+    fun aRemovedServersSessionIsStillEndedWithItsOldToken() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult()
+        routes["/Sessions/Logout"] = status(HttpStatusCode.NoContent)
+        val accounts = accounts()
+        accounts.signIn(home.ref, "alex", "pw")
+
+        accounts.signOut(home.ref)
+        servers.remove(home.ref)
+        runCurrent()
+        assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
+        assertNull(secrets.get("jellyfin/home/token"))
+    }
+
+    @Test
+    fun aSavedSessionIsRestoredAndRefreshed() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         accounts().signIn(home.ref, "alex", "pw")
         capabilities.update(home.ref) { ServerStatus(home.ref) }
 
         routes["/Users/Me"] = json("""{"Id":"user1","Name":"Alex Renamed","Policy":{"IsAdministrator":false}}""")
-        accounts().restore().join()
-        withTimeout(5_000) { capabilities.capabilities.first { it.status(home.ref)?.user?.name == "Alex Renamed" } }
+        accounts().restore()
+        runCurrent()
+        assertEquals("Alex Renamed", status.user?.name)
         assertTrue(status.signedIn)
         assertEquals(emptySet(), status.user?.permissions)
         assertEquals(true, status.reachable)
     }
 
     @Test
-    fun aRevokedTokenSignsOutAtStart() = runBlocking<Unit> {
+    fun aRevokedTokenSignsOutAtStart() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         accounts().signIn(home.ref, "alex", "pw")
         routes["/Users/Me"] = status(HttpStatusCode.Unauthorized)
-        accounts().restore().join()
-        withTimeout(5_000) { capabilities.capabilities.first { it.status(home.ref)?.signedIn == false } }
-        withTimeout(5_000) { while (secrets.get("jellyfin/home/token") != null) yield() }
+        accounts().restore()
+        runCurrent()
+        assertFalse(status.signedIn)
+        assertNull(secrets.get("jellyfin/home/token"))
+        assertNull(settings.get("jellyfin.home.user"))
     }
 
     @Test
-    fun anOfflineServerStaysSignedInButUnreachable() = runBlocking<Unit> {
+    fun anOfflineServerStaysSignedInButUnreachable() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         accounts().signIn(home.ref, "alex", "pw")
         routes["/Users/Me"] = { throw java.net.ConnectException("offline") }
-        accounts().restore().join()
-        withTimeout(5_000) { capabilities.capabilities.first { it.status(home.ref)?.reachable == false } }
+        accounts().restore()
+        runCurrent()
+        assertEquals(false, status.reachable)
         assertTrue(status.signedIn)
     }
 
     @Test
-    fun aUserWithoutATokenIsForgottenAtStart() = runBlocking<Unit> {
+    fun aUserWithoutATokenIsForgottenAtStart() = runTest {
         settings.put("jellyfin.home.user", """{"id":"user1","name":"Alex","admin":false}""")
-        accounts().restore().join()
+        accounts().restore()
+        runCurrent()
         assertNull(settings.get("jellyfin.home.user"))
         assertFalse(status.signedIn)
     }
 
     @Test
-    fun authorizedClientsSendTheTokenAndA401SignsOut() = runBlocking<Unit> {
+    fun authorizedClientsSendTheTokenAndA401SignsOut() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         val accounts = accounts()
         accounts.signIn(home.ref, "alex", "pw")
@@ -255,6 +339,52 @@ class JellyfinAccountsTest {
         val client = assertNotNull(accounts.authorizedClient(home.ref))
         client.use { assertFailsWith<ServiceException> { it.request { get("Items") } } }
         assertTrue("Token=\"token1\"" in requestTo("/Items").headers[HttpHeaders.Authorization]!!)
-        withTimeout(5_000) { capabilities.capabilities.first { it.status(home.ref)?.signedIn == false } }
+        runCurrent()
+        assertFalse(status.signedIn)
+        assertNull(secrets.get("jellyfin/home/token"))
+    }
+
+    @Test
+    fun a401ForAnOldTokenKeepsTheNewSession() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult(token = "token1")
+        val accounts = accounts()
+        accounts.signIn(home.ref, "alex", "pw")
+        val old = assertNotNull(accounts.authorizedClient(home.ref))
+
+        // Signing in again with the same device id revokes token1 on the server.
+        routes["/Users/AuthenticateByName"] = authResult(token = "token2")
+        accounts.signIn(home.ref, "alex", "pw")
+        routes["/Items"] = status(HttpStatusCode.Unauthorized)
+        old.use { assertFailsWith<ServiceException> { it.request { get("Items") } } }
+        runCurrent()
+
+        assertTrue(status.signedIn)
+        assertEquals("token2", secrets.get("jellyfin/home/token"))
+        assertNotNull(settings.get("jellyfin.home.user"))
+        routes["/Items"] = json("[]")
+        assertNotNull(accounts.authorizedClient(home.ref)).use { it.request { get("Items") } }
+        assertTrue("Token=\"token2\"" in requestTo("/Items").headers[HttpHeaders.Authorization]!!)
+    }
+
+    @Test
+    fun a401DuringStartCheckKeepsASessionSignedInMeanwhile() = runTest {
+        routes["/Users/AuthenticateByName"] = authResult(token = "token1")
+        accounts().signIn(home.ref, "alex", "pw")
+        settings.remove("jellyfin.home.user")
+        capabilities.update(home.ref) { ServerStatus(home.ref) }
+
+        // At the next start the check of token1 is slow; the user signs in again meanwhile, which revokes token1.
+        val revoked = CompletableDeferred<Unit>()
+        routes["/Users/Me"] = { revoked.await(); respond("", HttpStatusCode.Unauthorized) }
+        val accounts = accounts()
+        accounts.restore()
+        runCurrent()
+        routes["/Users/AuthenticateByName"] = authResult(token = "token2")
+        accounts.signIn(home.ref, "alex", "pw")
+        revoked.complete(Unit)
+        runCurrent()
+
+        assertTrue(status.signedIn)
+        assertEquals("token2", secrets.get("jellyfin/home/token"))
     }
 }
