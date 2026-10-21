@@ -1251,7 +1251,7 @@ research agent reading the same files.
 - What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
   shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
 
-## Reading the request log on a device (ADR 0015 addendum, 2026-10-21; not yet run on a device)
+## Reading the request log on a device (ADR 0015 addendum, 2026-10-21; Android Emulator run below)
 - Android debug build: `adb logcat -s CurrentNet`. The check is `ApplicationInfo.FLAG_DEBUGGABLE`, since a library cannot read the
   app's `BuildConfig`; a release build is not debuggable and prints nothing.
 - Desktop: run with `-Dcurrent.log=debug` or the environment variable `CURRENT_LOG=debug`; lines go to stderr with a `[current.log]`
@@ -1260,6 +1260,31 @@ research agent reading the same files.
   the Verbose level.
 - Every platform: Settings > About > Copy diagnostics. On the web the Clipboard API needs a secure context (https or localhost); over
   plain http the text is shown selected, to copy by hand.
+
+## Request log: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12.0, Android 17, API 37; PR 41 at f5c01ee)
+- Build: `feat/request-log` at f5c01ee, no local change, `./gradlew :androidApp:installDebug`. AVD: `system-images;android-37.0;
+  google_apis;x86_64`, build CE2A.260420.019, security patch 2026-05-05, Pixel 7 profile, portrait 1080x2400. Driven with
+  `adb shell input`, `screencap` and `uiautomator dump`; the whole logcat was captured to a file while the cases ran.
+- Server: a throwaway stand-in on the host answering `GET /System/Info/Public` and `POST /Users/AuthenticateByName` with a made-up
+  token, reached as `http://10.0.2.2:<port>`; a test user and password. Add server, **Allow** for Nearby devices, Add this server,
+  Sign in.
+1. Logcat, debug build: **pass.** `CurrentNet` printed five lines, each `jellyfin/<32 hex key> METHOD /path status (ms)`:
+   `GET /System/Info/Public 200`, `GET /System/Info/Public no response`, `GET /System/Info/Public 200`, `GET /QuickConnect/Enabled 200`,
+   `POST /Users/AuthenticateByName 200`. A grep of the whole logcat for the stand-in's address, its port, the token and the password
+   matched only adbd's own record of the test's `input text` commands, never a line from the app. The key is the random one
+   `newServerRef` makes.
+2. Copy diagnostics: **pass, with a layout bug.** The clipboard held `Current 0.1.0`, `Platform: Android 17 (API 37)` and "Last 5 log
+   lines, oldest first" with the same five lines; no address, port, token or `http`. "Copied" did show, but beside the button in the
+   narrow content column it wraps one letter per line and runs past the bottom of the screen, and the button moves down while it is
+   shown. `adb shell cmd clipboard get-text` answers "No shell command implementation." on this image, so the text was pasted with
+   `KEYCODE_PASTE` into Add server's address field and read from `uiautomator dump`.
+3. Release build: **pass.** The repo has no release signing, so `:androidApp:assembleRelease` was signed locally with the SDK's debug
+   keystore (`zipalign`, `apksigner`) after uninstalling the debug build; `dumpsys package` showed no `DEBUGGABLE` flag. The same add
+   and sign-in reached the stand-in (four requests) and logcat had no `CurrentNet` line and no address, token or password.
+- Seen: the two `GET /System/Info/Public` lines that differ only in status are the http and https probes of one address (the stand-in
+  received a TLS hello it could not read); a line does not say the scheme, so a report cannot tell which one failed.
+- Seen, not new: the sidebar takes about half of a portrait phone, leaving a content column about 300 px wide; the page draws under
+  the status bar; Settings says "No credential store was found, so you are signed out when the app quits." Not checked here.
 
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
