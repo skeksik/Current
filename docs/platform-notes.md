@@ -1675,6 +1675,35 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   the process is frozen, so the requests that failed after 22 s between the block and the freeze, and those that failed around
   `Resumed`, should now wait for the return's check.
 
+## Roaming on Android, case B (emulator) (checked 2026-10-21 on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05; ADR 0019)
+- What ran: PR 23 at cecd180 (the fix is cd270f5; cecd180 merges main). The harness of "Roaming on Android, suspension fix", unchanged
+  (a request every 2 s through `ServerClient.request`, the 200 ms gap ticker), with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm
+  grant` and a permissive cleartext config, neither committed. The server was a throwaway stand-in on the host for
+  `System/Info/Public` and `System/Ping`, reached through the emulator's host alias: one port saved as the local address (first), one
+  as the internet address, the same server id on both. Through the emulator's NAT each request took about 0.5 s (1 ms on the host).
+  The background was the Home key, the return `am start`, and `dumpsys activity processes` was read every 2 s for `isFrozen`.
+- **The emulator blocks and freezes as the phone does.** `blocked=true` came 4.90-4.98 s after `onStop` on all 6 trips, and
+  `Suspended` reached the app 0-3 ms later; `blocked=false` and `Resumed` came within 10 ms of `onStart`. The freezer stopped the
+  process on every stay of 100 s or more: the ticker's gap began 69.84-69.88 s after `onStop` (64.88-64.95 s after the block), and
+  `dumpsys` showed `isFrozen=true` from 73-74 s. Stays of 40 s and 15 s were not frozen.
+- **Case B: pass for every waiting request.** Stays of 40 s, 100 s (twice) and 150 s (twice), all on the same network:
+  - No request made after the block failed while away, and none failed around `Resumed` (none ended within 5 ms of it).
+  - Every request waiting at the return succeeded after the return's check, 152-1308 ms after `Resumed`: 17 after 40 s (1.7-33.7 s
+    old), 32 and 32 after 100 s (up to 94.0 s old), 33 and 33 after 150 s (up to 144.1 s old). That is 147 of 147, among them all
+    the requests made between the block and the freeze, and the 22 made 11-22 s before the freeze, which failed on the phone before
+    the fix. The request made at the return succeeded in 262-1245 ms.
+  - Two requests failed while away, in two of the six stays: each was already sent when the block came (0.15 s and 0.52 s before it)
+    and failed as `Unreachable` at the block. This is ADR 0019's known case, a change does not cancel a request already sent; the
+    stand-in's 0.5 s answers make one in flight at the block likelier than on the phone.
+- **A return on the same network: pass.** After 15 s away the address in use stayed, and the request at the return took 52 ms.
+  After the longer stays local ended in use each time, but in four of six returns the internet address was used first for 32-184 ms:
+  a kept address counts as unproved after a suspension, so the first address proved is used meanwhile, and here both addresses are
+  the same host, so either can answer first.
+- Also seen: in 3 checks one `System/Info/Public` probe was logged as `no response` 11-134 ms after the other had answered. The
+  harness formats its own log lines and ignores the `cancelled` field of PR 33, so these are most likely the lower probe cancelled
+  when the check ended, the case PR 33 found. Not checked further.
+- Not run here: case A (a switch while in the background), offline, the VPN.
+
 ## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
 - What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
   It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
