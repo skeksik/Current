@@ -2271,11 +2271,33 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   fell back from OpenGL ("Cannot create Linux GL context") to its next renderer. The MSI was about 75 MB.
 - jpackage writes the DEB `Maintainer` field as `<vendor> <debMaintainer>`, so `debMaintainer` is an address only (seen in CI with
   `dpkg-deb --info`).
-- Not verified: installing the MSI, its Start menu entry and icon, an in-place upgrade, a per-user uninstall, NVDA through the packaged
-  runtime, a DEB on a real Debian or Ubuntu desktop.
+- Not verified: NVDA through the packaged runtime, a DEB on a real Debian or Ubuntu desktop. The MSI: see "Desktop installer: Windows run".
+
+## Desktop installer: Windows run (checked 2026-10-21 on Windows 11 Pro 10.0.26200.9711; PR 45 at db896ed)
+- Build, pass: `packageMsi` took 30 s and wrote `Current-0.1.0.msi`, 75,137,448 bytes. No JDK download: the toolchain took the Zulu
+  21.0.11 already in `~/.gradle/jdks` (the runtime's `release` file says 21.0.11 and lists the expected 11 modules). WiX 3.11 was
+  downloaded (`downloadWix`).
+- Install with `msiexec /i ... /qn`, pass: no elevation (log: "LUA installation capable with no elevation required"), into
+  `%LOCALAPPDATA%\Current` (about 138 MiB). Start menu group "Current" with a "Current" shortcut and a desktop shortcut, both to
+  `Current.exe` with the exe's own icon. One Windows Installer entry (per user): Current 0.1.0, publisher skeksik, no `DisplayIcon`. Read
+  from the registry; Settings > Apps not looked at.
+- Launch from the Start menu shortcut, partly fail: the window title is "Current" and the taskbar button has the Current icon, but the
+  title bar shows a generic icon, not Current's (the owner confirmed it by eye; `main.kt` sets no window `icon`). Added a loopback Jellyfin
+  stand-in (`http://127.0.0.1:18096`), signed in, Settings > About: "Version 0.1.0". Also seen: a second launch starts a second instance
+  (two windows, each with its own state over the same settings files); there is no single-instance check.
+- Upgrade to 0.1.1 (local `current.version` only), partly fail: in place, one entry, version 0.1.1, MSI 75,137,444 bytes; the server was
+  still saved and signed in (token in Credential Manager) and About showed 0.1.1. **Bug:** the install folder is the app's machine-local
+  folder (`AppFolders.local()`, `%LOCALAPPDATA%\Current`). Removing the old product runs `WixRemoveFoldersEx` on `INSTALLDIR` recursively,
+  so `local.json` (the device id, and a secrets file if the user chose one) was deleted; the next launch made a new device id. Not
+  checked: what a new device id does to a session on a real Jellyfin server.
+- Uninstall with `msiexec /x ... /qn`, pass with the same bug: the files, both shortcuts and the entry are gone, and so is all of
+  `%LOCALAPPDATA%\Current` with `local.json`. `%APPDATA%\Current\settings.json` and the Credential Manager tokens stay.
+- Owner check, fail: name and icons right except the title bar (above). Narrator read only "Current window" for the whole window, no
+  button or page title. NVDA was not run (not installed; Access Bridge not enabled). The bundled runtime has the Access Bridge DLLs but
+  no `jabswitch.exe`; the toolchain JDK's works.
 
 ## Not verified (research before depending on it)
-- Desktop installers on a real machine (see "Desktop packaging"): the MSI install, upgrade and uninstall, NVDA in the packaged app, the DEB.
+- Desktop installers on a real machine (see "Desktop installer: Windows run"): NVDA in the packaged app, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
