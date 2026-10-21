@@ -50,7 +50,7 @@ Then:
 - [x] Server setup (2026-10-20, ADR 0016): add a Jellyfin server by URL, check it (public info endpoint, and that every address answers
       as the same server), warn about plain HTTP except on local addresses; saved in a per-platform key-value store. Logic and
       `ServerSetupViewModel` only: the screens come with the shells below
-- [ ] Several addresses per server, local (`http://192.168.1.10:8096`, `http://media.lan:8096`) and internet
+- [x] Several addresses per server (2026-10-20, ADR 0019), local (`http://192.168.1.10:8096`, `http://media.lan:8096`) and internet
       (`https://media.example.com`), in the user's priority order. The app picks the best one that answers and roams between them as the
       network changes (start, network change, failed request, and a periodic check to move back to local). Credentials go only to an
       address that proves to be the same server

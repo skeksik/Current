@@ -1093,6 +1093,11 @@ research agent reading the same files.
 - Network changes: `ConnectivityManager.registerDefaultNetworkCallback` (`@RequiresPermission(ACCESS_NETWORK_STATE)`; at most 100 callbacks per app;
   unregister them). `NetworkCallback` has `onAvailable`, `onLosing`, `onLost`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`,
   `onBlockedStatusChanged`. AOSP `ConnectivityManager.java`. Nothing run.
+  - Reading network state (https://developer.android.com/training/basics/network-ops/reading-network-state, checked 2026-10-20):
+    `getActiveNetwork()` gives "the current default network". "When a new network becomes the default, the app receives a call to
+    `onAvailable(Network)` for the new network." In its sample sequence, after `registerDefaultNetworkCallback()` "the default network
+    callback starts receiving calls to `onAvailable()` ... for the mobile network, because the mobile network is the default network", so
+    registering can report the current network at once; the page does not say so as a rule. Not verified on a device.
 
 ## Local network permission on Android: the API (checked 2026-10-21 in the Android reference and guides; nothing run for this section)
 - `Manifest.permission.ACCESS_LOCAL_NETWORK`: "Added in API level 37", constant value `"android.permission.ACCESS_LOCAL_NETWORK"`,
@@ -1331,16 +1336,589 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 ## Detecting network changes (checked 2026-10-19; documentation only)
 - Apple: `NWPathMonitor` (iOS 12, macOS 10.14, tvOS 12): `pathUpdateHandler` receives `NWPath` values with `status`, `availableInterfaces`,
   `gateways`, `usesInterfaceType(_:)`, `supportsIPv4/IPv6`, `isExpensive`, `isConstrained`, `unsatisfiedReason` (including
-  `.localNetworkDenied`). It gives no SSID. Whether a Wi-Fi to Wi-Fi switch fires an update, and whether `gateways` can tell two networks apart, is not verified.
+  `.localNetworkDenied`). It gives no SSID. A Wi-Fi to Wi-Fi switch fires updates on macOS 26.6.2 (see "Apple path monitor and roaming
+  on a Mac"); whether `gateways` can tell two networks apart is not verified.
   https://developer.apple.com/documentation/network/nwpathmonitor
 - Android: `registerDefaultNetworkCallback`, see above; `onLinkPropertiesChanged` and `onCapabilitiesChanged` report address and capability changes on the same network.
 - Browsers: `online`/`offline` on `window` (Baseline since July 2015) but "inherently unreliable": a LAN counts as online even without
   Internet, and on Windows the status depends on reaching a Microsoft server. `navigator.connection` and its `change` event
   (Network Information API) are Chromium only (Chrome and Edge 61+, not Firefox or Safari, per MDN browser-compat-data on 2026-10-19), and describe
   the connection type, not the network identity. https://developer.mozilla.org/en-US/docs/Web/API/Navigator/onLine
-- Desktop JVM: nothing in the JDK, see above.
+- Desktop JVM: nothing in the JDK, see above. What the JDK can do is poll `NetworkInterface` (JDK 21 reference,
+  https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/net/NetworkInterface.html, checked 2026-10-20):
+  `getNetworkInterfaces()` returns "all the interfaces on this machine" (at least one, possibly loopback; `SocketException` "if an I/O
+  error occurs, or if the platform does not have at least one configured network interface"), with `isUp()` ("up and running"),
+  `isLoopback()` and `getInterfaceAddresses()`. The reference says nothing about how often the list changes; there is no gateway or
+  network identity, so two networks that give the machine the same address look the same.
+- Apple, C API of the same monitor (checked 2026-10-20 in Apple's documentation JSON): `nw_path_monitor_set_update_handler` "Sets a
+  handler to receive network path updates" (iOS 12, macOS 10.14, tvOS 12); `NWPathMonitor.start(queue:)` "Starts monitoring path changes,
+  and sets a queue on which to deliver path events"; `cancel()` "Stops receiving network path updates". The reference does not say that
+  the handler is called with the current path when monitoring starts. On macOS 26.6.2 it is, and a Wi-Fi to Wi-Fi switch fires updates
+  (see "Apple path monitor and roaming on a Mac"); so on iOS 27.0.1 (see "Roaming on iOS"); tvOS not verified.
+  https://developer.apple.com/documentation/network/nw_path_monitor_set_update_handler(_:_:),
+  https://developer.apple.com/documentation/network/nwpathmonitor
 - Implication (inference): treat every platform signal as "something may have changed" and re-probe the server addresses; none of them
   says which network the device is on.
+
+## Apple path monitor and roaming on a Mac (checked 2026-10-20 on macOS 26.6.2, Apple silicon; ADR 0019)
+- What ran: a throwaway `macosArm64Test` binary (not committed) built `networkModule`'s real `RoamingAddressSources` with the real
+  `JellyfinServerProbe` and the Apple `NetworkChanges`, for one Jellyfin 12.2 server with a local address (`http://192.168.1.10:8096`,
+  first) and an internet address (`https://media.example.com`). It logged, with timestamps, every probe, every `NetworkChanges` element, the
+  address in use, `reachable`, and once a second where a request would go and how long `awaitCurrent` held it. A second, independent
+  `nw_path_monitor` logged every raw update (status, interface types and names, `isExpensive`; gateways and IPv4/IPv6 support were not
+  logged). The owner toggled the network by hand. A command-line test binary, not the app bundle: ATS and the app's `Info.plist` did not
+  apply (plain `http` to an IP literal worked), so this says nothing about ATS.
+- **The monitor reports the current path at start**: in all four launches the first update came 1-2 ms after `nw_path_monitor_start`,
+  with the current path (satisfied, Wi-Fi). So skipping the first update is right: each launch made exactly one check (both addresses at
+  once, the local one proved in 10-17 ms, requests held 9-17 ms) and no second one. The first real change after launch was not lost:
+  Wi-Fi off 5.5 s after launch, and an update 13.7 s after launch, both cleared the address and started a check.
+- **A Wi-Fi to Wi-Fi switch produces updates**, in both directions, when the network is picked in the Wi-Fi menu: the path goes
+  unsatisfied for about 0.3 s between the two networks. A move between access points of one network (same SSID) was not tried.
+- **Every transition comes as a burst of updates**, 7-11 within 3-5 s, most of them alike in what was logged (satisfied, Wi-Fi, `en0`).
+  Opening the Wi-Fi menu alone also produced such updates, with nothing changed. Each update is a `NetworkChanges` element, so each
+  one cleared the address in use and restarted the check (ADR 0019's rule).
+- Per case, times from the first update of the transition:
+  - Wi-Fi off: unsatisfied 0.25 s after the first update; the address was cleared at once, both probes failed (`Unreachable`) within
+    0.1 s, requests were held 0.34 s and then failed as unreachable, `reachable` false; the next check came 15 s later, as specified.
+  - Wi-Fi on: the first update was still unsatisfied but listed `en0`; the local address was proved 0.13 s later. Eight more updates
+    followed in 3 s, each clearing and re-proving it (5-310 ms each); the longest hold the once-a-second sampler saw was 81 ms.
+  - Home Wi-Fi to a phone hotspot (`isExpensive` true there): the internet address answered after 0.55 s, but the local address on the
+    hotspot timed out (5 s) instead of being refused, and a lower address is used only once the higher ones have failed. The internet
+    address was in use 9.2 s after the first update; a request was held 7.5 s. A later update on the hotspot (Wi-Fi menu opened) cleared
+    it again and held a request 4.2 s, for the same local timeout.
+  - Hotspot back to home Wi-Fi: the local address was in use 0.8 s after the first update (one update in between listed only a wired
+    interface); 11 updates in 3.5 s, each re-proved in 8-136 ms.
+  - A VPN on and off: a `utun` interface appeared and disappeared in `availableInterfaces`; interface types stayed Wi-Fi (one update
+    was "satisfiable" with Wi-Fi and cellular). About 9 updates going on and 7 going off, each re-proving the local address in 5-150 ms.
+  - tvOS and iOS: not run (no Apple TV at hand; the simulators share the Mac's network).
+- Local network privacy, seen on the side: the binary's very first request to the local address failed as `Unreachable` within 53 ms
+  while macOS showed its Local Network prompt; after Allow, the next run reached it. This matches TN3179's "first operation may be refused
+  at once" (section "Local network, discovery and plain HTTP: Apple"). Inference: on an app's first launch at home, the local address can
+  miss the first check and wait for the 15 s retry.
+- Consequence for ADR 0019 (not changed here): counting every update as a change holds up, but bursts and no-change updates cost a check
+  each, and on a network where a higher address times out, each such update holds requests for up to the probe timeout.
+
+## Roaming on iOS (checked 2026-10-20 and 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: the placeholder SwiftUI app with a throwaway harness (not committed) that started Koin with the real `databaseModule`,
+  `networkModule` and `jellyfinModule`, so the real `RoamingAddressSources`, `JellyfinServerProbe` and Apple `NetworkChanges`. **The
+  first two runs used the rules before "Use a proved address at once"** (wait 1 s for a burst to settle, then wait for every higher
+  address); the third used the round-3 rules, with it but before round 4's changes (rate-limited request checks, no swap down
+  mid-check, `NetworkChange.Resumed`), which were not run on iOS ("Third run" below). One Jellyfin 12.2 server, local address first
+  (`http://192.168.1.10:8096`), internet address second (`https://media.example.com`). Logged with timestamps: every request log entry
+  (it names no address; which probe is which follows from timing: the LAN answered in 9-46 ms, the internet address in 40-780 ms, and a
+  cancelled probe logs "no response"), the address in use, `reachable`, a request through `awaitCurrent` every 250 ms with how long it
+  was held, every raw update of a second `nw_path_monitor` (status, interfaces, `isExpensive`, `isConstrained`, IPv4, IPv6, DNS, gateway
+  count) and the elements of a second `NetworkChanges`. For the runs `Info.plist` got `NSLocalNetworkUsageDescription` and
+  `NSAllowsLocalNetworking`; the app has neither yet, and without the latter ATS refuses an IP address (see "Local network, discovery
+  and plain HTTP: Apple").
+- How: three runs, each from a fresh install, with the cable unplugged, the log written to a file, and a button tapped before each step.
+  Wi-Fi was turned off and on from Control Center, so the app stayed in the foreground unless stated. With the cable in, the console
+  stream and the app ended about 24 s after Wi-Fi went off; that attempt showed the same cellular behaviour as the unplugged runs.
+- Not roaming, found on the way: **the host name lookup at start brings up the Local Network prompt and blocks until it is answered**,
+  for at most about 35 s. `core:database`'s Apple `platformDeviceName()` reads `NSProcessInfo.hostName` when Koin builds
+  `DeviceIdentity` at start. On the main thread, the first launch after install was killed by the watchdog (SIGKILL; main thread in
+  `-[NSHost blockingResolveUntil:]`). With Koin started off the main thread: Koin started 6.0 s after launch when Allow was tapped about
+  5 s after the prompt appeared, and 35 s after launch when it was tapped later (the lookup gave up with the prompt still up). Once
+  access was allowed or denied, Koin started in 30-170 ms. Not fixed here.
+- **Updates without a change are common on iOS.** Every logged field stayed the same. On home Wi-Fi they came in pairs about 5 s apart
+  every 20-30 s in several stretches; on cellular, every 3 s right after Wi-Fi went off, then in pairs about 3 s apart every 10-40 s for
+  at least 3 minutes; with a VPN on, every 6-10 s. Each is a `NetworkChanges` element. On Wi-Fi one costs a hold of 0.8-1.0 s (the 1 s
+  settle, then the local address in 9-15 ms); on cellular see case 1.
+- **At start**, the monitor reports the current path at once (satisfied, 0-2 ms after `nw_path_monitor_start`), so skipping the first
+  update is right, **but in 5 of 11 launches a second, identical update came 110-200 ms after start** (4 of 5 in the second run). It
+  cleared the address just proved and a second check ran: requests held 0.9-1.2 s instead of 8-25 ms, and with local network access
+  denied, 1.7 s instead of 0.5 s. In the other launches there was one check (local address proved 50-100 ms after launch, once 1.1 s).
+- Per case, with the earlier rules; times from the first update of the transition; where the runs differ, first run / second run:
+  1. Wi-Fi to cellular: 3-4 updates in under 0.75 s (the first still Wi-Fi, then cellular only, `isExpensive` true); the path never
+     went unsatisfied. The internet address answered in 40-690 ms. The local address on cellular neither answered nor failed: it hung
+     until the probe's 5 s timeout, and a higher address is waited for. With updates every 3 s, most checks were cancelled after about
+     2 s. **The internet address was first used 15.8 s / 14.6 s after the switch**, each time after a longer gap between updates, and
+     the next update cleared it 1-4 s later. In 35 s / 66 s on cellular, one / two requests were held 11 s and failed as unreachable;
+     the others were held 3-9 s. In an unmarked 3-minute stretch on cellular in the first run, requests failed after 11 s four times.
+     `reachable` stayed true throughout: a cancelled check sets nothing.
+  2. Back to home Wi-Fi: 5-6 updates in 1.1-1.2 s (Wi-Fi listed after cellular in the first ones); the local address was proved
+     2.2 s / 2.1 s after the first update.
+  3. Airplane mode on and off: this phone keeps Wi-Fi on in airplane mode, so only the cellular interface went (2 updates) and came back
+     (3 updates in 0.35 s). The local address was proved 1.1-1.5 s after the first update; requests were held 1.1-1.4 s.
+  4. Wi-Fi to another Wi-Fi network (not a hotspot: `isExpensive` false), once in the first run and twice in the second: 6 updates in
+     3.5 s / 10-11 in under 2 s (the second run's passed briefly through cellular only), and later ones cancelled checks. The internet address answered
+     in 0.5-0.6 s, but the local address timed out (5 s) as on cellular, so the internet address was in use 9.5 s / 13.0 s and 11.5 s
+     after the first update. A request was held 9.3 s in the first run; in the second run one failed after 11 s each time. Every
+     no-change update on that network then held requests about 5.8 s for the same timeout. This matches the hotspot case on the Mac.
+     Back home: the local address 1.2 s / 2.7-2.8 s after the first update.
+  5. A VPN on and off (switched in another app, then back): going on, 2-3 updates; `utun6` (type other) appears, and the local address
+     still answered through it (proved 1.2-1.5 s after the first update). Going off, 1-2 updates, the local address in 1.0-1.2 s. Once,
+     while the VPN reconnected, the path was "satisfiable" for two updates and the local address still answered.
+  6. Local network access denied in Settings while the app ran: iOS did not terminate the app. On return, 2 no-change updates; the
+     local probe then failed in 16-19 ms and the internet address was in use 1.8-1.9 s after the first update. After a relaunch the local
+     probe failed in 30 ms; the internet address was in use 0.55 s after launch, or 1.7 s when a second update at start cancelled the
+     first check. A denied local address fails at once; an unreachable one (cellular, another network) times out.
+  7. Background and foreground: while in the background the app is suspended and logs nothing: no updates, no checks.
+     - Wi-Fi off while away: on return one update came at once. First run: another 4 s later, and the internet address was in use 10.2 s
+       after the return (a request held 9.9 s). Second run: 4 updates in the 6 s before the app went to the background again; the
+       internet address was never used. **The request then in flight was held 31.8 s in all**: the 11 s cap does not run while the app
+       is suspended, and the request failed as unreachable at the next return. The local probe in flight reported 24.9 s.
+     - Wi-Fi on while away: the local address 1.2 s after the return. In the first run the first request after the return went to the
+       address proved before leaving (the internet address), 3 ms before the update arrived. Inference: a stale local address on
+       cellular would make such a request hang until its own timeout. Not seen.
+  8. Right after launch: see "At start" above.
+- First launch and the Local Network prompt: the prompt came from the host name lookup at start, before any probe (see above). First
+  run, Allow tapped after the lookup gave up: the first local probe failed ("no response") in 9 ms with the prompt still up, and the
+  internet address was used 53 ms after the check began. Nothing asked again until 3 no-change updates about 30 s later, likely the
+  Allow; then the local address was proved. Without them the periodic check would have come after 5 min. Second run, Allow tapped
+  within the lookup: the first local probe answered in 21 ms.
+- **Third run, with "Use a proved address at once"** (2026-10-21, fresh install, same cases; times from the first update of the
+  transition, or from the return to the foreground):
+  - **Cellular now works**: leaving Wi-Fi, the internet address was in use 1.2-1.8 s after the first update (three times: Wi-Fi off in
+    the foreground twice, and on return after Wi-Fi went off in the background), while the local probe hung in the background until its
+    5 s timeout. No request failed in about 3 minutes on cellular. The no-change updates still came (every 2-5 s, with gaps of 10-20 s)
+    and each still cleared the address: requests were held 0.9-1.1 s each (the 1 s settle, then the internet address in 40-90 ms), up
+    to 3 s when two updates came within 2 s.
+  - Another Wi-Fi network: the internet address in use 3.2 s after the first update (8 updates in 1.4 s), against 9.5-13 s before;
+    later updates on that network held requests 1.3-3 s, and none failed. `isExpensive` was true for three of its updates.
+  - Back to home Wi-Fi: the local address 4.5 s after the first update, Wi-Fi being listed after cellular for the first 3.3 s; the
+    internet address served from 2.0 s until then. From another Wi-Fi network: 2.4 s. Airplane mode on and off: 1.3 s and 1.5 s. A VPN
+    on and off: 1.15 s each.
+  - Unchanged, as expected from the rules: the second identical update at start came in 3 of 3 relaunches (165-179 ms after start, a
+    second check, requests held 0.9 s; with local network access denied 1.6-1.7 s instead of 0.5 s). **A request waiting when the app
+    was suspended was held 48.8 s** and failed as unreachable at the return, in the same millisecond as the return's update.
+  - Local network access denied: the internet address in use 1.6 s after the return and 1.7 s after a relaunch. On Wi-Fi each no-change
+    update then held requests 1.3-1.5 s, since the internet address takes about 0.5 s there. On cellular the local probe still hung
+    until its timeout: the permission does not make it fail there.
+- Consequence for ADR 0019 (not changed here): with the earlier rules, on iOS cellular or another Wi-Fi network roaming seldom reached
+  the internet address: no-change updates every 3-7 s, a local address that times out instead of failing, waiting for every higher
+  address, and every update clearing the address meant a check only completed after about 6 s without an update. "Use a proved address
+  at once" fixes that (third run). Still open: every no-change update clears the address and holds requests about 1 s (several times
+  a minute on cellular), the second update at start causes a second check, and a request held when the app is suspended outlasts the
+  11 s cap and fails at the return.
+
+## Roaming on iOS, final (checked 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: commit 2c42934 of PR 23, the event loop with Apple's compared path updates and `Resumed` on returning to the foreground,
+  with the same throwaway harness as "Roaming on iOS" (same server and addresses, `Info.plist` keys added for the run only). The harness
+  also logged the UIKit lifecycle notifications and SwiftUI's `scenePhase`. Not rerun on the later commits of the branch, which add a
+  request deadline but leave the roaming loop and the Apple signal as they were. One fresh install, launched from the Mac with the
+  cable in. This time the console stream kept running through Wi-Fi off and three minutes on cellular; the earlier end about 24 s
+  after Wi-Fi went off did not recur. The steps were driven by a throwaway XCUITest runner (not committed) that tapped Control Center
+  (Wi-Fi, airplane mode), Settings (the other Wi-Fi network, the VPN switch, local network access) and Home. Turning airplane mode on
+  or off cut the Mac's link to the phone, cable included, so the runner and the console stopped there; the app's own log covers it.
+  Times from the first update that differed, or from the return to the foreground.
+- **No-change updates: pass.** About 230 updates identical to the one before (on home Wi-Fi every 5-30 s, on cellular every 1-13 s)
+  made no `Changed`; 48 `Changed` came against 46 visible changes of interfaces. On cellular, requests were held at most 3 ms between
+  transitions, against about 1 s per update before.
+- **Second identical update at start: pass.** It came in all 8 relaunches (6 allowed, 2 with local network access denied), 0.17-0.83 s
+  after start, and caused no `Changed`. The local address was in use 65-160 ms after launch (requests held 14-107 ms); denied, the
+  internet address 0.67 s and 1.01 s after launch, against 1.6-1.7 s before.
+  - New: **a cold launch posts `UIApplicationWillEnterForegroundNotification` too**, 33-44 ms after start. In every relaunch a second
+    check of both addresses followed the first at once (5-7 ms, nothing held). By timing this is the launch's `Resumed` arriving
+    during the first check ("exactly one more check"); the harness's own collector, which subscribed later, saw it in 1 of 6.
+- **A request waiting while the app was suspended: fail.** Reproduced by turning Wi-Fi on and pressing Home at once, so the app was
+  suspended while requests were held (Wi-Fi off and Home was too slow: the check ended first). At the return `Resumed` came at once.
+  - Away 8 s: the request (waiting 8.5 s) was served the local address 30 ms after the return.
+  - Away 16 s: **the request, waiting 16.3 s, failed** 12 ms after `Resumed`, and the check proved the local address 20 ms later.
+    That is under the 22 s overall limit, so the wait should have restarted. Inference from the code: `awaitCurrent`'s 11 s timeout
+    ran out during the suspension and fires as soon as the process resumes, before the loop has handled `Resumed`, so the resume count
+    it compares has not changed yet. Reported as a bug, not fixed here.
+  - Away 40 s, and 195 s once by accident: failed at the return, as the 22 s overall limit says. A request waiting before a longer
+    suspension cannot succeed under ADR 0019's rule.
+- **Cellular and another Wi-Fi network: pass.** Wi-Fi off with the app in front, ten times: the internet address in use 1.1-2.0 s after
+  the change (the 1 s settle, then the internet address in 0.07-1.0 s), requests held 0.9-2.0 s, none failed. Wi-Fi off while away:
+  1.16 s after the return. To the other Wi-Fi network (switched in Settings, then back to the app): 1.53 s after the return, held
+  1.28 s, no failures in the 30 s that followed. Back to home Wi-Fi from it: the local address 1.09 s after the return. Wi-Fi on with
+  the app in front: the local address 1.9-2.1 s after the first change, since joining comes as two changes about 1 s apart (cellular
+  listed first, then Wi-Fi); on while away: 1.05 s after the return.
+- **VPN, airplane mode, local network access denied: as before or better.** A VPN switched on in Settings (`utun7` appeared) and off:
+  the local address 1.02-1.03 s after the return, held 0.77-0.79 s (1.15 s before). Airplane mode on and off (Wi-Fi stays on): the
+  local address 1.22 s and 1.23 s after the change. Access denied in Settings: the internet address 1.37 s after the return (1.6 s
+  before); with it denied, Wi-Fi off 1.64 s, Wi-Fi on 2.52 s; allowed again, the local address 40 ms after the return.
+- **The foreground notification under the SwiftUI scene lifecycle: posted.** On iOS 27.0.1 `UIApplicationWillEnterForegroundNotification`
+  (and `UISceneWillEnterForegroundNotification`) came at every return from the background and at every cold launch, a few ms before
+  `scenePhase` went to inactive. Opening and closing Control Center posted only `WillResignActive` and `DidBecomeActive`, so no `Resumed`.
+- Also seen:
+  - At a return, `Resumed` came 3-30 ms before the path update that followed it, and `Resumed` keeps the address: in that window a
+    request got the address in use before leaving. Coming back on the other Wi-Fi network, one request got the home local address 1 ms
+    before the `Changed`; with local network access just denied, one got the local address 8 ms after the return. The same race as in
+    "Roaming on iOS", case 7; still open.
+  - A probe running when the app was suspended reported 8.6-40.6 s at the return: its 5 s timeout does not run while suspended. The
+    return's check replaced it.
+  - With Personal Hotspot on, opening its Settings page made cellular the primary interface (listed first, `isExpensive` true) while
+    Wi-Fi stayed listed: a `Changed`, and the local address still answered over Wi-Fi. It stayed so until the Wi-Fi network was picked
+    again in Settings; Wi-Fi on from Control Center then asked to disconnect hotspot users first.
+- Consequence for ADR 0019 (not changed here): the compared path updates remove the no-change holds and the second check at start,
+  and returning to the foreground is signalled. Still open: a request whose wait runs out during a suspension of 11-22 s fails at the
+  return (above); any request waiting across a longer suspension fails by rule; a request made in the few ms between the return and its
+  path update gets the old address.
+- Changed after this run (PR 23, not yet run on a device): `UIApplicationDidEnterBackgroundNotification`, observed by name, is
+  `NetworkChange.Suspended`. From it requests wait, and checks and timers stop; at the return the check runs at once and the address in
+  use counts again only once proved. A wait that runs out while suspended waits for the return and starts again, and time suspended
+  does not count against the limit. This is meant to fix the 16 s failure, the longer suspensions and the few-ms window above.
+
+## Roaming on iOS, suspension fix (checked 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: PR 23 at d7f0bc4 (the suspension fix of c19f3e6 merged with main), 17 steps; then again at 7cac0e2, which changes the
+  common loop for Android's suspension, 8 of the steps and two cold launches. Same throwaway harness, server, addresses, `Info.plist`
+  keys and XCUITest runner as "Roaming on iOS, final" (not committed), installed over the earlier copy (local network access allowed).
+  The harness also made a request at `DidEnterBackground`, another 300 ms after it, one at `WillEnterForeground` and one at
+  `DidBecomeActive`, besides the one every 250 ms, and logged gaps in a 200 ms ticker to show when the app was suspended. Times from
+  `WillEnterForeground` (the return); "away" is the time from `DidEnterBackground` to the return.
+- **`DidEnterBackground` under the SwiftUI scene lifecycle: posted** at all 25 trips to the background, 0-1 ms after
+  `UISceneDidEnterBackgroundNotification`. `Suspended` reached the loop 1-3 ms after it, and the app was suspended 0.01-1.3 s after
+  it (last tick of the ticker), so the loop always handled it first. A probe in flight was cancelled there (0.87-0.97 s old).
+- **Case 7, a request waiting across a suspension: pass**, 15 times; no request failed in either run.
+  - Same network, away 2.6-44.6 s (7 times): the request held since the background got the local address 28-38 ms after the
+    return, as did one made at the return (held 28-37 ms). The path update after the return was no change.
+  - The case that failed before: Wi-Fi turned on and Home at once, so a request was already waiting when the app went to the
+    background. Away 15.7-44.7 s (4 times): the local address 36-48 ms after the return, the request held 16.4-45.5 s. Each time
+    the joining `Changed` came after `Suspended`, still in the background; requests went on waiting.
+  - Wi-Fi off and Home at once (the internet address just proved): away 11.6-44.7 s (4 times), the internet address 146-164 ms
+    after the return (proved again, the kept address being unproved), requests held 11.7-44.7 s.
+  - Time suspended does not count: in both cases requests waited up to 60.2 s in all and succeeded, against a 22 s overall limit.
+- **Case 8, a network change while suspended: pass**, 10 times. Home, Wi-Fi switched from Control Center about 6 s later (the app
+  already suspended), back after 28.7-59.0 s. At the return `Resumed` came first and the path's `Changed` 10-18 ms after it; the
+  check started by `Resumed` was cancelled by it, then the 1 s settle.
+  - Wi-Fi off while away (5 times): the internet address proved 1.19-1.24 s after the return. **No request got the local address**:
+    the one held since the background, the one made 300 ms into the background (when the app was not suspended sooner) and the one
+    made at the return all waited 1.19-1.24 s for the internet address.
+  - Wi-Fi on while away (5 times): the local address 1.04-1.06 s after the return, every request waiting until then.
+  - The 3-30 ms window of the earlier run is closed: requests now hold from the background until a check after the return proves an
+    address.
+- Cold launch at 7cac0e2, twice: the local address 77-80 ms after launch, requests held 5-26 ms, and the launch's `Resumed` (no
+  `Suspended` before it) gave the same quick second check as before.
+- Also seen: a request made by another observer of `DidEnterBackground` that runs before the source's own observer (the harness's
+  came first) got the address in use at once (0-2 ms). Such a request counts as made before going to the background.
+- Not run: a switch to another Wi-Fi network while away (by the rules it should behave like cellular: the local address times out,
+  the internet address releases requests), airplane mode, tvOS.
+
+## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
+- What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
+  `networkModule`, `jellyfinModule`) with the real `RoamingAddressSources`, `JellyfinServerProbe` and Android `NetworkChanges`, for one
+  Jellyfin server saved with a local address (`http://192.168.1.10:8096`, first) and an internet address (`https://media.example.com`).
+  At home the internet name resolves to the server's LAN address (split DNS). It logged, with timestamps, every probe (the redacted request
+  log), every `NetworkChanges` element (a second registration of the same callback), the address in use and `reachable`. It also made a
+  request through a `ServerClient` every 2 s, at each raw callback and at each return to the foreground, and logged how long `awaitCurrent`
+  held it. A second, independent `registerDefaultNetworkCallback` logged every raw callback. The owner switched networks by hand, mostly
+  with the app in front. The phone has no mobile data.
+- **As it stands, the app cannot reach a server on Android.** There are three gaps; the run closed all three in the throwaway build only:
+  - `androidApp`'s manifest has no `INTERNET` permission (only `ACCESS_NETWORK_STATE`), so every request fails. The Android engine throws
+    `java.lang.SecurityException: Permission denied (missing INTERNET permission?)`. It is not an `IOException`, so `serviceExceptionFor`
+    does not map it and it passes through. The harness's own probe met it and crashed the app (an uncaught exception in a coroutine).
+    Fixed in PR 23: the manifest declares `INTERNET`, and this exception maps to `Unreachable` (ADR 0019).
+    `RoamingServerAddress.isSavedServer` also catches only `ServiceException`, so the first check would throw out of `AppScope` the same
+    way. That is inferred, not run: the harness crashed first.
+  - Cleartext: with no network security config, the `http` local address failed as `Unreachable` within 8-9 ms. This is presumably the
+    default `cleartextTrafficPermitted="false"`; the exception was not logged.
+  - `ACCESS_LOCAL_NETWORK` (mandatory at target 37, section "Local network, discovery and cleartext HTTP: Android"): without it, the
+    internet address on home Wi-Fi (which resolves to the LAN address) timed out at 5 s, as the docs say for TCP. With `INTERNET`, a
+    permissive base config and the permission granted (`adb shell pm grant`), both addresses reported the same server id.
+- **Registering reports the current network at once.** With Wi-Fi up, `onAvailable`, `onCapabilitiesChanged`, `onLinkPropertiesChanged`
+  and `onBlockedStatusChanged` for the `activeNetwork` arrived within 4-12 ms. Because the callback is seeded from `activeNetwork`, none of
+  these was a signal. One check at start proved the local address about 35 ms after the source started, and requests were held 36 ms.
+  - Started offline (airplane mode), `activeNetwork` was null and nothing was reported. The retries came at 15, 30 and 60 s. The first
+    connection, 2 min 42 s after start, came as an `onAvailable` and a signal, so it was not missed.
+- **One check per transition, not one per callback.** Each new default network brought 5-9 raw callbacks within 0.5 s: `onAvailable`,
+  1-3 `onLinkPropertiesChanged`, 1-2 `onCapabilitiesChanged` as validation finished, and `onBlockedStatusChanged`. On a steady Wi-Fi,
+  `onCapabilitiesChanged` also kept arriving every 3-10 s (signal strength). Only `onAvailable` of another network and `onLost` of the
+  default one are signals, so each transition made one or two signals and one check. Two signals 38 ms apart (VPN off: `onLost` of the VPN,
+  `onAvailable` of the Wi-Fi) restarted the settle and made one check.
+- Per case, times from the raw callback:
+  - Home Wi-Fi to another Wi-Fi without the LAN, standing in for mobile data: break-before-make, with `onLost` and then `onAvailable`
+    3.9 s later. The address was cleared 8 ms after `onLost`. The check after the settle found no network (both probes failed within 52 ms),
+    so `reachable` went false, and the requests held meanwhile failed after 1.1 s. After `onAvailable`, the internet address answered in
+    290 ms, but the local one timed out (5 s) instead of being refused. So the internet address was in use 6.06 s after `onAvailable`, and
+    requests were held up to 5.2 s.
+  - Back to home Wi-Fi: the same `onLost`, gap (2.2 s) and `onAvailable`. The local address was in use 1.06 s after `onAvailable` (the
+    1 s settle plus a 15 ms probe).
+  - Airplane mode on: the address was cleared 10 ms after `onLost`, `reachable` went false 1.05 s later, and requests then failed at
+    once. Airplane mode off: the local address was in use 1.09 s after `onAvailable`, and a request was held 293 ms.
+  - A VPN on and off, on home Wi-Fi. On: the VPN network (Wi-Fi and VPN transports) came as `onAvailable` with no `onLost` of the Wi-Fi
+    under it (make-before-break). That was a signal, and the address was cleared within 4 ms. Neither address answered through this VPN
+    (both probes timed out; not investigated), so `reachable` went false 6.07 s later, after holding requests up to 4.4 s. Off: `onLost`
+    of the VPN and `onAvailable` of the Wi-Fi came 32 ms apart and made one check. The local address was in use 1.07 s after `onAvailable`.
+  - Wi-Fi to and from mobile data: not run (no mobile data), so make-before-break was seen only with the VPN.
+  - On home Wi-Fi with the permission, the internet probe often failed within 18-54 ms right after joining, while the local one answered.
+    Not investigated.
+- **In the background, Android 17 blocks the app's network but keeps delivering callbacks.** `onBlockedStatusChanged blocked=true` came
+  5 s after `onStop`, and `false` at the next `onStart`.
+  - A switch from home Wi-Fi to the other Wi-Fi in the background still delivered `onLost` and `onAvailable` (the latter with
+    `blocked=true`). So the settled check ran while blocked: the internet probe failed in 26 ms and the local one timed out, leaving
+    `reachable` false and no address.
+  - **On return to the foreground nothing started a check**, for three reasons:
+    - `onBlockedStatusChanged` is not a signal.
+    - A request made with no address fails in `ServerClient.request` before it could call `reportUnreachable`.
+    - The retry had doubled to 30 s across the switch, because a network change does not reset it.
+  - So every request failed for 31.5 s after the app came back, until the timer proved the internet address. With more misses it could
+    take up to `retryAtMost` (5 min). Fixed in PR 23 (ADR 0019): an unblocked default network asks again at once, a request that
+    finds no address asks for a check, and a network change starts the retry waits over.
+  - Once, the process was frozen for about 6.5 min, with no logs and no timers running. Requests that had been sent before then ended as
+    `no response` after about 400 s when the app came back, well past the 30 s request timeout. Their failures woke a check, which proved
+    the same local address at once.
+- A network change does not cancel requests already sent. One request read the address 5-15 ms before the signal, went to the old address
+  over the new (VPN) route, and hung 17.8 s until the VPN went off. ADR 0019 says nothing about requests in flight.
+- Android 16: not run for roaming (the phone had been updated to 17).
+- **Rerun at the same code**, same phone and harness, with a phone hotspot as the other network. It repeated the numbers above to about
+  0.1 s: the internet address in use 6.09 s after joining the hotspot, local 1.08-1.17 s after rejoining home Wi-Fi, a VPN request in
+  flight hung 17.6 s, and after a switch in the background requests failed for 18.9 s until the 15 s retry. Two more things showed:
+  - A guest Wi-Fi network cut off from the LAN but handed the home DNS also resolves the internet name to the LAN address. So neither
+    address answers there: correct, but split DNS makes the internet address useless on such a network.
+  - A network that lasted 1.3 s on the way to the hotspot started a check that was thrown away when it went; no address came from it.
+- **Second run, at the fixes for the above** (same day, branch at "Add the second iOS roaming run": `INTERNET` declared, an unblocked
+  default network counted as a change, a proved address used at once, a check when a request finds no address, retries reset on a
+  change). The harness still added `ACCESS_LOCAL_NETWORK` and the cleartext config. Times from the raw callback:
+  - The background switch is fixed: home Wi-Fi to the hotspot in the background, the check made while blocked failed as before, and
+    `blocked=false` on return started a check at once. The internet address was in use 309 ms after the app came back (was 18.9-31.5 s).
+  - The cost: every return after more than 5 s in the background drops the address, even with no switch. After 6.6 s in the background
+    on the hotspot, the same internet address was proved again 1.1 s after the return, and a request was held about 0.6 s.
+  - A proved address used at once: the internet address on the hotspot was in use 0.36-0.56 s after start, `onAvailable` or VPN off,
+    while the local probe still ran to its 5 s timeout and changed nothing. Rejoining home Wi-Fi, or after airplane mode: local in use
+    110-184 ms after `onAvailable` (was about 1.07 s), because of the skipped settle below.
+  - **A request that finds no address now starts a check each time**, so while nothing answers, checks follow the app's requests
+    instead of the 15 s to 5 min retries. With the harness reading the address every 2 s (twice per test request), airplane mode for
+    53 s made a check every 2 s, about 52 checks, against 3 before. Over the VPN, where both probes time out, checks ran back to back for
+    49 s. Started offline, the same every 2 s until the network came.
+  - It also skips the settle: a wake left by such a request starts the check as soon as the network changes. After airplane mode off, the
+    first check ran 13 ms after `onAvailable` on a network not ready yet and missed; one woken by the next request proved local 184 ms
+    after `onAvailable`.
+  - **The 5 s probe timeout is not a bound on Android when a lookup hangs**: over the VPN, probes ended as `no response` after 6.0 s and,
+    once, 11.0 s, while the local address (an IP literal) always ended at 5.0 s. Inferred: the internet name's DNS lookup, which the
+    Android engine's blocking `HttpURLConnection` does not give up when Ktor's request timeout fires. The first check on the VPN took 12 s,
+    so requests waited the full 11 s (`requestWaitsAtMost`) before failing.
+  - While this ran, the branch moved on to "Rate-limit request-driven checks, resume without dropping the address, and never swap down
+    mid-check", which addresses the check per request and the drop on return. Not run on Android.
+
+## Roaming on Android, final (checked 2026-10-21 on the same Pixel 8 Pro, Android 17, SDK 37, build CP3A.261005.005; ADR 0019)
+- What ran: PR 23 at 95fcead (the event loop, with main and PR 26's `RequestDeadline` merged in), then the cases its successor could
+  change again at c19f3e6 ("Hold requests while the app is suspended, and prove the kept address on return"). Same throwaway harness,
+  server and addresses as "Roaming on Android", with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm grant` and a permissive cleartext
+  config, neither committed. The steps were driven from the computer over adb:
+  - airplane mode with `cmd connectivity airplane-mode`;
+  - Wi-Fi networks picked in the Quick Settings Internet panel by `input tap`;
+  - the background with the Home key, and the return with `am start`;
+  - the VPN turned off by its app's disconnect broadcast, and on in its app (the harness was in the background about 2 s, under the
+    5 s block).
+
+  The networks were:
+  - home Wi-Fi: local answers;
+  - a phone hotspot: local hangs, internet answers;
+  - a guest Wi-Fi with the home DNS and no LAN: neither answers;
+  - the VPN: neither answers.
+
+  Times are from the raw callback. No source logged a bug.
+- **A switch while in the background: pass, with two new issues.** Back in the foreground, the hotspot's internet address was in use
+  356 ms after the unblock at 95fcead and 338 ms at c19f3e6, and local was in use 45 ms after a switch back to home Wi-Fi (first run:
+  18.9-31.5 s). The check made while blocked still misses, as expected.
+  - New: **a request made at the return fails at once.** After a switch in the background the source has no address and is not
+    holding, and `Resumed` checks without holding. So a request made at the return failed as `Unreachable` within 0-4 ms, 45-356 ms
+    before the check proved an address. Seen in all 7 such returns, on both commits (3 of them on the guest network, where nothing
+    answers). c19f3e6 holds requests from `Suspended`, but only Apple sends it. Reported as a bug, not fixed here.
+  - New: **the freezer suspends a background app on Android too.** In one background stay of 84 s, the last 18 s had no log lines.
+    The probe in flight ended at the return after 18.4 s (no deadline fires while frozen). Three requests had been waiting 14.5-19.4 s
+    and failed at the return, 1 ms after `Resumed`, instead of starting their wait again. This is the iOS failure that c19f3e6 fixes
+    through `Suspended` ("Roaming on iOS, final"); without that signal, Android still has it. Reported as a bug, not fixed here.
+- **Offline: pass.** Airplane mode for 75 s made 6 checks, one 15 s after each ended (earlier: 52 in 53 s). Over the VPN, where both
+  probes time out, there was one check every 20 s (15 s plus the probe). The harness requests every 2 s, so request-driven checks kept
+  the 15 s rate and the timer's doubling never showed, as ADR 0019 intends.
+- **A return on the same network: pass.** After 15 s and 50 s away (95fcead) and 15 s and 38 s away (c19f3e6), the address in
+  use stayed. `Resumed` made one check that proved it in 17-79 ms, and the request at the return was held 1-3 ms (earlier: the address
+  was dropped and a request held 0.6 s).
+- **A request's leftover wake and the settle: pass.** With requests waiting and a request-driven check scheduled, airplane mode off and
+  a start offline each made one check, 1.03-1.05 s after the signal.
+- **One check per transition: pass.** VPN off came as two signals 9 ms and 42 ms apart, and made one check. A Wi-Fi switch comes as
+  `onLost`, then `onAvailable` 1.1-6.6 s later, and makes a check after each: the one after `onLost` finds no network within 5-30 ms.
+  Started offline, the source retried at 15 s and 30 s. The first connection, 38 s after start, came as a signal, and it checked
+  1.03 s later.
+- **The network where local hangs: pass.** Joining the hotspot with the app in front, the internet address was in use 1.53-1.54 s after
+  `onAvailable` (both commits): the 1 s settle, then a 421-471 ms probe. The local probe ended at its 5.0 s deadline later and changed
+  nothing (first run: 6.06 s). The second run's 0.36-0.56 s came from skipping the settle, which the loop no longer does.
+- **Over the VPN: pass.** Every probe that timed out, apart from the frozen one above, ended at 5.003-5.033 s, the internet name
+  included (earlier 6.0 s and 11.0 s). The check after the VPN came up ended 6.03 s after `onAvailable`, with requests held up to
+  5.5 s. Off: local in use 1.08 s after `onAvailable`. Rejoining home Wi-Fi otherwise: 1.10-1.28 s.
+- Also seen:
+  - On home Wi-Fi without the VPN, the internet probe failed in 11-167 ms in every check (`no response`; earlier only right after
+    joining). Not investigated; local ranks first there, so nothing changed.
+  - Once at c19f3e6, the hotspot's internet address timed out (5.0 s) in the check at a return, on a validated network. It answered in
+    0.32-0.47 s in the four other hotspot joins. Not reproduced.
+  - Requests sent just before the VPN came up went to the old address and hung 23.5 s and 29.4 s, until the VPN went off. This is the
+    known in-flight case in ADR 0019.
+- Changed after this run (PR 23, not yet run on a device): the default network blocked is now `NetworkChange.Suspended` on Android
+  too, so a request waiting across a freeze starts its wait again at the unblock instead of failing. A blocked status is the app's,
+  not one network's, so a switch while blocked stays suspended until the new default is reported unblocked. On every platform, a
+  `Resumed` with no address in use holds requests until the check it starts ends. Both are meant to fix the two failures above.
+
+## Roaming on Android, suspension fix (checked 2026-10-21 on the same Pixel 8 Pro, Android 17, SDK 37, build CP3A.261005.005; ADR 0019)
+- What ran: PR 23 at c59f387 (the fix is 7cac0e2; c59f387 adds notes only). Same throwaway harness, server, addresses, networks and adb
+  steps as "Roaming on Android, final", with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm grant` and a permissive cleartext config,
+  neither committed. Two changes to the harness: a 200 ms ticker that logs gaps, to show when the freezer stopped the process; and,
+  after the first run of case B, each request timed through `ServerClient.request` alone (before that the harness also called
+  `awaitCurrent` itself, so a request could wait twice). Times are from the unblock (`Resumed`) unless said.
+- **`Suspended` and `Resumed` arrive as meant.** `blocked=true` came 5.0 s after `onStop` at every trip to the background, and
+  `Suspended` reached the app 3-18 ms later; `blocked=false` and `Resumed` came within 12 ms of `onStart`. A switch while blocked came
+  as `onLost`, `Changed`, then `onAvailable` 1.1-5.3 s later with `blocked=true` and another `Changed`. No check ran in the background
+  after it, and requests went on waiting.
+- **Case A, a switch while in the background: pass**, 10 times. Home, a Wi-Fi switch about 8 s later, the return about 10 s after it.
+  - To the hotspot (3 times): the internet address proved 251-341 ms after the unblock. The request made at the return was held until
+    then and succeeded 301-578 ms after it, its own request over the hotspot included.
+  - To home Wi-Fi (6 times; in 3 of them the tap was meant for the hotspot, which had switched itself off, or the guest network, and
+    the phone rejoined home Wi-Fi as a new network): local proved 29-57 ms after the unblock, and the request at the return succeeded
+    56-91 ms after it.
+  - To the guest network, where nothing answers (once): requests were held through the check and failed as `Unreachable` 5.02 s after
+    the unblock, when both probes had timed out.
+  - Before the fix, the request at the return failed as `Unreachable` within 0-4 ms, 45-356 ms before the check proved an address.
+- **Case B, requests waiting when the freezer stops the app: fail.** Stays of 100 s (twice), 40 s and 150 s on home Wi-Fi. The freezer
+  stopped the process 70 s after `onStop` each time (65 s after the block; gaps of 29.8 s, 29.8 s and 79.7 s). Every request made after
+  the block was held, but `awaitCurrent` measures its bound in real time, and on Android the process runs for about a minute while
+  suspended:
+  - In the background, before the freezer: every held request failed as `Unreachable` 22.0 s after it was made, the app still
+    blocked: 21 failures in the second 100 s stay and in the 150 s stay, and 6 in the 40 s stay. Its first 11 s wait
+    (`requestWaitsAtMost`) ran out, then the 11 s it gives a suspended app to return, and it gave up while `suspended` was still set.
+  - At the return: requests whose second 11 s ran out during the freeze failed 0-3 ms around `Resumed`, before the check. That was 6
+    requests (41.6-51.6 s old) after 100 s away and 5 (93-101 s old) after 150 s away. This is the failure of the final run, now
+    only for requests made 11-22 s before the freeze.
+  - The rest waited again and succeeded once the check proved local after the return: 10-15 per stay, up to 91 s old. These were the
+    requests made in the last 11 s before the freeze and those still in their first 22 s at the return.
+  - Inferred from the code, not changed: the rule that time spent suspended does not count holds on iOS, where the app is suspended
+    within 1.3 s of going to the background ("Roaming on iOS, suspension fix"), but not on Android. There the network is blocked 5 s
+    after the background, and the process is frozen only about 65 s later. Reported as a bug, not fixed here.
+- **A return on the same network: pass, with a longer hold.** 11 returns after 19 s to 150 s away: the address in use was kept every
+  time, and `Resumed` made one check that proved it, in 35-100 ms on home Wi-Fi and 725 ms on the hotspot. Requests now wait for that
+  check from the block, as on iOS, so the request made at the return took 71-157 ms on home Wi-Fi (its own request included) and
+  1.14 s on the hotspot, against 1-3 ms in the final run, when Android sent no `Suspended`.
+- **Offline: pass.** Airplane mode for 68 s with the app in front: one check 1.03 s after `onLost`, then one every 15.04-15.05 s
+  (4 more), each probe failing in 7-20 ms. Airplane mode off: local in use 1.07 s after `onAvailable`.
+- Not run: a switch to mobile data (the phone has none), the VPN, Android 16.
+- Changed after this run (PR 23, not yet run on a device): while the source is suspended, a waiting request, or one made then, waits for
+  `Resumed` without a time limit, and only time not suspended counts toward the bound and the overall limit. This holds whether or not
+  the process is frozen, so the requests that failed after 22 s between the block and the freeze, and those that failed around
+  `Resumed`, should now wait for the return's check.
+
+## Roaming on Android, case B (emulator) (checked 2026-10-21 on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05; ADR 0019)
+- What ran: PR 23 at cecd180 (the fix is cd270f5; cecd180 merges main). The harness of "Roaming on Android, suspension fix", unchanged
+  (a request every 2 s through `ServerClient.request`, the 200 ms gap ticker), with `ACCESS_LOCAL_NETWORK` granted by `adb shell pm
+  grant` and a permissive cleartext config, neither committed. The server was a throwaway stand-in on the host for
+  `System/Info/Public` and `System/Ping`, reached through the emulator's host alias: one port saved as the local address (first), one
+  as the internet address, the same server id on both. Through the emulator's NAT each request took about 0.5 s (1 ms on the host).
+  The background was the Home key, the return `am start`, and `dumpsys activity processes` was read every 2 s for `isFrozen`.
+- **The emulator blocks and freezes as the phone does.** `blocked=true` came 4.90-4.98 s after `onStop` on all 6 trips, and
+  `Suspended` reached the app 0-3 ms later; `blocked=false` and `Resumed` came within 10 ms of `onStart`. The freezer stopped the
+  process on every stay of 100 s or more: the ticker's gap began 69.84-69.88 s after `onStop` (64.88-64.95 s after the block), and
+  `dumpsys` showed `isFrozen=true` from 73-74 s. Stays of 40 s and 15 s were not frozen.
+- **Case B: pass for every waiting request.** Stays of 40 s, 100 s (twice) and 150 s (twice), all on the same network:
+  - No request made after the block failed while away, and none failed around `Resumed` (none ended within 5 ms of it).
+  - Every request waiting at the return succeeded after the return's check, 152-1308 ms after `Resumed`: 17 after 40 s (1.7-33.7 s
+    old), 32 and 32 after 100 s (up to 94.0 s old), 33 and 33 after 150 s (up to 144.1 s old). That is 147 of 147, among them all
+    the requests made between the block and the freeze, and the 22 made 11-22 s before the freeze, which failed on the phone before
+    the fix. The request made at the return succeeded in 262-1245 ms.
+  - Two requests failed while away, in two of the six stays: each was already sent when the block came (0.15 s and 0.52 s before it)
+    and failed as `Unreachable` at the block. This is ADR 0019's known case, a change does not cancel a request already sent; the
+    stand-in's 0.5 s answers make one in flight at the block likelier than on the phone.
+- **A return on the same network: pass.** After 15 s away the address in use stayed, and the request at the return took 52 ms.
+  After the longer stays local ended in use each time, but in four of six returns the internet address was used first for 32-184 ms:
+  a kept address counts as unproved after a suspension, so the first address proved is used meanwhile, and here both addresses are
+  the same host, so either can answer first.
+- Also seen: in 3 checks one `System/Info/Public` probe was logged as `no response` 11-134 ms after the other had answered. The
+  harness formats its own log lines and ignores the `cancelled` field of PR 33, so these are most likely the lower probe cancelled
+  when the check ended, the case PR 33 found. Not checked further.
+- Not run here: case A (a switch while in the background), offline, the VPN.
+
+## Roaming in browsers (checked 2026-10-20 on Windows 11 Pro build 26200 with Edge 155.0.4283.45, Chrome 155.0.8059.85, Firefox 158.0.1; ADR 0019)
+- What ran: the web dev server on `http://localhost` (a secure context) with a throwaway hook (not committed) in `core:network`'s `jsMain`.
+  It built `RoamingServerAddress` with default `RoamingTiming`, the JS `NetworkChanges` from Koin, and a probe that does what
+  `JellyfinServerProbe` does through `ServerClients` (`GET System/Info/Public`, 5 s timeout). It covered one Jellyfin 12.2 server with a local
+  address (`http://192.168.1.10:8096`, first) and an internet address (`https://media.example.com`). It logged, with timestamps, every raw
+  `online`/`offline`/`connection.change`/`visibilitychange` event, every `NetworkChanges` element, every probe, the address in use,
+  `reachable`, and one request through `ServerClient` every 10 s. The owner changed the network by hand. Windows' own logs (NetworkProfile
+  and the Ethernet driver) gave the real times of each change. Not `RoamingAddressSources` itself: one source, never restarted.
+- The runs used the branch at 905cc51. Later commits changed the request and settle rules, so the timings below are those of the
+  earlier rules. Read at 52a6314, not re-run: the JS signal and the fetch error mapping are unchanged (`isPermissionDenied` is `false` on
+  JS), so the findings on events and on `Fail to fetch` still apply.
+- The PC: wired Ethernet plus Wi-Fi, with two mesh VPN adapters and two Hyper-V virtual switches always up.
+- From `http://localhost`, every browser reached both addresses: no local network access prompt (Chrome, Edge, Firefox), no CORS
+  failure, no mixed content. No https deployment was at hand, so the prompt from an https page was not run.
+- **Real network changes fire nothing reliable.** `navigator.onLine` stayed `true`, and `online`/`offline` never fired for any of these.
+  Ethernet disabled for 44-82 s while Wi-Fi was on a phone hotspot, and joining or leaving the hotspot (Edge, Chrome, Firefox). The VPN
+  on and off (Edge, Firefox). Cable unplugged for 21 s, and Wi-Fi on and off while wired (Edge). Inference, not verified: Windows counts the PC as connected
+  while any adapter (here the virtual ones) is up. A PC without such adapters may behave differently.
+- **`navigator.connection.change` (Chrome, Edge) follows the speed estimate, not the network.** On desktop `type` is `undefined`. Only
+  `effectiveType`, `downlink` and `rtt` change, and `change` fired when they did. It fired with no network change at all (rtt 0 → 150 →
+  50, 4g → 3g → 4g). It did not fire at all through a 44 s and an 82 s hotspot switch, or a cable unplug. In one hotspot run it fired
+  36 s after the switch, and again 6.6 s after leaving the hotspot. Each event costs a check, and requests wait for it: about 1.02 s with
+  the local address answering.
+- What the app then does:
+  - **On a switch to the hotspot, roaming never noticed in 2 of 3 runs** (Chrome, Edge, Firefox). Requests to the local address hung for
+    the Windows connect timeout (21 s) or until the route changed back (5-15 s), then failed. The internet address, which answered in
+    0.24 s over the hotspot, was never tried, and `reachable` stayed `true`. Only the periodic check (5 min, seen on schedule) or a
+    failed request could notice, and failed requests do not, because of the bug below.
+  - In the one run where `connection.change` fired (Edge), the check asked both addresses at once. It used the internet address 6.0 s
+    after the event, because the local probe had to time out (5 s) first. A request waiting meanwhile took 2.2 s.
+  - The VPN on: requests to the local address hung 18-22 s and failed (Edge). No event fired (Edge, Firefox).
+  - Background tab (Edge, hidden under 5 minutes): the 1 s settle timer and the 10 s requests ran nearly on time (10 s became 11 s).
+    The check after a `change` event finished in 2.9 s. Longer hiding, where intensive timer throttling applies, was not tried.
+- **DevTools "Offline" is not a real change.** In Chrome and Edge it fires `connection.change` (downlink 0) and `offline`, and fetches fail
+  at once. Turning it off fires `connection.change` and `online`. In Firefox it fires `offline` and `online`, but the page's fetches went
+  through while it was on. After `online`, the check re-proved the local address in 1.03 s (Firefox).
+- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`), an unresolvable name, and a
+  connection that drops all fail with a plain `Error("Fail to fetch")`, caused by the browser's `TypeError: Failed to fetch`, in Chrome,
+  Edge and Firefox. `serviceExceptionFor` does not map it, so `ServerClient.request` rethrows it as a bug. There is no `Unreachable` and no
+  `reportUnreachable`. A request timeout is still `HttpRequestTimeoutException`, which is mapped.
+- **That error ends roaming.** `RoamingServerAddress` catches only `ServiceException` from a probe. A probe that fails fast throws out of
+  the check, and `run` ends: `current` stays null, and every later request fails as `Unreachable` within 1 ms, even after `online`.
+  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a refused address listed above a working
+  one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
+  `Unreachable`, and a loop that a bug ends starts again (ADR 0019).
+- Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
+  and all of them in Firefox. What is left is the periodic check and failed requests, which PR 23 now maps and reports.
+
+## Roaming in browsers, final (checked 2026-10-21 on the same PC, Windows 11 Pro build 26200, with Edge 155, Chrome 155 and Firefox 158; ADR 0019)
+- What ran: PR 23 at 7cac0e2 (the head at 7cac0e2..c59f387 only adds notes), the web dev server on `http://localhost`, and a throwaway
+  hook (not committed) in the `web` facade. Unlike the first run, the hook started the app's own Koin modules (`databaseModule`,
+  `networkModule`, `jellyfinModule`). So the source was `RoamingAddressSources`' own, with `JellyfinServerProbe`, default `RoamingTiming`
+  and the browser `NetworkChanges`. The saved server had three addresses, in this order:
+  - a refused one (`http://127.0.0.1:9`);
+  - the LAN address (`http://192.168.1.10:8096`);
+  - the internet address (`https://media.example.com`).
+
+  The hook logged with timestamps:
+  - every raw `online`/`offline`/`connection.change`/`visibilitychange` event and every `NetworkChanges` element;
+  - every probe and request (the redacted request log);
+  - the address in use and `reachable`;
+  - one `System/Ping` through `ServerClient` every 10 s.
+
+  The owner made the changes by hand. Windows' NetworkProfile log gave the time each network was lost or joined.
+- **No raw error, and no run that a bug ended.** Every failed request was a `ServiceException` (`Unreachable`, or `Timeout` at the 30 s
+  request timeout). `reachable` was never unknown again after start, which a replaced source would show. The tabs stayed open 7-10 min.
+- **A refused address listed first: pass (Chrome, Edge, Firefox).** Every check asked all three at once. The refused address failed in
+  2-28 ms, and the LAN address was in use 12-23 ms after the server was saved and 115-123 ms after a reload (first run: the loop ended in
+  13 ms). Every later check ran, including the periodic ones.
+- **DevTools "Offline": pass (Chrome, Edge); not testable in Firefox, as before.**
+  - Chrome and Edge: `offline` and `connection.change` came together and made one check 1.02 s later, in which every probe failed in
+    3-5 ms. A request made at the event waited for that check and failed as `Unreachable` after 1.02 s; the later ones failed as
+    `Unreachable` in under 100 ms. The 10 s requests asked for a check every 15.0-15.2 s.
+  - Back online: `online` and `connection.change` made one check, and the LAN address was in use 1.02-1.03 s later, without a reload. A
+    request made at the event waited for it and succeeded (first run: every request failed until a reload).
+  - Firefox fired `offline`, but the page's fetches still went through: a request at the event succeeded in 11 ms. `online` made one
+    check, and the LAN address was proved again 1.04 s later.
+- **A switch to a phone hotspot: pass in all three, through failed requests, in 27-28 s.** The PC joined the hotspot on Wi-Fi, then wired
+  Ethernet was turned off. No `online` or `offline` fired in any browser, nor `connection.change` in Edge. What happened next:
+  - The request sent around the switch hung for 21.1-24.4 s, failed as `Unreachable`, and started a check.
+  - In that check, the refused address failed at once and the internet address answered in 131-448 ms. The LAN address was still the
+    address in use, so it was used until its own probe timed out at 5.0 s: "a healthy address is never swapped for a lower one
+    mid-check".
+  - The internet address was in use 28.1 s (Edge), 27.3 s (Chrome) and 27.5 s (Firefox) after the LAN was lost (first run: never, in
+    2 of 3 runs).
+  - Three requests failed in each browser, all of them sent to the LAN address before the switch to the internet one. In Chrome and Edge
+    they failed after 12.3-25.4 s as `Unreachable`. In Firefox, two of them waited out the 30 s request timeout and failed as `Timeout`.
+    This is the known in-flight case in ADR 0019.
+  - In Chrome only, `connection.change` fired 26 s after the switch, during the check. It cleared the address in use, and the next check
+    used the internet address 1.16 s after the event (the settle, then a 142 ms probe), while the LAN probe was still out.
+- **Back on the LAN: pass.** Requests to the internet address kept working meanwhile.
+  - Edge and Firefox: nothing fired. The periodic check, 5 min 0.0 s after the last one ended, moved back to the LAN address 4 min 29 s
+    (Edge) and 4 min 38 s (Firefox) after the LAN came back.
+  - Chrome: `connection.change` fired 92 s after the LAN came back, and its check moved back 1.02 s later.
+- Also seen:
+  - At home, the internet address failed every check's probe in 5-97 ms, with no response. It answered when probed alone at setup, and
+    requests to it after the switch back succeeded. "Roaming on Android, final" saw the same at home. Not investigated: the LAN address
+    ranks first there.
+  - `connection.change` still fires with no network change (Chrome, Edge: rtt 150 → 0). Each one costs a check, and requests wait about
+    1.02 s for it, as in the first run.
+  - A tab hidden for under a minute kept its timers: the 10 s requests ran every 11 s (Edge).
+- Not run: the VPN, and a tab hidden for longer.
 
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
@@ -1454,6 +2032,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
+  Seen on Android 17: a missing `INTERNET` permission throws `SecurityException` (section "Roaming on Android"); PR 23 maps that one
+  to `Unreachable`.
 - Whether `HttpTimeout`'s request timeout works the same on the Darwin and JS engines; on a blocking engine it does not end the call
   (section "Request timeouts on blocking engines"; `RequestDeadline` returned on time on an Android 17 phone there).
 - Local server discovery after the 2026-10-20 runs (see "Local server discovery, run on devices"): Android 17 in the background, in a
@@ -1526,11 +2106,20 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     - Whether Apple grants the multicast entitlement for a media client, and how fast.
     - Whether `NSAllowsLocalNetworking` admits public IP addresses, and whether AVPlayer follows it.
     - That a dotted non-`.local` name such as `media.lan` is blocked by ATS under `NSAllowsLocalNetworking` (read from the key's text, not tried).
-    - Whether `NWPathMonitor` fires for a Wi-Fi to Wi-Fi switch.
+    - Whether `NWPathMonitor` reports the current path at start and fires for a Wi-Fi to Wi-Fi switch on iOS and tvOS (it does on
+      macOS 26.6.2), and for a move between access points of one network.
+    - Whether `UIApplicationWillEnterForegroundNotification`, which the Apple `NetworkChanges` observes by that string name, is posted
+      under the SwiftUI scene lifecycle on tvOS. On iOS 27.0.1 it is, at every return and every cold launch (section "Roaming on iOS,
+      final"); not checked in Apple's documentation.
+    - Whether `UIApplicationDidEnterBackgroundNotification`, observed by that string name, is posted under the SwiftUI scene lifecycle on
+      tvOS, and early enough for the loop to handle it before the app is suspended. On iOS 27.0.1 it is, at every trip to the
+      background, 0.01-1.3 s before suspension (section "Roaming on iOS, suspension fix"); not checked in Apple's documentation.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16 or 17, see
       "Local server discovery, run on devices".)
+    - Roaming between Wi-Fi and mobile data, and between access points of one network; why a probe of the internet address on home
+      Wi-Fi sometimes failed fast right after joining (section "Roaming on Android").
   - Desktop: OS-level network change notifications (Windows, macOS, Linux). (`255.255.255.255` leaves one interface only on a
     multi-homed Windows PC, and a sender that reads unicast replies got no firewall prompt: see "Local server discovery, run on devices".)
   - Web:

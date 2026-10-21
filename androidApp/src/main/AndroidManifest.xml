@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Every request, starting with roaming's first address check at start (ADR 0019). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Network changes make the app probe server addresses again (ADR 0019). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Servers on the local network (target 37). Asked for at runtime, not at start (ADR 0020). -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 

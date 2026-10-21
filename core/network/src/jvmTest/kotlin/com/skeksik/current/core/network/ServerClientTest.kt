@@ -155,13 +155,59 @@ class ServerClientTest {
     }
 
     @Test
-    fun aSlowServerTimesOut() = runBlocking {
+    fun aSlowServerTimesOutAndIsReported() = runBlocking {
         val recorder = Recorder().apply { answer = { awaitCancellation() } }
         val address = SwitchableAddress(internet)
         val failure = client(recorder, address).use { it.failure { get("Items?ApiKey=secret-key") } }
         assertEquals(ServiceErrorKind.Timeout, failure.kind)
         assertFalse("secret-key" in failure.message.orEmpty())
+        assertEquals(listOf(internet), address.reported)
+    }
+
+    /** Hands out [first] to the first caller and [then] to any later one, counting the calls. */
+    private class ChangingAddress(private val first: ServerUrl, private val then: ServerUrl) : ServerAddressSource {
+        override val current = MutableStateFlow<ServerUrl?>(first)
+        var waits = 0
+        val reported = mutableListOf<ServerUrl>()
+
+        override suspend fun awaitCurrent(): ServerUrl = if (waits++ == 0) first else then
+
+        override fun reportUnreachable(address: ServerUrl) {
+            reported += address
+        }
+    }
+
+    @Test
+    fun aRequestWaitsForTheSourceOnceAndReportsTheAddressItWentTo() = runBlocking {
+        val recorder = Recorder().apply { answer = { awaitCancellation() } }
+        val address = ChangingAddress(internet, local)
+        val failure = client(recorder, address).use { it.failure { get("Items") } }
+        assertEquals(ServiceErrorKind.Timeout, failure.kind)
+        assertEquals(1, address.waits)
+        assertEquals(listOf("media.example.com"), recorder.requests.map { it.url.host })
+        assertEquals(listOf(internet), address.reported)
+    }
+
+    @Test
+    fun onTheJvmASecurityExceptionIsABugNotAFailedRequest() = runBlocking {
+        // Only Android's refusal for a missing INTERNET permission is a request failure; the JDK's client never throws it.
+        val recorder = Recorder().apply { answer = { throw SecurityException("Permission denied (missing INTERNET permission?)") } }
+        val address = SwitchableAddress(internet)
+        assertFailsWith<SecurityException> { client(recorder, address).use { it.request { get("Items") } } }
         assertEquals(emptyList(), address.reported)
+    }
+
+    @Test
+    fun aPlatformsConnectionFailureOutsideExceptionIsUnreachableAndReported() = runBlocking {
+        // As the browser engine does: a failed fetch is a kotlin.Error, not an Exception.
+        class FetchFailure : Error("Fail to fetch")
+        val recorder = Recorder().apply { answer = { throw FetchFailure() } }
+        val address = SwitchableAddress(internet)
+        val engine = MockEngine(recorder.handler)
+        val clients = ServerClients(createHttpClient(engine), NetworkLogger.None, 200.milliseconds) { it is FetchFailure }
+        val failure = clients.create(server, address).use { it.failure { get("Items") } }
+        assertEquals(ServiceErrorKind.Unreachable, failure.kind)
+        assertEquals(listOf(internet), address.reported)
     }
 
     @Test
