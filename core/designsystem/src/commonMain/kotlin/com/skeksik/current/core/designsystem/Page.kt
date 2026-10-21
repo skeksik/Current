@@ -1,5 +1,6 @@
 package com.skeksik.current.core.designsystem
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 
@@ -72,6 +74,7 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        border = LocalPanelEdge.current?.let { BorderStroke(1.dp, it) },
     ) {
         Column(Modifier.padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s), content = content)
     }
