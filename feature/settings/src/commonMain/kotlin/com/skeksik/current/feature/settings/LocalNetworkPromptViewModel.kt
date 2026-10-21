@@ -18,8 +18,9 @@ sealed interface LocalNetworkPromptState {
     data object Hidden : LocalNetworkPromptState
 
     /**
-     * Explain, then ask. With [denied], the user said no: servers on the local network cannot be reached, and neither can an internet
-     * name that leads there (split DNS at home); other internet servers still work.
+     * Explain, then ask. With [denied], the user said no, here or on another screen ([LocalNetworkAccess.deniedBefore]): servers on
+     * the local network cannot be reached, and neither can an internet name that leads there (split DNS at home); other internet
+     * servers still work. The dialog then shows only when the user presses "Ask again".
      */
     data class Ask(val denied: Boolean = false) : LocalNetworkPromptState
 
@@ -67,13 +68,13 @@ class LocalNetworkPromptViewModel internal constructor(
         if (before == LocalNetworkPromptState.Asking) return
         _state.value = LocalNetworkPromptState.Asking
         scope.launch {
-            _state.value = stateFor(access.request(), deniedNow = true, before = before)
+            _state.value = stateFor(access.request())
             if (before.isDenied && _state.value == LocalNetworkPromptState.Hidden) onGranted()
             then()
         }
     }
 
-    /** Before checking an address: asks first if the user has not answered yet, otherwise checks at once. */
+    /** Before checking an address: asks first if the user has not answered yet, otherwise checks at once (never after a denial). */
     fun beforeCheck(check: () -> Unit) {
         when (_state.value) {
             LocalNetworkPromptState.Ask() -> allow(then = check)
@@ -84,13 +85,9 @@ class LocalNetworkPromptViewModel internal constructor(
 
     fun openSettings() = access.openSettings()
 
-    private fun stateFor(
-        status: LocalNetworkPermission,
-        deniedNow: Boolean = false,
-        before: LocalNetworkPromptState = _state.value,
-    ): LocalNetworkPromptState = when {
+    private fun stateFor(status: LocalNetworkPermission): LocalNetworkPromptState = when {
         shouldAskForLocalNetwork(LocalNetworkAskReason.AddServer, emptyList(), status) ->
-            LocalNetworkPromptState.Ask(denied = deniedNow || before.isDenied)
+            LocalNetworkPromptState.Ask(denied = access.deniedBefore())
         status == LocalNetworkPermission.Blocked -> LocalNetworkPromptState.Blocked
         else -> LocalNetworkPromptState.Hidden
     }

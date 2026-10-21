@@ -8,6 +8,8 @@ internal class FakeLocalNetworkAccess(var permission: LocalNetworkPermission) : 
 
     override fun status() = permission
 
+    override fun deniedBefore() = false
+
     override suspend fun request() = permission
 
     override fun openSettings() = Unit

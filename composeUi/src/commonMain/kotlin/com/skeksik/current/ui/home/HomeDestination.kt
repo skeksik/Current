@@ -1,14 +1,29 @@
 package com.skeksik.current.ui.home
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.skeksik.current.core.designsystem.CurrentIcons
+import com.skeksik.current.core.designsystem.CurrentTokens.Size
+import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
 import com.skeksik.current.core.designsystem.EmptyState
 import com.skeksik.current.core.designsystem.StateAction
+import com.skeksik.current.feature.home.HomeLocalNetworkState
+import com.skeksik.current.feature.home.HomeLocalNetworkViewModel
 import com.skeksik.current.feature.home.HomeUiState
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.home.HomeViewModel
+import com.skeksik.current.ui.localnetwork.LocalNetworkNotice
+import com.skeksik.current.ui.localnetwork.LocalNetworkNoticeKind
 import com.skeksik.current.ui.navigation.AddServerRoute
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.SettingsRoute
@@ -52,6 +67,48 @@ val homeUiModule = module {
 private fun HomeScreen(navigator: Navigator) {
     val viewModel = pageViewModel { HomeViewModel(get(), get()) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val localNetwork = pageViewModel { HomeLocalNetworkViewModel(get(), get()) }
+    val localNetworkState by localNetwork.state.collectAsStateWithLifecycle()
+    // Back from the app's settings page, the permission may have changed.
+    LifecycleResumeEffect(localNetwork) {
+        localNetwork.refresh()
+        onPauseOrDispose {}
+    }
+    if (localNetworkState == HomeLocalNetworkState.Hidden) {
+        HomeState(state, navigator)
+    } else {
+        // Scrolls, so at small heights (a phone in landscape) the notice cannot push the page's button out of view.
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            LocalNetworkAsk(localNetworkState, localNetwork)
+            HomeState(state, navigator)
+        }
+    }
+}
+
+/** Android only, with a saved server on the local network: asks for "Nearby devices" before that server times out (ADR 0020). */
+@Composable
+private fun LocalNetworkAsk(state: HomeLocalNetworkState, viewModel: HomeLocalNetworkViewModel) {
+    val kind = when (state) {
+        HomeLocalNetworkState.Hidden -> return
+        is HomeLocalNetworkState.Ask -> if (state.denied) LocalNetworkNoticeKind.Denied else LocalNetworkNoticeKind.Explain
+        HomeLocalNetworkState.Asking -> LocalNetworkNoticeKind.Explain
+        HomeLocalNetworkState.Blocked -> LocalNetworkNoticeKind.Blocked
+    }
+    Column(
+        Modifier.widthIn(max = Size.contentMaxWidth).padding(start = Spacing.xxl, top = Spacing.xxl, end = Spacing.xxl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.l),
+    ) {
+        LocalNetworkNotice(
+            kind,
+            asking = state == HomeLocalNetworkState.Asking,
+            onAllow = viewModel::allow,
+            onOpenSettings = viewModel::openSettings,
+        )
+    }
+}
+
+@Composable
+private fun HomeState(state: HomeUiState, navigator: Navigator) {
     when (val shown = state) {
         HomeUiState.NoServer -> EmptyState(
             title = stringResource(Res.string.home_no_server_title),

@@ -2,6 +2,7 @@ package com.skeksik.current
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,10 +24,17 @@ class MainActivity : ComponentActivity() {
     }
     private val launchLocalNetworkRequest = { localNetworkLauncher.launch(AndroidLocalNetworkAccess.PERMISSION) }
 
+    // The first Tab after a tap leaves touch mode and is consumed there, before dispatchKeyEvent; Android then focuses the first
+    // element. The listener runs before that focus moves, so the element shows its ring.
+    private val touchModeListener = ViewTreeObserver.OnTouchModeChangeListener { inTouchMode ->
+        if (!inTouchMode) input.onLeftTouchMode()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         localNetworkRequests.attach(launchLocalNetworkRequest)
+        window.decorView.viewTreeObserver.addOnTouchModeChangeListener(touchModeListener)
 
         setContent {
             App(input)
@@ -40,6 +48,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        window.decorView.viewTreeObserver.takeIf { it.isAlive }?.removeOnTouchModeChangeListener(touchModeListener)
         localNetworkRequests.detach(launchLocalNetworkRequest, finishing = !isChangingConfigurations)
         super.onDestroy()
     }
