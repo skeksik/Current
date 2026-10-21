@@ -53,8 +53,9 @@ import com.skeksik.current.core.designsystem.CurrentTokens.Size
 /**
  * Whether an element that gains focus shows a ring: yes when focus arrives after a key press (Tab, an arrow, Enter opening a page that
  * focuses its first field), no when it arrives after a pointer press, as a click focuses what it hits. The ring stays until the next
- * pointer press; a key pressed on an element focused by a click does not bring it up. Starts as after a key, so focus placed before any
- * input (a page's first button) shows. One per window, from [LocalFocusVisibility]; [trackFocusVisibility] keeps it up to date.
+ * pointer press; a key pressed on an element focused by a click does not bring it up. Starts as after a pointer press: nothing has focus
+ * until the user moves it (the first Tab), and pages place focus themselves only after keyboard input ([keyboard]). One per window, from
+ * [LocalFocusVisibility]; [trackFocusVisibility] keeps it up to date.
  */
 @Stable
 class FocusVisibility {
@@ -62,7 +63,7 @@ class FocusVisibility {
      * Whether the last press was a key rather than a pointer. A plain field, not snapshot state: read it when deciding (an element
      * gaining focus, a page placing focus), as a composable reading it would not recompose when it changes.
      */
-    var keyboard = true
+    var keyboard = false
         private set
 
     /** Pointer presses so far: a ring shown since an earlier count has gone. Snapshot state, so drawing follows it. */

@@ -7,8 +7,11 @@ import kotlin.test.assertTrue
 
 class FocusVisibilityTest {
     @Test
-    fun focusPlacedBeforeAnyInputShowsTheRing() {
+    fun beforeAnyInputNothingCountsAsKeyboard() {
         val visibility = FocusVisibility()
+        assertFalse(visibility.keyboard)
+        assertFalse(visibility.showsRing(visibility.focusGained()))
+        visibility.onKey(Key.Tab)
         assertTrue(visibility.showsRing(visibility.focusGained()))
     }
 
