@@ -1387,7 +1387,42 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   call ("resolving DNS, connecting, writing the request body, server processing, and reading the response body", `OkHttpClient.kt`,
   okhttp 5.3.2 source jar). It is a new dependency (approval, ADR 0009); its size on Android was not checked.
 
+## The internet probe that "fails" at home (read 2026-10-21 in the code on main and PR 23 at ada40ea; JVM tests; an inference until checked on a device)
+- Seen in PR 23's final roaming runs ("Roaming in browsers, final" and "Roaming on Android, final", on that branch): at home, where an
+  https internet name resolves to the LAN server through split DNS, every check's probe of that name was logged as `no response` within
+  5-97 ms (Chrome, Edge, Firefox) and 11-167 ms (Android). Probed alone at setup it answered, and requests to it succeeded.
+- **The probe and requests build the same URL.** `JellyfinServerProbe` sends `GET System/Info/Public` through `ServerClients.create`,
+  like every request, so `ServerRequests` rebases it onto the address with its path prefix (`rebaseOnto`).
+  `JellyfinServerProbeTest` checks the URL with a prefix. A URL mismatch is ruled out.
+- **What a check does (PR 23, `RoamingServerAddress`).** A check probes all its addresses at once. When the best proved address has
+  every higher-ranked probe done, `finish` cancels the check's job, which cancels the lower-ranked probes still in flight. A cancelled
+  probe posts no result and changes nothing.
+- **What the log printed.** `RequestLog` logs in a `finally` block, so a cancelled request was logged with no status, and
+  `RequestLogEntry` printed every missing status as `no response`.
+- **Inference:** at home the LAN address (plain http, ranked above the internet one) answers in a few ms. The https probe of the
+  internet name still needs its TLS handshake, so it is cancelled when the LAN probe proves first. The time logged is then how long the
+  LAN probe took. This matches the rest of those runs: where the LAN probe hangs (a phone hotspot), the check cannot finish early, and
+  the internet probe proved in 0.13-0.47 s. On a network where the internet address is the one needed, nothing above it proves first,
+  so its probe is not cancelled and roaming is not affected.
+- Changed: `RequestLog` now reads, in that `finally`, whether the caller's coroutine is still active (it does not catch the
+  cancellation), and `RequestLogEntry.cancelled` prints `cancelled` instead of `no response`. A request timeout still prints
+  `no response`. For that, `RequestLog` is installed before `RequestDeadline`: Ktor 3.x's `HttpSend` wraps its interceptors in
+  reverse, so the first installed is the outermost (`HttpSend.kt`, https://github.com/ktorio/ktor/blob/3.3.0/ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/HttpSend.kt).
+  Inside the deadline's `withTimeoutOrNull`, the log would see the deadline's own timeout as a cancellation. JVM tests cover both, and how the probe classifies the other suspects:
+  - another server id: returned for the caller to compare;
+  - a proxy login page (200, HTML): `InvalidResponse`;
+  - a redirect (301, or a 302 to a login page): `InvalidResponse` with the status, not followed;
+  - a non-JSON body: `InvalidResponse`.
+- To confirm on a device: in the next home run, the internet name's lines in a check should read `cancelled`, not `no response`. To rule
+  out the server side as well, run these from the home network (read-only; `<name>` is the internet name):
+  - `nslookup <name>` should give the LAN server's IP (split DNS).
+  - `curl -sv https://<name>/System/Info/Public` should show status 200 with no `Location` header, and a JSON body whose `Id` equals
+    the saved server id. A 30x, an HTML page or another `Id` would mean the proxy answers that path differently. A TLS error would
+    mean the certificate does not cover the name on the LAN IP.
+
 ## Not verified (research before depending on it)
+- That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
+  "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
 - Whether `HttpTimeout`'s request timeout works the same on the Darwin and JS engines; on a blocking engine it does not end the call
