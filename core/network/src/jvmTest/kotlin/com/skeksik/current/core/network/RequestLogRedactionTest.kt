@@ -29,7 +29,12 @@ import org.koin.dsl.module
 /** What the app's request log keeps, end to end: no host, port, credentials, header or body, whatever the request carried. */
 class RequestLogRedactionTest {
     private val server = ServerRef(ServiceType.jellyfin, "server-1")
-    private val secrets = listOf("media.example.com", "8920", "hunter2", "secret-key", "quick-secret", "token-value", "MediaBrowser", "body-text")
+    private val userId = "0123456789abcdef0123456789abcdef"
+    private val itemId = "fedcba98-7654-3210-fedc-ba9876543210"
+    private val secrets = listOf(
+        "media.example.com", "8920", "hunter2", "secret-key", "quick-secret", "token-value", "MediaBrowser", "body-text", userId, itemId,
+        itemId.replace("-", ""),
+    )
 
     @Test
     fun linesHoldNoHostOrSecret() = runBlocking {
@@ -46,9 +51,11 @@ class RequestLogRedactionTest {
         ServerClients(createHttpClient(engine), buffer).create(server, address, auth).use { client ->
             client.request { get("QuickConnect/Connect?Secret=quick-secret&pw=hunter2") }
             assertFailsWith<ServiceException> { client.request { get("Items/Fail?token=token-value") } }
+            client.request { get("Users/$userId/Items/$itemId?ParentId=${itemId.replace("-", "")}&Fields=Overview") }
         }
         val lines = buffer.lines()
-        assertEquals(2, lines.size, lines.toString())
+        assertEquals(3, lines.size, lines.toString())
+        assertTrue("/jellyfin/Users/…/Items/…?ParentId=…&Fields=Overview&ApiKey=*** " in lines.last(), lines.last())
         assertTrue(lines.all { it.startsWith("jellyfin/server-1 GET https://…/jellyfin/") }, lines.toString())
         for (secret in secrets) assertFalse(lines.any { secret in it }, "$secret in $lines")
     }

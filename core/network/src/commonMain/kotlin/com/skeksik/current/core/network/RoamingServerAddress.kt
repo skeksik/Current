@@ -165,6 +165,13 @@ internal class RoamingServerAddress(
         return null
     }
 
+    /** Proved only once the loop has handled every network change and suspension seen, and holds no request. */
+    override fun provedNow(): ServerUrl? {
+        val now = view.value
+        if (now.suspended || now.holding || now.changes < changesSeen.value) return null
+        return now.address?.takeIf { it in latest.value.urls() }
+    }
+
     override fun reportUnreachable(address: ServerUrl) {
         if (address != view.value.address) return
         if (failureQueued.compareAndSet(expect = null, update = address)) events.trySend(Event.Failed(address))

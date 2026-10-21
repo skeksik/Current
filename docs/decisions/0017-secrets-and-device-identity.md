@@ -49,3 +49,9 @@ Common practice among widely used apps and developer tools (docs/platform-notes.
 - Over SSH sessions Credential Manager does not persist (a known limit); the desktop app is not used that way.
 - The Secret Service may ask the user to unlock a keyring; calls are `suspend` and run off the main thread.
 - Tests run the real Credential Manager on Windows and the real Secret Service in CI's Linux job (GNOME Keyring in a D-Bus session).
+
+## Addendum (2026-10-21): a keyring failure is retried once
+- A keyring call that fails is tried once more at once, so one passing failure does not drop the run to memory. A call that timed out
+  (the Secret Service after 2 minutes) is not retried, since the worker may stay blocked; nor is a value too long for Credential Manager.
+- If the retry fails too: memory for the rest of the run, as before, so a user who dismissed an unlock prompt is not asked again at every
+  sign-in. Removals still try the keyring. The next start uses the keyring again. Nothing goes to a file without the user's choice.

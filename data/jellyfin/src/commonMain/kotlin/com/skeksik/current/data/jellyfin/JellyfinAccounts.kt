@@ -253,8 +253,10 @@ internal class StoredJellyfinAccounts(
     override suspend fun signOut(server: ServerRef) {
         // Everything the caller needs happens before the first suspension, so a cancelled caller cannot leave it half done.
         val saved = servers.server(server)
-        // The address in use now is proved; after the server is removed its roaming source has none.
-        val address = saved?.let(addresses::forServer)?.let { source -> source.current.value?.let(::FixedServerAddress) ?: source }
+        // Read now: after the server is removed its roaming source has none. Right after a network change or a return from the
+        // background the address in use is not proved yet, and the token goes only to a proved one (ADR 0019).
+        val source = saved?.let(addresses::forServer)
+        val proved = source?.provedNow()
         val known = tokens.value[server]
         signingOut.update { it + server }
         tokens.update { it - server }
@@ -269,7 +271,10 @@ internal class StoredJellyfinAccounts(
             }
             // Another copy may have signed in meanwhile: its session stays stored, and this copy takes it on.
             adopt(server, askWhoWithoutUser = true)
-            if (token != null && saved != null && address != null) endSession(saved, token, address)
+            if (token == null || saved == null || source == null) return@launch
+            // Without a proved address soon, the server keeps the session: better than sending the token to an unproved address.
+            val address = proved ?: withTimeoutOrNull(LOGOUT_WAITS_AT_MOST) { source.awaitCurrent() } ?: return@launch
+            endSession(saved, token, FixedServerAddress(address))
         }
     }
 
@@ -371,6 +376,9 @@ internal class StoredJellyfinAccounts(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
+
+        /** How long a sign-out waits for a proved address to end the session on the server. */
+        val LOGOUT_WAITS_AT_MOST = 5.seconds
 
         /** In the [SecretStore]. */
         fun tokenKey(server: ServerRef) = "jellyfin/${server.key}/token"
