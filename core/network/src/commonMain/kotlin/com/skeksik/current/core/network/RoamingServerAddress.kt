@@ -91,6 +91,9 @@ internal class RoamingServerAddress(
     /** A network change has settled; while one is pending, only this starts the next check. */
     private val settled = Channel<Unit>(Channel.CONFLATED)
 
+    /** A network change is waiting for its settle; cleared when the loop takes [settled]. */
+    private val settlePending = MutableStateFlow(false)
+
     /** A request asked for a check too soon after the last one; the wait ends when the 15 s window does. */
     private val deferredRequest = Channel<Unit>(Channel.CONFLATED)
 
@@ -106,7 +109,7 @@ internal class RoamingServerAddress(
         val address = withTimeoutOrNull(requestWaitsAtMost) { state.first { !it.blocking } }?.address
         // A request that finds no address asks for a check, so a server that came back is found before the next retry. Not while a
         // network change settles: its own check is about to start.
-        if (address == null && !state.value.blocking) checkForRequest()
+        if (address == null && !settlePending.value) checkForRequest()
         return address
     }
 
@@ -141,6 +144,7 @@ internal class RoamingServerAddress(
 
     /** Requests wait from the first change of a burst; the check starts once the burst has settled. */
     private fun networkChanged() {
+        settlePending.value = true
         state.update { it.copy(address = null, blocking = true, generation = it.generation + 1, network = it.network + 1) }
         // A wake left from before (a request's) must not start the check before the network has settled.
         wake.tryReceive()
@@ -210,7 +214,11 @@ internal class RoamingServerAddress(
             if (!applied) {
                 // An edit or a network change made the check stale. An edit wakes at once, a network change once it has settled.
                 checking.value = false
-                if (state.value.blocking) settled.receive() else wake.receive()
+                // Whichever comes: an edit's wake, or the settle of a change.
+                select {
+                    wake.onReceive {}
+                    settled.onReceive { settlePending.value = false }
+                }
                 full = true
                 woken = true
                 continue
@@ -237,14 +245,15 @@ internal class RoamingServerAddress(
 
     /**
      * Waits up to [wait] for the next check; true when something asked for it rather than the timer. A pending network change waits
-     * for its settle and nothing else. A request deferred by the rate limit shortens the wait to the end of the 15 s window.
+     * for its settle and nothing else, the timer included. A request deferred by the rate limit shortens the wait to the end of the 15 s window.
      */
     private suspend fun waitForNextCheck(wait: Duration): Boolean {
         var ends = time.markNow() + wait
         var requested = false
         while (true) {
-            if (state.value.blocking) {
+            if (settlePending.value) {
                 settled.receive()
+                settlePending.value = false
                 return true
             }
             val left = -ends.elapsedNow()
@@ -255,10 +264,13 @@ internal class RoamingServerAddress(
                     settled.onReceive { SETTLED }
                     deferredRequest.onReceive { DEFERRED }
                 }
-            } ?: return requested
-            if (event == SETTLED) return true
+            } ?: continue
+            if (event == SETTLED) {
+                settlePending.value = false
+                return true
+            }
             // A wake while a network change settles waits for the settle instead.
-            if (event == WAKE && !state.value.blocking) return true
+            if (event == WAKE && !settlePending.value) return true
             if (event == DEFERRED) {
                 requested = true
                 val windowLeft = timing.retryFirst - (lastCheckEnded.value?.elapsedNow() ?: timing.retryFirst)

@@ -441,6 +441,36 @@ class RoamingServerAddressTest {
         assertNull(source.current.value)
         advance(5.seconds)
         assertNull(source.current.value)
+        // The source still checks: once the local address answers, it is found.
+        probe.answers[local] = homeId
+        advance(15.seconds)
+        assertEquals(url(local), source.current.value)
+    }
+
+    @Test
+    fun anEditDuringTheFirstCheckIsCheckedAgain() = runTest {
+        probe.answers += mapOf(local to "slow", internet to "slow")
+        val source = roaming()
+        advance(1.seconds)
+        probe.answers[internet] = homeId
+        source.update(saved.withoutAddress(local))
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+    }
+
+    @Test
+    fun anEditDuringTheCheckAfterASettledNetworkChangeIsCheckedAgain() = runTest {
+        probe.answers += mapOf(local to homeId, internet to homeId)
+        val source = roaming()
+        probe.answers += mapOf(local to "slow", internet to "slow")
+        changes.emit(NetworkChange.Changed)
+        advance(1.seconds)
+        // The settle has started the check; it is still waiting for the slow answers.
+        advance(500.milliseconds)
+        probe.answers[internet] = homeId
+        source.update(saved.withoutAddress(local))
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
     }
 
     @Test
