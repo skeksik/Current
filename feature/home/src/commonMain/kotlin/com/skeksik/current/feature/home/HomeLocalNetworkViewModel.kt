@@ -2,12 +2,12 @@ package com.skeksik.current.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.network.LocalNetworkAccess
 import com.skeksik.current.core.network.LocalNetworkAskReason
 import com.skeksik.current.core.network.LocalNetworkPermission
 import com.skeksik.current.core.network.ServerRepository
+import com.skeksik.current.core.network.needsLocalNetworkAccess
 import com.skeksik.current.core.network.shouldAskForLocalNetwork
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,9 +15,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** What Home shows about local network access (ADR 0020). Only a saved server with a local address ever shows anything. */
+/**
+ * What Home shows about local network access (ADR 0020). Only a saved server with an address that needs it ever shows anything, not
+ * one reached only through an overlay VPN.
+ */
 sealed interface HomeLocalNetworkState {
-    /** Nothing to ask: granted, the platform does not ask, or every saved server is on the internet. */
+    /** Nothing to ask: granted, the platform does not ask, or no saved server needs local network access. */
     data object Hidden : HomeLocalNetworkState
 
     /**
@@ -34,7 +37,7 @@ sealed interface HomeLocalNetworkState {
 }
 
 /**
- * Asks for local network access on Home when a saved server has a local address (ADR 0020, [LocalNetworkAskReason.SavedServers]): a
+ * Asks for local network access on Home when a saved server needs it (ADR 0020, [LocalNetworkAskReason.SavedServers]): a
  * denied request to a local address only times out. Never for a user whose servers are all on the internet. The system dialog speaks
  * of "nearby devices", so the page explains first and asks only when the user continues.
  */
@@ -75,9 +78,7 @@ class HomeLocalNetworkViewModel internal constructor(
 
     private fun stateFor(saved: List<SavedServer>, status: LocalNetworkPermission): HomeLocalNetworkState = when {
         shouldAskForLocalNetwork(LocalNetworkAskReason.SavedServers, saved, status) -> HomeLocalNetworkState.Ask(access.deniedBefore())
-        status == LocalNetworkPermission.Blocked && saved.hasLocalAddress() -> HomeLocalNetworkState.Blocked
+        status == LocalNetworkPermission.Blocked && saved.any { it.needsLocalNetworkAccess } -> HomeLocalNetworkState.Blocked
         else -> HomeLocalNetworkState.Hidden
     }
 }
-
-private fun List<SavedServer>.hasLocalAddress() = any { server -> server.addresses.any { it.scope == AddressScope.Local } }
