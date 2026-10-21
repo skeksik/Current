@@ -254,7 +254,21 @@ class ServerClientTest {
         assertEquals(200, entry.status)
         val line = entry.toString()
         assertFalse("secret-key" in line || "media.example.com" in line, line)
-        assertEquals("jellyfin/server-1 GET", line.substringBefore(" /"))
+        assertEquals("jellyfin/server-1 GET https://…/jellyfin/Videos/1/stream?static=true&ApiKey=*** 200", line.substringBefore(" ("))
+    }
+
+    @Test
+    fun logsTheSchemeOfEachAddressWithoutItsHost() = runBlocking {
+        val entries = mutableListOf<RequestLogEntry>()
+        val address = SwitchableAddress(local)
+        client(Recorder(), address, logger = { entries += it }).use {
+            it.request { get("System/Info/Public") }
+            address.current.value = internet
+            it.request { get("System/Info/Public") }
+        }
+        assertEquals(listOf("http", "https"), entries.map { it.scheme })
+        assertEquals(listOf("http://…/System/Info/Public", "https://…/jellyfin/System/Info/Public"), entries.map { it.toString().split(' ')[2] })
+        assertFalse(entries.any { "192.168.1.10" in it.toString() || "8096" in it.toString() || "media.example.com" in it.toString() })
     }
 
     @Test

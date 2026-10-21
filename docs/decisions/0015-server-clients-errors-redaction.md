@@ -40,6 +40,8 @@ URL, Quick Connect secrets in the query. Logs and problem reports must never car
 - The app binds `RequestLogBuffer` as the `NetworkLogger`: the last 200 lines in memory, nothing on disk. It also serves as
   `RequestLogHistory` for Settings > About's "Copy diagnostics" (`AboutViewModel`), which copies the app version, the platform and those
   lines. Nothing is uploaded.
+- A line is `<service>/<server key> METHOD <scheme>://…<path and query, redacted> <status, "no response" or "cancelled"> (<ms> ms)`.
+  The scheme (http or https) tells apart the probes of one address; the host and port are never kept.
 - Bugs that end background work (`NetworkLogger.bug`) go to the same log, as a line with the class name only.
 - Printing as it happens is off by default: logcat (tag `CurrentNet`) in an Android build that is debuggable, stderr on desktop with
   `-Dcurrent.log=debug` or `CURRENT_LOG=debug`, `console.debug` on the web with `localStorage['current.log'] = 'debug'` (then reload).

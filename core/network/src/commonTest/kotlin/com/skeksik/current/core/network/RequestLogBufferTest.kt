@@ -9,7 +9,13 @@ import kotlin.test.assertFailsWith
 class RequestLogBufferTest {
     private val server = ServerRef(ServiceType.jellyfin, "server-1")
 
-    private fun entry(n: Int) = RequestLogEntry(server, "GET", "/Items/$n", 200, 5)
+    private fun entry(n: Int) = RequestLogEntry(server, "GET", "https", "/Items/$n", 200, 5)
+
+    @Test
+    fun aLineShowsTheSchemeInPlaceOfTheHost() {
+        val entry = RequestLogEntry(server, "GET", "http", "/System/Info/Public", null, 7)
+        assertEquals("jellyfin/server-1 GET http://…/System/Info/Public no response (7 ms)", entry.toString())
+    }
 
     @Test
     fun keepsTheLastEntriesOldestFirst() {

@@ -16,8 +16,8 @@ class AboutViewModelTest {
     fun diagnosticsHaveTheVersionPlatformAndLogOldestFirst() {
         val log = RequestLogBuffer()
         val server = ServerRef(ServiceType.jellyfin, "server-1")
-        log.log(RequestLogEntry(server, "GET", "/System/Info/Public", 200, 12))
-        log.log(RequestLogEntry(server, "POST", "/Users/AuthenticateByName", null, 30, cancelled = true))
+        log.log(RequestLogEntry(server, "GET", "https", "/System/Info/Public", 200, 12))
+        log.log(RequestLogEntry(server, "POST", "http", "/Users/AuthenticateByName", null, 30, cancelled = true))
         log.bug("Network changes failed", IllegalStateException("not shown"))
         assertEquals(
             """
@@ -25,8 +25,8 @@ class AboutViewModelTest {
             |Platform: Test OS 1
             |
             |Last 3 log lines, oldest first:
-            |jellyfin/server-1 GET /System/Info/Public 200 (12 ms)
-            |jellyfin/server-1 POST /Users/AuthenticateByName cancelled (30 ms)
+            |jellyfin/server-1 GET https://…/System/Info/Public 200 (12 ms)
+            |jellyfin/server-1 POST http://…/Users/AuthenticateByName cancelled (30 ms)
             |bug: Network changes failed: IllegalStateException
             |
             """.trimMargin(),

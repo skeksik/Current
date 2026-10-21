@@ -24,6 +24,8 @@ fun interface NetworkLogger {
 data class RequestLogEntry(
     val server: ServerRef,
     val method: String,
+    /** "http" or "https", which tells apart the probes of one address; never the host or port. */
+    val scheme: String,
     /** Path and query, redacted. */
     val path: String,
     val status: Int?,
@@ -31,5 +33,5 @@ data class RequestLogEntry(
     val cancelled: Boolean = false,
 ) {
     override fun toString(): String =
-        "${server.service.value}/${server.key} $method $path ${status ?: if (cancelled) "cancelled" else "no response"} (${durationMillis} ms)"
+        "${server.service.value}/${server.key} $method $scheme://…$path ${status ?: if (cancelled) "cancelled" else "no response"} (${durationMillis} ms)"
 }

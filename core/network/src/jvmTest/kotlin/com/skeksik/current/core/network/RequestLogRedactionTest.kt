@@ -49,7 +49,7 @@ class RequestLogRedactionTest {
         }
         val lines = buffer.lines()
         assertEquals(2, lines.size, lines.toString())
-        assertTrue(lines.all { it.startsWith("jellyfin/server-1 GET /jellyfin/") }, lines.toString())
+        assertTrue(lines.all { it.startsWith("jellyfin/server-1 GET https://…/jellyfin/") }, lines.toString())
         for (secret in secrets) assertFalse(lines.any { secret in it }, "$secret in $lines")
     }
 
