@@ -41,6 +41,11 @@ Checks: emulators first, real devices only where necessary (owner's rule).
   and only then does the owner run it on the device.
 - Every check prompt says to write results as a short platform-notes entry with example addresses only, commit only the notes, pull
   and merge (never rebase or force-push) on a shared branch, and report code bugs instead of fixing them.
+- Every local check prompt also says: work in a new worktree of the clone (`git worktree add ../Current-<topic> <branch>`), never
+  switch the owner's own checkout; and start its own emulator (a new AVD from the same image) when one is already running, since
+  several check cards may run at once. Each card names what it may reset (`pm clear`, permissions) so parallel runs don't clash.
+- A device check that has nothing to exercise yet (the code is not reached on that platform) moves to the first PR that reaches it,
+  stated in the PR; the PR then counts as having nothing to check.
 
 The manager cannot start a session on the owner's computer itself. It queues the task with `spawn_task` (title, two-line summary, the
 worker prompt below with "local" in it) and tells the owner it is waiting there; the owner starts it from the card on their computer,
@@ -110,6 +115,11 @@ On "PR ready", fetch the branch and review the diff against main:
   author and messages; an ADR for an architectural decision; roadmap and CLAUDE.md "Current status" updated when the task changes them;
   the PR template filled in with what was not verified.
 - Verify every reviewer-agent finding you pass on against the code yourself; agents can be wrong.
+- Every reviewer or research agent prompt says: read the code with `git show origin/<branch>:<path>`, do not change the repo, and
+  never point Gradle at another repository (no init scripts, no mirror settings). When Gradle cannot download, the agent reviews by
+  reading, and CI is the build.
+- Review the follow-up rounds by their diff since the last reviewed commit (`git diff <reviewed>..origin/<branch>`), and check every
+  merge commit's conflict resolution (`git show --cc`).
 - Post the findings as one PR review with event `COMMENT`: GitHub refuses approve and request changes on the owner's own PRs, and
   every PR is opened from the owner's account. Take the head SHA from `git rev-parse` on the fetched branch, never from memory. Send
   the worker a short summary with `send_message` too. Repeat after each fix.
@@ -124,6 +134,8 @@ On "PR ready", fetch the branch and review the diff against main:
 - After approval: squash merge with `merge_pull_request` (subject = PR title, as in the history), unless the owner says otherwise.
   Approval covers that PR only. Re-check CI and mergeability right before merging; if anything changed, report again instead.
 - If main moved and the PR conflicts, the worker merges main into its branch (no rebase or force-push) and re-runs the checks.
+  When several approved PRs wait, merge whichever is green on current main first rather than holding a fixed order; two PRs that
+  change the same interface name each other, and the second one merges main and adds the other's member.
   After each merge, tell every open PR's worker that main moved and what changed. Before merging a PR, its branch must contain the
   current main and be green on it. A local worker's branch the manager merges main into itself, as `skeksik`, with a merge commit.
 - To merge once a running CI finishes, schedule a `send_later` check-in that re-reads CI and the head SHA, and merges only if both
