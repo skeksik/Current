@@ -68,6 +68,15 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun theScopeIsComputedFromTheUrlOnLoad() {
+        // Saved under older rules: the stored scope is still written, but the URL decides.
+        val home = server(addresses = listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Internet)))
+        repository().save(home)
+        assertTrue(store.get("server.jellyfin.${home.ref.key}")!!.contains("Internet"), "the stored format is unchanged")
+        assertEquals(listOf(local), repository().servers.value.single().addresses)
+    }
+
+    @Test
     fun anUnreadableEntryIsSkipped() {
         val home = server()
         val other = server("Other")

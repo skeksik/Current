@@ -74,10 +74,13 @@ class LocalNetworkPromptViewModel internal constructor(
         }
     }
 
-    /** Before checking an address: asks first if the user has not answered yet, otherwise checks at once (never after a denial). */
-    fun beforeCheck(check: () -> Unit) {
+    /**
+     * Before checking [input]: asks first if the user has not answered yet, otherwise checks at once (never after a denial). A blank
+     * input never asks, since there is no address to reach: it is checked at once, which says it is not a server address.
+     */
+    fun beforeCheck(input: String, check: () -> Unit) {
         when (_state.value) {
-            LocalNetworkPromptState.Ask() -> allow(then = check)
+            LocalNetworkPromptState.Ask() -> if (input.isBlank()) check() else allow(then = check)
             LocalNetworkPromptState.Asking -> Unit
             else -> check()
         }

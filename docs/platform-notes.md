@@ -1102,6 +1102,11 @@ research agent reading the same files.
   protection level dangerous. "A local network refers to an IP network that utilizes a broadcast-capable network interface, such as Wi-Fi
   or Ethernet, but excludes cellular (WWAN) or VPN connections." https://developer.android.com/reference/android/Manifest.permission
   So an overlay VPN address (Tailscale, which ADR 0016 counts as `Local`) presumably does not need it. Not verified on a device.
+- Tailscale's addresses, https://tailscale.com/kb/1033/ip-and-dns-addresses (checked 2026-10-21): "By default, every device receives an
+  IP address in the `100.x.y.z` range" (the app uses `100.64.0.0/10`), and "Tailscale IPv6 addresses are assigned from the unique local
+  address prefix of `fd7a:115c:a1e0::/48`" ("Previously IPv6 addresses were assigned from `fd7a:115c:a1e0:ab12::/64`", inside it). The
+  app treats both prefixes and `.ts.net` names as an overlay VPN that needs no local network access. Whether Android 17 exempts the VPN
+  interface for them is not verified on a device.
 - https://developer.android.com/privacy-and-security/local-network-permission : "required only if your app targets Android 17 (SDK 37) or
   higher"; declare it in the manifest; "Before attempting any local network access, applications must check if the permission has been
   granted"; apps must handle a denial or a later revocation in settings, after which "local network traffic will be blocked". If another
@@ -2243,6 +2248,39 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - Also seen, not failures: a sign-in page opened by URL for a server no longer saved is titled "Sign in to " with no name, above "This
   server is no longer saved." Sign in asks `GET /QuickConnect/Enabled` once for its button and again when Quick Connect starts.
 - Not run: Firefox, Safari, Edge; Chrome's local network access prompt (the dev page is on loopback).
+
+## Local network rules: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05, Pixel 7 profile 1080x2400 at 420 dpi; PR 43 at db3a345)
+- What ran: the debug build on a fresh AVD, driven by `adb shell input` and read with `uiautomator dump`. The permission state was read
+  with `dumpsys package` (undecided: no `USER_SET`). Saved servers were written into the app's preferences with `run-as` after
+  `pm clear`, each with a stale stored scope, so the scope recomputed on load was tested too. The Jellyfin stand-in was a throwaway
+  script on the host (not committed), reached as 10.0.2.2. It answered `System/Info/Public` and `QuickConnect/Enabled`, logged each
+  request with its time, and could be paused: while paused it held every request open without answering.
+- 1, overlay VPN address: **pass.** Undecided permission. A saved Jellyfin server at `https://media.tailnet-name.ts.net` only, stored
+  as `Local`: Home shows "You are signed out" with no "Nearby devices" notice and no dialog, and Settings shows no Blocked banner, only
+  Offline, since nothing answers there. A server at a `100.64.0.0/10` address gives the same. With the permission denied and
+  `USER_FIXED`, the `.ts.net` server still shows no notice on Home and no Blocked banner. Through the app it can't be saved, because
+  nothing answers the check. Add server asks before the first check of any address, so the dialog did show there for the `.ts.net`
+  address. That is by design: an internet name can lead to the local network.
+- 2, a LAN server still asks: **pass.** `http://192.168.1.10:8096`, stored as `Internet`: Home shows the "Nearby devices" notice with
+  Continue above "You are signed out", as before.
+- 3, empty field: **pass.** Undecided, Add server, `KEYCODE_ENTER` with the field empty: no system dialog, and "That is not a server
+  address." shows. The permission is still undecided afterwards.
+- 4, Offline clears on success: **pass.** Permission granted, stand-in reachable, so Settings showed no Offline. Then the stand-in
+  was paused and Sign in opened, which sends `QuickConnect/Enabled`:
+  - The request was held for 30.0 s (the request timeout). The check it asked for started at once, and its probe got no answer for
+    5 s, so Settings showed Offline. The next check was due 15 s after that miss.
+  - The stand-in resumed 6.5 s after the miss. Sign in opened again 2.2 s later, and `QuickConnect/Enabled` got its 200.
+  - Settings showed no Offline at the first read, 3.3 s after that request. The next check's `System/Info/Public` came 6.3 s after
+    the request, so the request cleared Offline, not a check.
+  - A first attempt missed the Sign in button, which Offline had pushed down. Nothing was sent then, so Offline stayed until the timer
+    check proved the address. Requests sent while paused were dropped without an answer on resume.
+- 5, unprobed servers: **pass for Seerr; Stash not shown.**
+  - A saved Seerr server shows Offline straight away, with nothing at its address. It also does with the live stand-in at its
+    address: Seerr has no address source yet, so it always shows Offline.
+  - A saved Stash server shows neither Offline nor online. No screen sends Stash a request yet, so the failure count never starts.
+    Covered by `RoamingAddressSourcesTest` only.
+- Also seen, not from this PR and already noted above: the sidebar takes about half the width at phone size, and the "No credential
+  store was found" note shows on Android.
 
 ## Web hardening: CSP with the real core (checked 2026-10-21 on Windows 11 Pro build 26200 with Chrome 155.0.8059.85, headless, through Playwright 1.64.1, and the owner's Edge 155; PR 42 at e3a365e, and again at b32ade5 after main's merge)
 - What ran: `:web:jsNodeTest` (15 tests: 8 route, 7 page) and `npm --prefix webApp run build` passed, then `vite preview --host`

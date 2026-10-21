@@ -4,9 +4,12 @@ import com.skeksik.current.core.database.InMemoryKeyValueStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 class LocalNetworkRequestTest {
     private class CountingRequester(private val answer: PermissionAnswer?) : LocalNetworkRequester {
@@ -61,6 +64,33 @@ class LocalNetworkRequestTest {
         assertEquals(answer, first.await())
         assertEquals(answer, second.await())
         assertEquals(1, launched)
+    }
+
+    @Test
+    fun aCancelledFirstCallerLeavesTheRequestToTheNextOne() = runBlocking {
+        val bridge = LocalNetworkRequestBridge()
+        var launched = 0
+        bridge.attach { launched++ }
+        val first = async(start = CoroutineStart.UNDISPATCHED) { bridge.request() }
+        val second = async(start = CoroutineStart.UNDISPATCHED) { bridge.request() }
+        first.cancelAndJoin()
+        val answer = PermissionAnswer(granted = true)
+        bridge.onResult(answer)
+        assertEquals(answer, withTimeout(1.seconds) { second.await() })
+        assertEquals(1, launched)
+    }
+
+    @Test
+    fun whenEveryCallerLeavesTheNextRequestShowsTheDialogAgain() = runBlocking {
+        val bridge = LocalNetworkRequestBridge()
+        var launched = 0
+        bridge.attach { launched++ }
+        async(start = CoroutineStart.UNDISPATCHED) { bridge.request() }.cancelAndJoin()
+        val next = async(start = CoroutineStart.UNDISPATCHED) { bridge.request() }
+        val answer = PermissionAnswer(granted = false)
+        bridge.onResult(answer)
+        assertEquals(answer, next.await())
+        assertEquals(2, launched)
     }
 
     @Test
