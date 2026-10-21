@@ -435,7 +435,7 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   - Not covered: `compose.layers.type=WINDOW`, where a dialog is a window of its own.
   - Feeding X1 from the dialog's own root (where `trackFocusVisibility` sits) would need the same code in every dialog and menu, so
     that option was not taken.
-  - X1 over a dialog is fixed but not yet re-run.
+  - X1 over a dialog is fixed and was re-run at 7354157: it closes the dialog ("Compose navigation: Windows and Android Emulator run").
 
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
@@ -2394,7 +2394,15 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     open, X1 over the dialog and over its scrim did nothing: the dialog stayed open and the page stayed. A likely cause, not checked
     in the source: the X1 listener is a `pointerInput` on the main window's content, and a dialog's pointer events go to the dialog's
     own layer. Esc and Alt+Left do close the dialog.
-    Fixed afterwards: X1 is now an AWT listener on the window (`BackButtonListener`, see "Esc on desktop, and Back keys"). Not yet re-run.
+    Fixed afterwards: X1 is now an AWT listener on the window (`BackButtonListener`, see "Esc on desktop, and Back keys"). Re-run below.
+  - Re-run of case 4 at 7354157, same machine and setup (a saved server on a loopback stand-in, signed out). X1 was injected again
+    as XBUTTON1 down and up with Win32 `mouse_event`, at the pointer; the physical button was not pressed.
+    - X1 with the pointer over the Remove dialog's text: **pass.** The dialog closed, the server stayed, the page stayed on Settings.
+    - X1 with the pointer over the scrim outside the dialog: **pass.** Same result.
+    - X1 with no dialog open: **pass.** Add address to Addresses with the field focused, then Addresses to Settings after a click on
+      empty space (nothing focused): one page per click.
+    - Alt+Left: **pass,** unchanged. With the Remove dialog open the first press closed it and stayed on Settings; the next went back
+      one page.
   - 5, long history: **pass.** 56 pages were opened as 14 rounds of Home (sidebar), Settings (sidebar), Addresses, Add address. 49
     Alt+Left presses showed Add address, Addresses, Settings and Home in turn, newest first, with no early Home. They ended on
     Addresses, the 7th page opened and the oldest of the 50 kept. Two more presses stayed there.
