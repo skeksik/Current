@@ -79,6 +79,14 @@ class FocusVisibility {
         if (event.type == KeyEventType.KeyDown) onKey(event.key)
     }
 
+    /**
+     * Keyboard input the window saw but no key event carried. Android leaves touch mode on the first navigation key after a tap (Tab,
+     * an arrow, Enter): it consumes that key, so the activity never gets it, and focuses the first focusable element itself.
+     */
+    fun onKeyboardNavigation() {
+        keyboard = true
+    }
+
     /** A mouse button, a finger or a pen went down. */
     fun onPointerPress() {
         keyboard = false
@@ -108,7 +116,8 @@ val LocalFocusVisibility = staticCompositionLocalOf { FocusVisibility() }
  * Feeds key and pointer presses inside this element to [LocalFocusVisibility], without consuming them. Put it on the root of a window and
  * of each dialog (a dialog gets its input apart from the window). Keys reach it only while something inside has focus, so the window
  * forwards its own key events too, and the first key after a click or tap on empty space counts: desktop's `Window(onPreviewKeyEvent)`
- * and Android's `Activity.dispatchKeyEvent`, through the app's `MainWindowInput`.
+ * and Android's `Activity.dispatchKeyEvent`, through the app's `MainWindowInput`. On Android the first Tab after a tap never gets that
+ * far (it only leaves touch mode), so the activity also reports leaving touch mode ([FocusVisibility.onKeyboardNavigation]).
  */
 @Composable
 fun Modifier.trackFocusVisibility(): Modifier {

@@ -1154,6 +1154,21 @@ research agent reading the same files.
 - Not run here: steps 1 and 4 to 6, the dismissed dialog, keyboard and D-pad. Still seen, as on the device: at phone width the sidebar
   takes about half the screen and the page draws under the status bar.
 
+## Focus ring after a tap on Android (read 2026-10-21 in AOSP `ViewRootImpl.java` on `main`; not yet run on a device or emulator)
+- Source: `frameworks/base/core/java/android/view/ViewRootImpl.java` (android.googlesource.com, `refs/heads/main`).
+- Why the first Tab after a tap showed no ring (section "Local network permission on Android: run on a device"): any pointer down
+  enters touch mode (`processPointerEvent`: "Enter touch mode on down or scroll from any type of a device"). In touch mode
+  `EarlyPostImeInputStage.processKeyEvent` calls `checkForLeavingTouchModeAndConsume` before the key reaches the view hierarchy. For a
+  navigation key without modifiers (`isNavigationKey`: the D-pad keys and centre, Page Up/Down, Move Home/End, Tab, Space, Enter) it
+  returns `ensureTouchMode(false)`, and the key is `FINISH_HANDLED` when that changed focus. `ensureTouchModeLocally` sets the mode,
+  calls `ViewTreeObserver.dispatchOnTouchModeChanged(false)`, then `leaveTouchMode()`, which, when nothing (or a group that prefers its
+  children) has focus, calls `mView.restoreDefaultFocus()`. So that Tab never reaches `Activity.dispatchKeyEvent`, and focus moves
+  without the app seeing a key: Compose focuses its first element, Home.
+- Shift+Tab is not consumed (`hasNoModifiers()` is false), and a typing key leaves touch mode without being consumed.
+- Fix (`fix/android-polish`): `MainActivity` adds an `OnTouchModeChangeListener` to the decor view's tree observer; leaving touch mode
+  marks the next focus as keyboard focus (`FocusVisibility.onKeyboardNavigation`). The listener is dispatched before
+  `restoreDefaultFocus()`, so the element focused by that Tab gets its ring. Not yet checked on a device or the emulator.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation

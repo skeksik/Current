@@ -50,4 +50,18 @@ class FocusVisibilityTest {
         visibility.onKey(Key.DirectionDown)
         assertTrue(visibility.showsRing(visibility.focusGained()))
     }
+
+    @Test
+    fun leavingTouchModeCountsAsKeyboardUntilTheNextPress() {
+        val visibility = FocusVisibility()
+        visibility.onPointerPress()
+        // Android's first Tab after a tap: no key event, but focus arrives by keyboard.
+        visibility.onKeyboardNavigation()
+        val arrival = visibility.focusGained()
+        assertTrue(visibility.showsRing(arrival))
+        // The next tap takes the ring away, as after a key.
+        visibility.onPointerPress()
+        assertFalse(visibility.showsRing(arrival))
+        assertFalse(visibility.showsRing(visibility.focusGained()))
+    }
 }
