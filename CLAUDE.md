@@ -20,11 +20,11 @@ androidApp/   Android application shell (MainActivity -> App())
 desktopApp/   JVM desktop shell (Compose Desktop; Windows MSI / Linux DEB)
 webApp/       browser app: Vite + React + TypeScript over the `web` library (ADR 0011); npm, lockfile committed
 appleApp/     Xcode project Current.xcodeproj: one SwiftUI app target for iOS, macOS and tvOS, minimum OS 26 (ADR 0012)
-shared/       Compose umbrella for Android/desktop: App(), navigation, DI wiring. NO Apple or web targets.
+shared/       Compose umbrella for Android/desktop: App(), the module list, Koin start. NO Apple or web targets.
 apple/        Kotlin umbrella framework "Shared" for SwiftUI (iOS, macOS, tvOS). NO Compose.
 web/          Kotlin/JS umbrella library "current-core" (ES module + .d.ts) for the React app: @JsExport facade, History API router. NO Compose.
 
-composeUi/                 Compose screens, player screen + controls, video surfaces (Android, desktop)
+composeUi/                 Compose screens, destination contract, Shell + NavHost, player screen + controls, video surfaces (Android, desktop)
 core/model                 domain models                      (pure Kotlin)
 core/network               HttpClient, server configuration, capabilities state (pure Kotlin)
 core/database              cache                              (pure Kotlin)
@@ -42,7 +42,7 @@ Every module's `build.gradle.kts` copies the shape of an existing one of the sam
 ## Stack (exact versions in gradle/libs.versions.toml)
 Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/wrapper), Material 3 (Compose side).
 Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
-Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`shared`), Coil 3 (`composeUi`).
+Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`composeUi`), Coil 3 (`composeUi`).
 Planned, not added yet: SQLDelight, Media3, SKIE for Swift interop.
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
@@ -90,7 +90,9 @@ Feature target (automatic route per title, HDR, broad formats, subtitles, PiP/Ai
 The module tree and build files exist; sources are empty except `core:model` (ADR 0013), the capabilities state (ADR 0014),
 the server clients, error model and redacted request log (`core:network`, ADR 0015), saved servers, the settings store and
 `ServerSetupViewModel` with the Jellyfin probe (ADR 0016), secrets and device identity (`core:database`, ADR 0017),
-Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), cleartext and the local network permission on Android (ADR 0020), `shared` (a placeholder `App()` showing "Current"), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
+Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), cleartext and the local network permission on Android (ADR 0020), `HomeViewModel` (`feature:home`), the Compose desktop shell (design tokens and
+shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens in `composeUi`, Koin
+wiring in `shared`; docs/architecture.md), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
 framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 
