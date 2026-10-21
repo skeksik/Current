@@ -1,5 +1,6 @@
 package com.skeksik.current.feature.home
 
+import com.skeksik.current.core.database.InMemoryKeyValueStore
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
@@ -7,12 +8,12 @@ import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.LocalNetworkAccess
 import com.skeksik.current.core.network.LocalNetworkPermission
+import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerRepository
+import com.skeksik.current.core.network.StoredServerRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,18 +29,9 @@ private fun server(key: String, vararg scopes: AddressScope) = SavedServer(
     },
 )
 
-private class Servers(vararg saved: SavedServer) : ServerRepository {
-    private val _servers = MutableStateFlow(saved.toList())
-    override val servers: StateFlow<List<SavedServer>> = _servers
-
-    override fun save(server: SavedServer) {
-        _servers.value = _servers.value.filterNot { it.ref == server.ref } + server
-    }
-
-    override fun remove(ref: ServerRef) {
-        _servers.value = _servers.value.filterNot { it.ref == ref }
-    }
-}
+/** The real repository over an in-memory store, holding [saved] in that order. */
+private fun Servers(vararg saved: SavedServer): ServerRepository =
+    StoredServerRepository(InMemoryKeyValueStore(), MutableCapabilitiesState()).apply { saved.forEach(::save) }
 
 /**
  * [answers] are what each request returns, in turn; [status] is what the settings page would show. [denied] is the stored denial, set

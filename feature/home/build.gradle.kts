@@ -16,6 +16,8 @@ kotlin {
 
     js {
         browser()
+        // Only to run commonTest on Node (`jsNodeTest`), which needs no browser.
+        nodejs()
     }
 
     android {
@@ -36,7 +38,9 @@ kotlin {
             api(libs.kotlinx.coroutinesCore)
         }
         commonTest.dependencies {
+            implementation(project(":core:database"))
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }
