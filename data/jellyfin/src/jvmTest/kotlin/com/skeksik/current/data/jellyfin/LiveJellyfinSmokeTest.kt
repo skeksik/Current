@@ -13,10 +13,10 @@ import com.skeksik.current.core.network.FixedServerAddress
 import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerClients
 import com.skeksik.current.core.network.ServerIdentity
-import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
+import com.skeksik.current.core.network.StoredServerRepository
 import com.skeksik.current.core.network.candidates
 import com.skeksik.current.core.network.createHttpClient
 import com.skeksik.current.core.network.scope
@@ -31,8 +31,6 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -55,12 +53,6 @@ class LiveJellyfinSmokeTest {
     private val device = DeviceIdentity("current-live-smoke-test", "Current smoke test")
     private val clients = ServerClients(createHttpClient(), logger = { println("LIVE request: $it") })
 
-    private class Servers(server: SavedServer) : ServerRepository {
-        override val servers: StateFlow<List<SavedServer>> = MutableStateFlow(listOf(server))
-        override fun save(server: SavedServer) = Unit
-        override fun remove(ref: ServerRef) = Unit
-    }
-
     /** The first candidate address that answers, as server setup picks it. */
     private suspend fun find(): Pair<ServerUrl, ServerIdentity> {
         val probe = JellyfinServerProbe(clients)
@@ -80,7 +72,7 @@ class LiveJellyfinSmokeTest {
 
     private fun CoroutineScope.accounts(server: SavedServer, capabilities: MutableCapabilitiesState, secrets: InMemorySecretStore, settings: InMemoryKeyValueStore) =
         StoredJellyfinAccounts(
-            servers = Servers(server),
+            servers = StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { save(server) },
             addresses = FirstAddressSources(),
             clients = clients,
             device = device,

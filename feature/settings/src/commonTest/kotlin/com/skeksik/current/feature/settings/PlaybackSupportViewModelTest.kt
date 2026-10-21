@@ -2,21 +2,22 @@ package com.skeksik.current.feature.settings
 
 import com.skeksik.current.core.playback.web.BrowserProbes
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class PlaybackSupportViewModelTest {
     @Test
-    fun probingUntilTheProbesAnswer() = runBlocking {
+    fun probingUntilTheProbesAnswer() = runTest {
         val answers = CompletableDeferred<Map<String, String>>()
-        val viewModel = PlaybackSupportViewModel({ BrowserProbes.interpret(answers.await()) }, scope = this)
+        val viewModel = PlaybackSupportViewModel({ BrowserProbes.interpret(answers.await()) }, scope = backgroundScope)
+        runCurrent()
         assertEquals(PlaybackSupportUiState.Probing, viewModel.state.value)
 
         answers.complete(mapOf("channels" to "6"))
-        val ready = withTimeout(5_000) { viewModel.state.first { it is PlaybackSupportUiState.Ready } }
+        runCurrent()
+        val ready = viewModel.state.value
         assertEquals(6, (ready as PlaybackSupportUiState.Ready).support.maxAudioChannels)
     }
 }

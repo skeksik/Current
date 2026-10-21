@@ -38,7 +38,9 @@ kotlin {
             api(libs.kotlinx.coroutinesCore)
         }
         commonTest.dependencies {
+            implementation(project(":core:database"))
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }
