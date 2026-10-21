@@ -71,6 +71,9 @@ enum class ServerSetupProblem {
 
     /** When adding an address: another server answers there, so it gets no credentials. */
     DifferentServer,
+
+    /** When adding an address: the server was removed meanwhile (on another page or tab). */
+    ServerNotSaved,
 }
 
 /**
@@ -130,7 +133,10 @@ class ServerSetupViewModel internal constructor(
         val server = when (addTo) {
             null -> SavedServer(ref, identity.serverId, identity.name.ifBlank { url.host }, listOf(address))
             else -> {
-                val saved = servers.server(addTo) ?: return
+                val saved = servers.server(addTo) ?: run {
+                    _state.value = ServerSetupUiState.Editing(shown.input, ServerSetupProblem.ServerNotSaved)
+                    return
+                }
                 if (saved.addresses.any { it.url == address.url }) saved else saved.withAddress(address)
             }
         }
@@ -177,7 +183,8 @@ class ServerSetupViewModel internal constructor(
             else -> {
                 val saved = servers.server(addTo)
                 when {
-                    saved == null || saved.serverId != identity.serverId -> ServerSetupProblem.DifferentServer
+                    saved == null -> ServerSetupProblem.ServerNotSaved
+                    saved.serverId != identity.serverId -> ServerSetupProblem.DifferentServer
                     saved.addresses.any { it.url == url.toString() } -> ServerSetupProblem.AlreadyAdded
                     else -> null
                 }
