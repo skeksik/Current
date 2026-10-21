@@ -39,9 +39,10 @@ function Shell({ route }: { route: RouteView }) {
   }
   return (
     <div className="shell">
-      {/* Moves focus without touching the URL: a fragment would add a history entry the router does not count. */}
-      <a className="skip-link" href="#main" onClick={skipToContent}>{webStrings.skipToContent}</a>
-      <nav className="sidebar" aria-label={strings.appName} onKeyDown={arrowKeys}>
+      {/* Labelled by its purpose; the skip link comes first in it, so all content is in a landmark and the link is the first Tab stop. */}
+      <nav className="sidebar" aria-label={webStrings.navLabel} onKeyDown={arrowKeys}>
+        {/* Moves focus without touching the URL: a fragment would add a history entry the router does not count. */}
+        <a className="skip-link" href="#main" onClick={skipToContent}>{webStrings.skipToContent}</a>
         <p className="sidebar-title">{strings.appName}</p>
         <ul>
           {sidebar.map((entry) => (

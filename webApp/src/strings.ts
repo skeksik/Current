@@ -155,6 +155,7 @@ export const webStrings = {
   notFoundMessage: 'There is no page at this address.',
   notFoundHome: 'Go home',
   skipToContent: 'Skip to content',
+  navLabel: 'Main',
   problemFallback: 'Something went wrong. Try again.',
   signInServerMissingTitle: 'Server not found',
 };
