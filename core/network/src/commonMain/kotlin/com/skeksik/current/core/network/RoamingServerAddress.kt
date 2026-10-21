@@ -1,6 +1,5 @@
 package com.skeksik.current.core.network
 
-import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -186,7 +185,8 @@ internal class RoamingServerAddress(
         try {
             coroutineScope {
                 launch { view.collect { published.value = it.address } }
-                // Unlike network changes, this signal may end: a platform that never asks has nothing to report.
+                // Unlike network changes, this signal may end: a platform that never asks has nothing to report. A flip before this
+                // subscribes is seen by the next check, which reads the status first.
                 launch {
                     localAccess.changes.collect {
                         if (accessQueued.compareAndSet(expect = false, update = true)) events.send(Event.AccessChanged)
@@ -228,7 +228,14 @@ internal class RoamingServerAddress(
         published.value = null
     }
 
-    private inner class Check(val id: Int, val candidates: List<ServerUrl>, val full: Boolean, val woken: Boolean) {
+    private inner class Check(
+        val id: Int,
+        val candidates: List<ServerUrl>,
+        val full: Boolean,
+        val woken: Boolean,
+        /** Whether names marked as resolving locally were asked too; the full check after a partial miss does the same. */
+        val askedMarked: Boolean,
+    ) {
         lateinit var job: Job
         val done = BooleanArray(candidates.size)
         var best: Int? = null
@@ -271,10 +278,15 @@ internal class RoamingServerAddress(
         private var localAllowed = localAccess.status().allowsLocal
 
         /**
-         * Internet addresses whose probe timed out while local access was denied: most likely a name that resolves to a local address
-         * on this network (split DNS), so checks skip them until the network changes or access is granted.
+         * Internet addresses whose probe got no answer for its whole timeout while local access was denied: most likely a name that
+         * resolves to a local address on this network (split DNS). Checks skip them while another address is left to ask, except the
+         * periodic check and the one after a resumed network, which ask them again in case the server was only down or slow. A
+         * network change, a grant and an edit that removes the address clear the mark.
          */
         private val deniedNames = mutableSetOf<ServerUrl>()
+
+        /** Addresses that proved themselves since the last network change: they do not resolve locally here, so they are never marked. */
+        private val provedHere = mutableSetOf<ServerUrl>()
 
         suspend fun run(): Nothing {
             startCheck(full = true, woken = false)
@@ -323,6 +335,7 @@ internal class RoamingServerAddress(
             server = edit
             if (!reordered) return
             deniedNames.retainAll(edit.urls().toSet())
+            provedHere.retainAll(edit.urls().toSet())
             if (address != null && address !in edit.urls()) {
                 address = null
                 unproved = false
@@ -344,6 +357,7 @@ internal class RoamingServerAddress(
             retry = timing.retryFirst
             // A name that resolved to a local address on the old network may resolve to a public one on this.
             deniedNames.clear()
+            provedHere.clear()
             cancelCheck()
             cancelTimer()
             settlePending = true
@@ -385,7 +399,7 @@ internal class RoamingServerAddress(
                 // Back from the background: whatever happened meanwhile, check at once; requests wait for it.
                 suspended = false
                 publish()
-                startCheck(full = true, woken = true)
+                startCheck(full = true, woken = true, askMarked = true)
                 return
             }
             if (address == null) holding = true
@@ -393,7 +407,7 @@ internal class RoamingServerAddress(
             when {
                 settlePending -> Unit
                 check != null -> again = true
-                else -> startCheck(full = true, woken = true)
+                else -> startCheck(full = true, woken = true, askMarked = true)
             }
         }
 
@@ -405,14 +419,14 @@ internal class RoamingServerAddress(
         private fun accessChanged() {
             if (!followAccess()) return
             retry = timing.retryFirst
-            if (address == null) holding = true
             publish()
             if (!settlePending && !suspended) startCheck(full = true, woken = true)
         }
 
         /**
          * Reads [localAccess] and returns whether it flipped. A grant forgets the names that timed out; a denial drops an address in
-         * use that checks now skip, since nothing at it can answer.
+         * use that checks now skip, since nothing at it can answer. With no address left in use, requests wait for the check that
+         * follows, as after a resumed network.
          */
         private fun followAccess(): Boolean {
             val allowed = localAccess.status().allowsLocal
@@ -420,17 +434,18 @@ internal class RoamingServerAddress(
             localAllowed = allowed
             if (allowed) {
                 deniedNames.clear()
-            } else if (address?.let(::skipped) == true) {
+            } else if (address?.let(::unreachableWhileDenied) == true) {
                 address = null
                 unproved = false
                 failed = null
                 capabilities.update(server.ref) { it.copy(reachable = null) }
             }
+            if (address == null) holding = true
             return true
         }
 
-        /** An address the checks leave out while local access is denied. */
-        private fun skipped(url: ServerUrl) = !localAllowed && (url.scope == AddressScope.Local || url in deniedNames)
+        /** An address no check asks while local access is denied: one known by its host to need it. */
+        private fun unreachableWhileDenied(url: ServerUrl) = !localAllowed && url.needsLocalNetworkAccess
 
         /**
          * A request asks for a check: never while one runs or a settle is pending (those answer it), and at most once per
@@ -466,7 +481,7 @@ internal class RoamingServerAddress(
             requested()
         }
 
-        private fun startCheck(full: Boolean, woken: Boolean) {
+        private fun startCheck(full: Boolean, woken: Boolean, askMarked: Boolean = false) {
             // A failure the replaced check had not answered yet carries over to this one.
             failed = (failed ?: check?.suspect)?.takeIf { it == address }
             cancelCheck()
@@ -481,10 +496,14 @@ internal class RoamingServerAddress(
             failed = null
             // The periodic check asks the address in use and those above it; all of them only when none of those answers, or when
             // the one in use failed a request. Addresses that cannot answer while local access is denied are never asked, so a check
-            // left with none ends at once.
+            // left with none ends at once. Names marked as resolving locally are left out only while another address is left, and
+            // the periodic check asks them anyway.
             val partial = !full && inUse >= 0 && suspect == null
-            val candidates = (if (partial) urls.subList(0, inUse + 1) else urls).filterNot(::skipped)
-            val started = Check(++checks, candidates, full = !partial, woken = woken)
+            val reachable = (if (partial) urls.subList(0, inUse + 1) else urls).filterNot(::unreachableWhileDenied)
+            val asksMarked = askMarked || !full
+            val unmarked = if (asksMarked) reachable else reachable.filterNot { it in deniedNames }
+            val candidates = unmarked.ifEmpty { reachable }
+            val started = Check(++checks, candidates, full = !partial, woken = woken, askedMarked = asksMarked)
             started.suspect = suspect
             val asked = server
             started.job = scope.launch {
@@ -506,8 +525,10 @@ internal class RoamingServerAddress(
             running.done[result.index] = true
             val url = running.candidates[result.index]
             val proved = result.outcome == Probed.Proved
-            // Only an internet name can get here while denied; one that answered nothing in time most likely resolves locally.
-            if (result.outcome == Probed.TimedOut && !localAllowed) deniedNames += url
+            // Only an address not known to be local can get here while denied. One that answered nothing in time most likely resolves
+            // locally, unless it is in use or has answered on this network.
+            if (result.outcome == Probed.TimedOut && !localAllowed && url != address && url !in provedHere) deniedNames += url
+            if (proved) provedHere += url
             val before = running.best
             if (proved && (before == null || result.index < before)) running.best = result.index
             if (proved && url == running.suspect) running.suspect = null
@@ -549,13 +570,13 @@ internal class RoamingServerAddress(
             if (found == null && !done.full) {
                 // A failure reported during the partial check still applies to the full one.
                 failed = done.suspect
-                startCheck(full = true, woken = done.woken)
+                startCheck(full = true, woken = done.woken, askMarked = done.askedMarked)
                 return
             }
             capabilities.update(server.ref) { it.copy(reachable = found != null) }
             if (again) {
                 again = false
-                startCheck(full = true, woken = true)
+                startCheck(full = true, woken = true, askMarked = true)
                 return
             }
             if (found == null) {
@@ -616,7 +637,7 @@ internal class RoamingServerAddress(
 /**
  * For a service that cannot be identified without credentials (Stash, later): its addresses in priority order, moving to the next on a
  * reported failure and back to the first on a network change. Every saved address is one the user typed or confirmed (ADR 0016).
- * While [localAccess] denies local addresses, only the internet ones take turns, unless every address is local.
+ * While [localAccess] denies local addresses, only the others take turns, unless every address is local.
  */
 internal class OrderedServerAddress(
     server: SavedServer,
@@ -638,8 +659,8 @@ internal class OrderedServerAddress(
         ordered.copy(address = usable.getOrNull((usable.indexOf(address) + 1) % usable.size))
     }
 
-    override fun update(server: SavedServer) = state.update { ordered ->
-        if (server.urls() == ordered.addresses) ordered else ordered(server.urls())
+    override fun update(server: SavedServer) = state.update { now ->
+        if (server.urls() == now.addresses) now else ordered(server.urls())
     }
 
     override suspend fun run(networkChanges: Flow<NetworkChange>) {
@@ -666,9 +687,9 @@ internal class OrderedServerAddress(
     private fun ordered(addresses: List<ServerUrl>, allowed: Boolean = localAccess.status().allowsLocal) =
         Ordered(addresses, usable(addresses, allowed).firstOrNull(), allowed)
 
-    /** While local access is denied, the internet addresses; all of them when every one is local, as before access was asked for. */
+    /** While local access is denied, those that do not need it; all of them when every one does, as before access was asked for. */
     private fun usable(addresses: List<ServerUrl>, allowed: Boolean) =
-        if (allowed) addresses else addresses.filter { it.scope != AddressScope.Local }.ifEmpty { addresses }
+        if (allowed) addresses else addresses.filterNot { it.needsLocalNetworkAccess }.ifEmpty { addresses }
 }
 
 private fun SavedServer.urls(): List<ServerUrl> = addresses.mapNotNull { ServerUrl.parse(it.url) }

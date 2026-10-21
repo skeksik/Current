@@ -449,4 +449,21 @@ class RoamingAddressSourcesTest {
         runCurrent()
         assertEquals(url(local), source.current.value)
     }
+
+    @Test
+    fun whileDeniedAServiceThatCannotIdentifyItselfTakesTurnsAmongItsOtherAddresses() = runTest {
+        val second = ServerAddress("https://backup.example.com", AddressScope.Internet)
+        val stash = server(ServiceType.stash).copy(addresses = listOf(local, internet, second)).also(repository::save)
+        val access = FakeLocalNetworkAccess(LocalNetworkPermission.CanAsk)
+        val sources = RoamingAddressSources(
+            repository, listOf(probe), capabilities, { changes }, backgroundScope, time = testTimeSource, localAccess = access,
+        )
+        val source = sources.forServer(stash)
+        runCurrent()
+        assertEquals(url(internet), source.current.value)
+        source.reportUnreachable(url(internet))
+        assertEquals(url(second), source.awaitCurrent())
+        source.reportUnreachable(url(second))
+        assertEquals(url(internet), source.awaitCurrent(), "the local address does not take a turn")
+    }
 }
