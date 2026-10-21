@@ -1251,6 +1251,16 @@ research agent reading the same files.
 - What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
   shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
 
+## Reading the request log on a device (ADR 0015 addendum, 2026-10-21; not yet run on a device)
+- Android debug build: `adb logcat -s CurrentNet`. The check is `ApplicationInfo.FLAG_DEBUGGABLE`, since a library cannot read the
+  app's `BuildConfig`; a release build is not debuggable and prints nothing.
+- Desktop: run with `-Dcurrent.log=debug` or the environment variable `CURRENT_LOG=debug`; lines go to stderr with a `[current.log]`
+  prefix.
+- Web: `localStorage.setItem('current.log', 'debug')` in the console, then reload. Lines use `console.debug`, which Chrome shows only at
+  the Verbose level.
+- Every platform: Settings > About > Copy diagnostics. On the web the Clipboard API needs a secure context (https or localhost); over
+  plain http the text is shown selected, to copy by hand.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
