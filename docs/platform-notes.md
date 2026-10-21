@@ -2814,9 +2814,25 @@ Design: docs/architecture.md, "Single instance (desktop)". What it relies on:
 - Tested in a Linux container: the tests in `FileLockSingleInstanceTest` (claim, signal, close, stale files, wrong token, no answer,
   a killed child process). Not run: a window, Windows, two launches of the installed app.
 
+## Single instance: Windows run (checked 2026-10-22 on Windows 11 Pro 25H2, 10.0.26200.9711; PR 50 at c98d486)
+- Build: `packageMsi` with `-Pcurrent.version=0.1.2`, because the branch says 0.1.0 and 0.1.1 was installed, and a lower version does
+  not upgrade in place. `msiexec /i <msi> /qn` over the per-user 0.1.1: exit code 0, one Installed-apps entry, 0.1.2. Every launch was
+  a click on Current in the Start menu.
+- 1, launch while running: one window, one `Current.exe` pair, Current in front. Pass.
+- 2, minimised, then launch: the window is restored and in front. Pass.
+- 3, Settings > Remove dialog open, then launch: the window is in front and the dialog still open. Pass.
+- 4, a maximised File Explorer in front, then launch: Current takes focus (it is the foreground window), no taskbar flash. Pass.
+- 5, ended with `taskkill /F` (Task Manager runs elevated, so it could not be driven; End task also terminates the processes):
+  `instance.lock` and `instance.port` stay behind, the next launch starts normally with no message and writes a new `instance.port`. Pass.
+- 6, the app's JVM process suspended (`NtSuspendProcess`; Resource Monitor runs elevated), then launch: "Current is already running but
+  isn't responding. Close it in Task Manager and try again." shows between 2 and 5 s after the click (not timed more finely); OK ends
+  the new launch. After a resume, the next launch brings the window forward. Pass.
+- 7, the `local.json` and `settings.json` hashes after all cases match the backup taken before the install. Pass.
+- Also seen: the pid in `instance.port` is the inner `Current.exe`, the child of the outer launcher process and the owner of the window;
+  `AllowSetForegroundWindow` for it is enough for case 4. Closing the window deletes `instance.port` and leaves an empty `instance.lock`.
+
 ## Not verified (research before depending on it)
-- Single instance on Windows (section "Single instance on desktop"): a second launch of the installed app brings the first window
-  forward, restored from minimised, also while a dialog is open, and after the first was killed in Task Manager the next launch starts.
+- Single instance on a Linux desktop (section "Single instance on desktop"); Windows: section "Single instance: Windows run".
 - Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
   checklist in "Windows screen readers and the desktop app"), the
   window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
