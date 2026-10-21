@@ -1102,6 +1102,11 @@ research agent reading the same files.
   protection level dangerous. "A local network refers to an IP network that utilizes a broadcast-capable network interface, such as Wi-Fi
   or Ethernet, but excludes cellular (WWAN) or VPN connections." https://developer.android.com/reference/android/Manifest.permission
   So an overlay VPN address (Tailscale, which ADR 0016 counts as `Local`) presumably does not need it. Not verified on a device.
+- Tailscale's addresses, https://tailscale.com/kb/1033/ip-and-dns-addresses (checked 2026-10-21): "By default, every device receives an
+  IP address in the `100.x.y.z` range" (the app uses `100.64.0.0/10`), and "Tailscale IPv6 addresses are assigned from the unique local
+  address prefix of `fd7a:115c:a1e0::/48`" ("Previously IPv6 addresses were assigned from `fd7a:115c:a1e0:ab12::/64`", inside it). The
+  app treats both prefixes and `.ts.net` names as an overlay VPN that needs no local network access. Whether Android 17 exempts the VPN
+  interface for them is not verified on a device.
 - https://developer.android.com/privacy-and-security/local-network-permission : "required only if your app targets Android 17 (SDK 37) or
   higher"; declare it in the manifest; "Before attempting any local network access, applications must check if the permission has been
   granted"; apps must handle a denial or a later revocation in settings, after which "local network traffic will be blocked". If another

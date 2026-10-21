@@ -1,7 +1,6 @@
 package com.skeksik.current.core.network
 
 import com.skeksik.current.core.database.KeyValueStore
-import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.BufferOverflow
@@ -94,16 +93,17 @@ enum class LocalNetworkAskReason {
 }
 
 /**
- * Whether to ask for local network access now (ADR 0020): when the user opens "Add server", or when a saved server has a local
- * address, and only while the dialog can still be shown. Never otherwise, so a user with internet addresses only is never asked.
- * Once [LocalNetworkPermission.Blocked], this stays false: the screen offers the settings page, and may also offer "Try again", which
- * calls [LocalNetworkAccess.request] and notices if the platform has reset its denials.
+ * Whether to ask for local network access now (ADR 0020): when the user opens "Add server", or when a saved server has an address that
+ * needs it ([SavedServer.needsLocalNetworkAccess], so not one reached only through an overlay VPN), and only while the dialog can still
+ * be shown. Never otherwise, so a user with internet addresses only is never asked. Once [LocalNetworkPermission.Blocked], this stays
+ * false: the screen offers the settings page, and may also offer "Try again", which calls [LocalNetworkAccess.request] and notices if
+ * the platform has reset its denials.
  */
 fun shouldAskForLocalNetwork(reason: LocalNetworkAskReason, servers: List<SavedServer>, status: LocalNetworkPermission): Boolean {
     if (status != LocalNetworkPermission.CanAsk) return false
     return when (reason) {
         LocalNetworkAskReason.AddServer -> true
-        LocalNetworkAskReason.SavedServers -> servers.any { server -> server.addresses.any { it.scope == AddressScope.Local } }
+        LocalNetworkAskReason.SavedServers -> servers.any { it.needsLocalNetworkAccess }
     }
 }
 
