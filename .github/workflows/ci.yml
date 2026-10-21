@@ -78,6 +78,48 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew jvmTest :desktopApp:classes
 
+  # The packaged desktop app (createDistributable, the installers) runs on jlink's trimmed runtime, not the full JDK that
+  # `:desktopApp:run` uses, so these jobs build it, check its JDK modules and start it. No artifacts are uploaded: the installers
+  # are large and the repo is public.
+  desktop-package-linux:
+    name: Desktop package (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      # suggestRuntimeModules prints jdeps' view of the modules, for comparing with modules(...) in desktopApp/build.gradle.kts.
+      - run: ./gradlew :desktopApp:suggestRuntimeModules :desktopApp:createDistributable :desktopApp:packageDeb
+      - run: ./scripts/check-desktop-runtime.sh desktopApp/build/compose/binaries/main/app/Current
+      - run: dpkg-deb --info desktopApp/build/compose/binaries/main/deb/*.deb
+      - name: Start the packaged app (Xvfb)
+        run: |
+          sudo apt-get install -y -qq xvfb
+          Xvfb :99 -screen 0 1600x1000x24 &
+          DISPLAY=:99 ./scripts/smoke-desktop-app.sh desktopApp/build/compose/binaries/main/app/Current/bin/Current
+
+  desktop-package-windows:
+    name: Desktop package (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      # packageMsi downloads WiX 3.11 itself (the Compose plugin's downloadWix task).
+      - run: ./gradlew :desktopApp:createDistributable :desktopApp:packageMsi
+      - run: ./scripts/check-desktop-runtime.sh desktopApp/build/compose/binaries/main/app/Current
+      - run: ls -l desktopApp/build/compose/binaries/main/msi
+      - run: ./scripts/smoke-desktop-app.sh desktopApp/build/compose/binaries/main/app/Current/Current.exe
+
   macos:
     name: Apple apps (macOS)
     runs-on: macos-latest

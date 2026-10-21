@@ -12,8 +12,9 @@ echo "==> Apple MARKETING_VERSION matches current.version"
 echo "==> Unit tests (JVM, and the web facade's on Node)"
 ./gradlew jvmTest :web:jsNodeTest
 
-echo "==> Desktop app compiles"
-./gradlew :desktopApp:classes
+echo "==> Desktop app compiles and packages with the JDK modules it needs (CI also starts it)"
+./gradlew :desktopApp:createDistributable
+./scripts/check-desktop-runtime.sh desktopApp/build/compose/binaries/main/app/Current*
 
 if ! command -v npm > /dev/null; then
   echo "npm not found: the web app needs Node.js 22 or newer" >&2
