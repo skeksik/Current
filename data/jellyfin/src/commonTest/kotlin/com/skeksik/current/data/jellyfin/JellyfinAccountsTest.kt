@@ -198,7 +198,7 @@ class JellyfinAccountsTest {
     @Test
     fun quickConnectKeepsWaitingThroughNetworkAndServerFailures() = runTest {
         val answers = mutableListOf<suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData>(
-            { throw java.net.ConnectException("offline") },
+            { throw kotlinx.io.IOException("offline") },
             status(HttpStatusCode.ServiceUnavailable),
             status(HttpStatusCode.BadGateway),
             json("""{"Authenticated":true}"""),
@@ -240,7 +240,7 @@ class JellyfinAccountsTest {
         assertFalse(status.signedIn)
 
         accounts.signIn(home.ref, "alex", "pw")
-        routes["/Sessions/Logout"] = { throw java.net.ConnectException("offline") }
+        routes["/Sessions/Logout"] = { throw kotlinx.io.IOException("offline") }
         accounts.signOut(home.ref)
         runCurrent()
         assertNull(secrets.get("jellyfin/home/token"))
@@ -314,7 +314,7 @@ class JellyfinAccountsTest {
     fun anOfflineServerStaysSignedInButUnreachable() = runTest {
         routes["/Users/AuthenticateByName"] = authResult()
         accounts().signIn(home.ref, "alex", "pw")
-        routes["/Users/Me"] = { throw java.net.ConnectException("offline") }
+        routes["/Users/Me"] = { throw kotlinx.io.IOException("offline") }
         accounts().restore()
         runCurrent()
         assertEquals(false, status.reachable)
