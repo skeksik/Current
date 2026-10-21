@@ -18,3 +18,9 @@ Kotlin/Native target tiers: macosArm64 and iOS targets are Tier 1; tvosArm64 and
 - Two UIs to build for each screen; logic must stay in shared Kotlin so behaviour is identical.
 - Apple development needs a Mac and Xcode. The iOS, macOS and tvOS apps are one Xcode target, minimum OS 26 (ADR 0012).
 - Design tokens (colors, spacing, type scale) should be plain data in a shared module once the design exists, so both UIs read the same values.
+
+## Addendum (2026-10-21): Swift interop for M4
+- The first M4 Apple PR is a spike: an Apple facade in `apple` (Koin start, ViewModel holders, `@Throws` where Swift calls can fail;
+  docs/reviews/2026-10/apple.md 4.5) with Swift export. It ends in a note on whether Swift export carries one real screen.
+- Swift export is Alpha in Kotlin 2.4 and breaking changes are expected (docs/platform-notes.md, "Swift interop", read 2026-10-21).
+- SKIE is the fallback if the spike shows Swift export falls short. It is a new dependency, so it needs the owner's approval first.

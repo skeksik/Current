@@ -44,7 +44,7 @@ Kotlin 2.4.x, Compose Multiplatform 1.12.x, AGP 9.x, Gradle wrapper (see gradle/
 Web: React 19, Vite 8, TypeScript 7 (exact versions in webApp/package.json; Node.js 22+).
 Added (ADR 0002): Ktor client and kotlinx.serialization (`core:network`), Koin, Navigation Compose (`composeUi`), Coil 3 (`composeUi`).
 Also added: JetBrains lifecycle-viewmodel (features, `web`), navigationevent-compose (`composeUi`), JNA (desktop keyring, `core:database`).
-Planned, not added yet: SQLDelight, Media3, SKIE for Swift interop.
+Planned, not added yet: SQLDelight, Media3. Swift interop: an M4 spike with Swift Export (Alpha); SKIE is the fallback, needing approval (ADR 0006).
 Research notes with sources and the list of still-unverified claims: docs/platform-notes.md. Do not assert API or platform facts that are not there without checking.
 
 ## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)
