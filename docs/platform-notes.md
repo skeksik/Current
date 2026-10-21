@@ -1030,6 +1030,35 @@ research agent reading the same files.
     can have the local-network exemption, or arbitrary loads, not both; arbitrary loads suits the Private edition (ADR 0014) only.
   - Not verified: whether AVPlayer's loads of a local `http` URL follow `NSAllowsLocalNetworking`.
 
+## Device name and the local network keys: Apple (checked 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com; nothing run for this section)
+- Launch watchdog kill, from the owner's iPhone run (iOS 27, first launch after install): `platformDeviceName()` read
+  `NSProcessInfo.processInfo.hostName` while Koin built `DeviceIdentity`. That lookup raised the Local Network prompt and blocked until it was
+  answered (up to about 35 s); on the main thread the watchdog killed the app (SIGKILL, in `-[NSHost blockingResolveUntil:]`). The
+  `hostName` page says only "The name of the host computer on which the process is executing" and lists every Apple OS; it does not say it
+  may resolve over the network. https://developer.apple.com/documentation/foundation/processinfo/hostname
+  So the device name must come from an API that reads local state only, and nothing at start may wait on the network on the main thread.
+- iOS and tvOS: `UIDevice.current.name`. The entitlement page `com.apple.developer.device-information.user-assigned-device-name` (iOS,
+  tvOS 16): "In iOS 15 and earlier, the [name] property returns this name. In iOS 16 and later, the [name] property returns a generic device
+  name by default instead"; the user-assigned name needs the entitlement, granted only for a user-visible multi-device feature, never for
+  tracking. We use the generic name ("iPhone", "iPad"), without the entitlement. The generic value's exact text is not listed; not verified on a device.
+  https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.device-information.user-assigned-device-name
+  The `UIDevice.name` page lists tvOS without an introduction version (https://developer.apple.com/documentation/uikit/uidevice/name);
+  what it returns on tvOS is not verified.
+- macOS: `SCDynamicStoreCopyComputerName(_:_:)` (SystemConfiguration, macOS 10.1): "Returns the current computer name", or NULL "if the name
+  has not been set or if an error occurred"; pass NULL for a temporary session; "You must release the return value" (Kotlin:
+  `CFBridgingRelease`). It reads the system configuration store, not DNS. https://developer.apple.com/documentation/systemconfiguration/scdynamicstorecopycomputername(_:_:)
+  `NSHost.current().localizedName` (macOS 10.6) is "the name displayed in the Finder sidebar, as well as in the Sharing preference panel";
+  its page does not say whether it resolves, so it is not used. https://developer.apple.com/documentation/foundation/host/localizedname
+- `NSLocalNetworkUsageDescription`: "A message that tells people why the app is requesting access to the local network. Any app that uses
+  the local network, directly or indirectly, should include this description", including "direct unicast or multicast connections to local
+  hosts". Lists iOS 14, macOS 11, tvOS 14, visionOS 1 (TN3179 above says tvOS does not enforce local network privacy).
+  https://developer.apple.com/documentation/bundleresources/information-property-list/nslocalnetworkusagedescription
+- `NSAllowsLocalNetworking` (under `NSAppTransportSecurity`): lists iOS 10, macOS 10.12, visionOS 1, **not tvOS**. "In iOS 17, iPadOS 17, and
+  macOS 14, ATS no longer allows connections to IP addresses by default"; the key re-enables unqualified names, `.local` names and IP
+  addresses. https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking
+- So `appleApp/Current/Info.plist`, shared by iOS, macOS and tvOS (ADR 0012), carries both keys. On tvOS the ATS key is set anyway; whether
+  tvOS allows plain `http` to a LAN address with it, or without it, is not verified.
+
 ## Local network, discovery and cleartext HTTP: Android (checked 2026-10-19 in the Android docs and AOSP `main`; nothing run on a device)
 - Android 17 local network permission, https://developer.android.com/privacy-and-security/local-network-permission and
   https://developer.android.com/about/versions/17/behavior-changes-17
