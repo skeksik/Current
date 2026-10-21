@@ -9,4 +9,13 @@ for sdk in iphonesimulator macosx appletvsimulator; do
   echo "--> $sdk"
   xcodebuild -quiet -project appleApp/Current.xcodeproj -target Current -configuration Debug -sdk "$sdk" \
     SYMROOT="$PWD/appleApp/build" CODE_SIGNING_ALLOWED=NO build
+  # The privacy manifest (appleApp/Current/PrivacyInfo.xcprivacy) must land in the bundle's resources.
+  case "$sdk" in
+    macosx) manifest=appleApp/build/Debug/Current.app/Contents/Resources/PrivacyInfo.xcprivacy ;;
+    *) manifest="appleApp/build/Debug-$sdk/Current.app/PrivacyInfo.xcprivacy" ;;
+  esac
+  if [ ! -f "$manifest" ]; then
+    echo "error: $manifest is missing" >&2
+    exit 1
+  fi
 done

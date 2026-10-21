@@ -46,15 +46,16 @@ Dependencies point down. Features never import each other. Pure-Kotlin modules h
 | Module | Responsibility |
 |---|---|
 | `core:model` | Domain models (ADR 0013): media identity (server + id), open values for services, media kinds, image types and permissions, artwork with aspect ratio and blurhash, users, capabilities (ADR 0014). Request status comes with Seerr requests (M3) |
-| `core:network` | One client per server that follows the server's current address, credentials added by the data layer, error model (`ServiceException`), redacted request log, kept in memory by `RequestLogBuffer` (ADR 0015); saved servers, address scope and `ServerProbe` (ADR 0016); roaming between a server's addresses, with requests waiting for a proved address, and `NetworkChanges` (ADR 0019); the capabilities state |
+| `core:network` | One client per server that follows the server's current address, credentials added by the data layer, error model (`ServiceException`), redacted request log, kept in memory by `RequestLogBuffer` (ADR 0015); saved servers, address scope and `ServerProbe` (ADR 0016); roaming between a server's addresses, with requests waiting for a proved address, and `NetworkChanges` (ADR 0019); `LocalNetworkAccess`, the Android local network permission (ADR 0020); the capabilities state |
 | `core:database` | `KeyValueStore` for settings per platform (ADR 0016: JSON file on desktop, `localStorage`, `SharedPreferences`, `NSUserDefaults`); `SecretStore` for tokens, a machine-local store and `DeviceIdentity` (ADR 0017); later the cache. Web persistence for the cache is open (ADR 0004) |
-| `core:playback` | `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types, `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`) |
+| `core:playback` | `DeviceProfile`, `VideoRanges` (HDR and Dolby Vision range types for every engine); the browser probes and web device profile (`web` package, runner in `jsMain`). Planned: `PlayerEngine` interface, `EngineCapabilities`, `PlaybackPlanner`, plan types |
 | `core:designsystem` | Compose theme from design tokens (`CurrentTokens`), loading, error and empty states, sidebar and page layout, the app's own icons, keyboard focus helpers (Android/desktop) |
 | `data:jellyfin` | The server probe (ADR 0016) and `JellyfinAccounts`: sign-in, Quick Connect, sign-out, restored sessions, authorized clients (ADR 0018) |
 | `data:*` | One repository per service. Ktor calls, internal DTOs, mapping to models |
-| `feature:home` | `HomeViewModel`: where every shell starts; no server, signed out, or signed in |
-| `feature:*` | ViewModel + UI state per feature; `feature:player` holds `PlayerController` |
-| `composeUi` | Compose screens for every feature, the destination contract and `Shell` (sidebar + pages), custom player controls, per-platform video surface |
+| `feature:home` | `HomeViewModel`: where every shell starts; no server, signed out, or signed in. `HomeLocalNetworkViewModel`: the local network ask on Home (ADR 0020) |
+| `feature:settings` | `ServerSetupViewModel` (ADR 0016), `SignInViewModel` and `ServersViewModel` (ADR 0018), `ServerAddressesViewModel` (ADR 0019), `LocalNetworkPromptViewModel` (ADR 0020), `PlaybackSupportViewModel`, `AboutViewModel` (ADR 0015) |
+| `feature:*` | ViewModel + UI state per feature; `feature:player` will hold `PlayerController` |
+| `composeUi` | Compose screens for every feature, the destination contract and `Shell` (sidebar + pages); planned: custom player controls, per-platform video surface |
 | `shared` | Compose umbrella: `App()`, the list of modules it includes, Koin start (`CurrentKoin`, `AppContent`) |
 | `apple` | Static framework `Shared` exporting core/data/feature to Swift |
 | `web` | Kotlin/JS ES module library `current-core` (with `.d.ts`): an `@JsExport` facade over the ViewModels and the History API router, consumed by the React app in `webApp` (ADR 0011) |
@@ -99,8 +100,8 @@ Two editions: **Store** (everything distributed, every feature) and **Private** 
 forbids passing them on, such as full Dolby Vision processing).
 
 ## Data flow
-UI observes `StateFlow<UiState>` from a ViewModel (Compose collects it directly; SwiftUI through SKIE-generated async sequences, see
-docs/platform-notes.md; React through the facade's subscribe/getSnapshot with `useSyncExternalStore`, ADR 0011)
+UI observes `StateFlow<UiState>` from a ViewModel (Compose collects it directly; SwiftUI through the Apple facade, with Swift Export
+or SKIE decided by the M4 spike, ADR 0006; React through the facade's subscribe/getSnapshot with `useSyncExternalStore`, ADR 0011)
 -> ViewModel calls a repository -> repository calls the service API and maps DTOs to models. A read-through cache comes later.
 
 ## Playback
@@ -111,6 +112,16 @@ PlayerUI (SwiftUI | Compose | React)  ->  PlayerController (feature:player)  -> 
 ```
 Sources: Jellyfin (the server negotiates routes from a device profile built from `EngineCapabilities`) and Stash
 (direct file or Stash's own transcodes). Each source reports progress back to its own server. See ADR 0007.
+The player's UX rules (keyboard, pointer, scrubber, touch, subtitles, Next Up, PiP, accessibility): docs/player-ux.md.
+
+## UX rules
+- **Home is user-editable:** rows can be shown, hidden and reordered; Continue Watching and Next Up merged or split; watched items
+  hidden in Recently Added; Reset to defaults. When a server offers a home layout, Home follows it, read from `CapabilitiesState`
+  (ADR 0008, ADR 0014).
+- **Offline states per page:** each page shows its own "server unreachable" state with actions (Open settings; Open downloads once
+  downloads exist). Every load has a timeout, never an endless spinner.
+- **Admin and paid features** appear only where they apply. No tab exists only to upsell (a general rule; the app has no paid features).
+- **Settings on the Mac:** a settings window bound to Cmd+, , not a small sheet. Platform-only settings stay off other platforms.
 
 ## Platforms
 | Platform | UI | Engine (planned) |
