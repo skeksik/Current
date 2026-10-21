@@ -27,7 +27,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: webApp/package-lock.json
-      - run: ./gradlew jvmTest :desktopApp:classes
+      - run: ./gradlew jvmTest :web:jsNodeTest :desktopApp:classes
       - name: Web app (npm licences, Kotlin library, Vite build)
         working-directory: webApp
         run: |

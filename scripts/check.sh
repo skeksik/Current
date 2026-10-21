@@ -6,8 +6,8 @@ cd "$(dirname "$0")/.."
 echo "==> No team ID in committed Xcode files"
 ./scripts/check-no-team-id.sh
 
-echo "==> Unit tests (JVM)"
-./gradlew jvmTest
+echo "==> Unit tests (JVM, and the web facade's on Node)"
+./gradlew jvmTest :web:jsNodeTest
 
 echo "==> Desktop app compiles"
 ./gradlew :desktopApp:classes
