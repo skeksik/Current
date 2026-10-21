@@ -1439,6 +1439,41 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   use counts again only once proved. A wait that runs out while suspended waits for the return and starts again, and time suspended
   does not count against the limit. This is meant to fix the 16 s failure, the longer suspensions and the few-ms window above.
 
+## Roaming on iOS, suspension fix (checked 2026-10-21 on iOS 27.0.1, iPhone 15 Pro Max, development-signed; ADR 0019)
+- What ran: PR 23 at d7f0bc4 (the suspension fix of c19f3e6 merged with main), 17 steps; then again at 7cac0e2, which changes the
+  common loop for Android's suspension, 8 of the steps and two cold launches. Same throwaway harness, server, addresses, `Info.plist`
+  keys and XCUITest runner as "Roaming on iOS, final" (not committed), installed over the earlier copy (local network access allowed).
+  The harness also made a request at `DidEnterBackground`, another 300 ms after it, one at `WillEnterForeground` and one at
+  `DidBecomeActive`, besides the one every 250 ms, and logged gaps in a 200 ms ticker to show when the app was suspended. Times from
+  `WillEnterForeground` (the return); "away" is the time from `DidEnterBackground` to the return.
+- **`DidEnterBackground` under the SwiftUI scene lifecycle: posted** at all 25 trips to the background, 0-1 ms after
+  `UISceneDidEnterBackgroundNotification`. `Suspended` reached the loop 1-3 ms after it, and the app was suspended 0.01-1.3 s after
+  it (last tick of the ticker), so the loop always handled it first. A probe in flight was cancelled there (0.87-0.97 s old).
+- **Case 7, a request waiting across a suspension: pass**, 15 times; no request failed in either run.
+  - Same network, away 2.6-44.6 s (7 times): the request held since the background got the local address 28-38 ms after the
+    return, as did one made at the return (held 28-37 ms). The path update after the return was no change.
+  - The case that failed before: Wi-Fi turned on and Home at once, so a request was already waiting when the app went to the
+    background. Away 15.7-44.7 s (4 times): the local address 36-48 ms after the return, the request held 16.4-45.5 s. Each time
+    the joining `Changed` came after `Suspended`, still in the background; requests went on waiting.
+  - Wi-Fi off and Home at once (the internet address just proved): away 11.6-44.7 s (4 times), the internet address 146-164 ms
+    after the return (proved again, the kept address being unproved), requests held 11.7-44.7 s.
+  - Time suspended does not count: in both cases requests waited up to 60.2 s in all and succeeded, against a 22 s overall limit.
+- **Case 8, a network change while suspended: pass**, 10 times. Home, Wi-Fi switched from Control Center about 6 s later (the app
+  already suspended), back after 28.7-59.0 s. At the return `Resumed` came first and the path's `Changed` 10-18 ms after it; the
+  check started by `Resumed` was cancelled by it, then the 1 s settle.
+  - Wi-Fi off while away (5 times): the internet address proved 1.19-1.24 s after the return. **No request got the local address**:
+    the one held since the background, the one made 300 ms into the background (when the app was not suspended sooner) and the one
+    made at the return all waited 1.19-1.24 s for the internet address.
+  - Wi-Fi on while away (5 times): the local address 1.04-1.06 s after the return, every request waiting until then.
+  - The 3-30 ms window of the earlier run is closed: requests now hold from the background until a check after the return proves an
+    address.
+- Cold launch at 7cac0e2, twice: the local address 77-80 ms after launch, requests held 5-26 ms, and the launch's `Resumed` (no
+  `Suspended` before it) gave the same quick second check as before.
+- Also seen: a request made by another observer of `DidEnterBackground` that runs before the source's own observer (the harness's
+  came first) got the address in use at once (0-2 ms). Such a request counts as made before going to the background.
+- Not run: a switch to another Wi-Fi network while away (by the rules it should behave like cellular: the local address times out,
+  the internet address releases requests), airplane mode, tvOS.
+
 ## Roaming on Android (checked 2026-10-21 on a Pixel 8 Pro, Android 17, SDK 37, build CP3A, security patch 2026-10-05; ADR 0019)
 - What ran: a throwaway debug build of `androidApp` (target 37, not committed) that built the app's Koin graph (`databaseModule`,
   `networkModule`, `jellyfinModule`) with the real `RoamingAddressSources`, `JellyfinServerProbe` and Android `NetworkChanges`, for one
@@ -1799,8 +1834,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
       under the SwiftUI scene lifecycle on tvOS. On iOS 27.0.1 it is, at every return and every cold launch (section "Roaming on iOS,
       final"); not checked in Apple's documentation.
     - Whether `UIApplicationDidEnterBackgroundNotification`, observed by that string name, is posted under the SwiftUI scene lifecycle on
-      iOS and tvOS, and early enough for the loop to handle it before the app is suspended. Not checked in Apple's documentation or on a
-      device.
+      tvOS, and early enough for the loop to handle it before the app is suspended. On iOS 27.0.1 it is, at every trip to the
+      background, 0.01-1.3 s before suspension (section "Roaming on iOS, suspension fix"); not checked in Apple's documentation.
   - Android:
     - Which addresses count as "local network" for `ACCESS_LOCAL_NETWORK`; whether a `domain-config` can name a LAN IP literal.
     - Media3's and Coil's handling of the cleartext policy. (A broadcast discovery needed no `MulticastLock` on Android 16 or 17, see
