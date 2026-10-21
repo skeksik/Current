@@ -26,9 +26,13 @@ HTTP: Android" and "Local network permission on Android: the API" have the docum
   callback hands each answer, with `shouldShowRequestPermissionRationale` after a denial, to the bridge. A request still pending when the
   activity is recreated (rotation) is completed by the new activity's callback. With no activity attached, or when it finishes, a request
   returns at once with no answer and changes nothing.
-- **When to ask** (`shouldAskForLocalNetwork`): when the user opens "Add server", or when a saved server has a local address, and only
-  while the dialog can still show. Never at start for a user whose servers are all on the internet. The shell explains why in a sentence
-  first. A denial means local addresses cannot be reached, and neither can an internet name that resolves to one (split DNS at home);
+- **When to ask** (`shouldAskForLocalNetwork`): when the user opens "Add server", or when a saved server has a local address (Home,
+  `HomeLocalNetworkViewModel` in `feature:home`), and only while the dialog can still show. Never at start for a user whose servers are
+  all on the internet. The shell explains why in a sentence first, and shows the dialog only after the user presses Continue.
+- **A denial is shared by every screen** (`LocalNetworkAccess.deniedBefore()`, read from the stored state below, cleared by a grant).
+  After a "Don't allow" anywhere, no screen shows the dialog on its own (Add server's first check included): each says what the denial
+  means and asks again only when the user presses "Ask again". This follows Android's guidance to ask in context and that a second
+  denial is permanent (docs/platform-notes.md, "Runtime permission guidance"). A denial means local addresses cannot be reached, and neither can an internet name that resolves to one (split DNS at home);
   other internet servers still work. The shell says so and, once `Blocked`,
   links to the app's settings page and may offer "Try again" (`request()` still asks then, and notices if Android reset its denials).
 - **"Add server"** (`LocalNetworkPromptViewModel`, `feature:settings`) explains in one line that the next dialog asks for "Nearby

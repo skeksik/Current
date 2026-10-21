@@ -1181,6 +1181,76 @@ research agent reading the same files.
 - Not run here: steps 1 and 4 to 6, the dismissed dialog, keyboard and D-pad. Still seen, as on the device: at phone width the sidebar
   takes about half the screen and the page draws under the status bar.
 
+## Android polish: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12.0, Android 17, API 37; PR 36 debug build)
+- Build: `fix/android-polish` at 510db5f, no local change, `./gradlew :androidApp:installDebug`; `./scripts/check-android-apk.sh` on
+  that APK passed ("The APK contains every module's Compose strings."). AVD: `system-images;android-37.0;google_apis;x86_64` (r06),
+  build CE2A.260420.019, security patch 2026-05-05, portrait 1080x2400. Driven with `adb shell input`, `screencap` and
+  `uiautomator dump`; the permission was read from `dumpsys package`.
+- Server: a throwaway stand-in on the host answering `GET /System/Info/Public`. The local address was the emulator's host alias
+  (`http://10.0.2.2:<port>`, "On your local network"). The internet address was a public wildcard-DNS name that resolves to 10.0.2.2
+  (written here as `http://media.example.com:<port>`, "On the internet" with the plain `http` warning).
+- Saving a server needs a check, and Add server asks before the first check whatever the address (ADR 0020), so in cases 1 and 2 the
+  server was saved with **Allow**, then `pm revoke` and `pm clear-permission-flags ... user-set user-fixed` and a relaunch made the
+  permission undecided again (flags back to `USER_SENSITIVE_*` only). Case 2 started from `pm clear`.
+1. Internet-only servers: **pass.** One internet server saved, permission undecided: Home showed no notice and no dialog at start, after
+   Home key and return, and after Settings, then Home in the sidebar. `dumpsys` still showed no `USER_SET`.
+2. A saved local server: **pass.** Home showed "To reach a server on your home network, Current needs the permission Android calls
+   "Nearby devices"." with **Continue**, and no dialog. **Continue** opened the system dialog.
+3. Shared denial: **pass.** **Don't allow** (`USER_SET`): Home showed the denied line with **Ask again**. Settings, Add server: the same
+   denied note with **Ask again**, no dialog on opening; a **Check** of the local address showed no dialog, no request reached the
+   stand-in, and it ended in "The server took too long to answer." with the "Nearby devices" hint. Home again from the sidebar: still
+   the denied line with **Ask again**. **Ask again** opened the dialog; a second **Don't allow** (`USER_SET|USER_FIXED`) gave the
+   Blocked notice with **Open settings** and **Try again**.
+4. Grant in settings: **pass.** `am start -a android.settings.APPLICATION_DETAILS_SETTINGS`, Permissions, Nearby devices, **Allow**
+   (`granted=true`), Back to the app: the notice was gone.
+5. Focus ring: **pass.** After a tap on empty sidebar space (`mInTouchMode=true`), the first `KEYCODE_TAB` showed the ring on Home in
+   the sidebar. A tap removed it; `KEYCODE_DPAD_DOWN` as the first key showed it on Home again. Also: `KEYCODE_ENTER` as the first key
+   after a tap showed it, and a second Tab moved it to Settings. `uiautomator`'s `focused` flag does not follow Compose focus, so the
+   ring was judged from screenshots.
+6. Phone landscape: **pass.** `user_rotation 1` with auto-rotate off and the Blocked notice on Home: at font scale 1.0 the notice,
+   both buttons and Sign in fit without scrolling. At font scale 1.5 the page scrolled and Sign in was reachable. Add server is not
+   shown in this state (the Blocked notice needs a saved local server). Rotation and font scale were restored afterwards.
+- Seen, not new: the page draws under the status bar, so scrolled text passes under the status icons (portrait and landscape). At the
+  first launch the emulator was out of touch mode (`mInTouchMode=false`, left by earlier key input), and the focused **Add a server**
+  button showed its ring until the first tap, as expected outside touch mode.
+- Not run here: the dismissed dialog, **Try again** and **Open settings** from the Blocked notice, the Blocked notice on Add server.
+
+## Focus ring after a tap on Android (read 2026-10-21 in AOSP `ViewRootImpl.java` on `main`; not yet run on a device or emulator)
+- Source: `frameworks/base/core/java/android/view/ViewRootImpl.java` (android.googlesource.com, `refs/heads/main`).
+- Why the first Tab after a tap showed no ring (section "Local network permission on Android: run on a device"): any pointer down
+  enters touch mode (`processPointerEvent`: "Enter touch mode on down or scroll from any type of a device"). In touch mode
+  `EarlyPostImeInputStage.processKeyEvent` calls `checkForLeavingTouchModeAndConsume` before the key reaches the view hierarchy. For a
+  navigation key without modifiers (`isNavigationKey`: the D-pad keys and centre, Page Up/Down, Move Home/End, Tab, Space, Enter) it
+  returns `ensureTouchMode(false)`, and the key is `FINISH_HANDLED` when that changed focus. `ensureTouchModeLocally` sets the mode,
+  calls `ViewTreeObserver.dispatchOnTouchModeChanged(false)`, then `leaveTouchMode()`, which, when nothing (or a group that prefers its
+  children) has focus, calls `mView.restoreDefaultFocus()`. So that Tab never reaches `Activity.dispatchKeyEvent`, and focus moves
+  without the app seeing a key: Compose focuses its first element, Home.
+- Shift+Tab is not consumed (`hasNoModifiers()` is false), and a typing key leaves touch mode without being consumed.
+- Fix (`fix/android-polish`): `MainActivity` adds an `OnTouchModeChangeListener` to the decor view's tree observer; leaving touch mode
+  marks the next focus as keyboard focus (`FocusVisibility.onKeyboardNavigation`). The listener is dispatched before
+  `restoreDefaultFocus()`, so the element focused by that Tab gets its ring. Not yet checked on a device or the emulator.
+- Compose's own input mode (read 2026-10-21 in the 1.12.1 sources jars: `androidx.compose.ui:ui-android` from Google's Maven,
+  `org.jetbrains.compose.ui:ui-desktop` from Maven Central):
+  - Android: `AndroidComposeView` registers itself as an `OnTouchModeChangeListener` and sets `LocalInputModeManager`'s `inputMode` to
+    `Touch` or `Keyboard` from `isInTouchMode`. So on Android it tracks touch mode, the same signal the listener above uses.
+  - Desktop (`RootNodeOwner.skiko.kt`, `PlatformContext.skiko.kt`): the mode starts as `Keyboard`, becomes `Touch` on a pointer event
+    with a button, and becomes `Keyboard` again only for a key that moves focus (Tab, arrows) and is not consumed first. Enter opening
+    a page that focuses its first field does not change it, and the first frame counts as keyboard.
+  - So `inputMode` cannot replace `FocusVisibility` in common code (desktop would show rings at start and miss the Enter case), and
+    using it on Android only would need a platform split in `core:designsystem`. The activity's listener stays.
+
+## Runtime permission guidance (read 2026-10-21 at https://developer.android.com/training/permissions/requesting)
+- "Ask for a permission in context, when the user starts to interact with the feature that requires it." "Don't block the user."
+  Show an educational UI first when `shouldShowRequestPermissionRationale()` returns true.
+- "If the user taps Deny for a specific permission more than once during your app's lifetime of installation on a device, the user
+  will no longer see the system permissions dialog if your app requests that permission again. The user's action implies "don't ask
+  again," and is considered a permanent denial." The page adds that it is "very important to only prompt users for permissions when
+  they need access to a specific feature; otherwise, you might inadvertently lose the ability to re-request permissions."
+- "If the user denies or revokes a permission that a feature needs, gracefully degrade your app so that the user can continue using
+  your app."
+- What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
+  shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
@@ -1886,14 +1956,15 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **DevTools "Offline" is not a real change.** In Chrome and Edge it fires `connection.change` (downlink 0) and `offline`, and fetches fail
   at once. Turning it off fires `connection.change` and `online`. In Firefox it fires `offline` and `online`, but the page's fetches went
   through while it was on. After `online`, the check re-proved the local address in 1.03 s (Firefox).
-- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`), an unresolvable name, and a
+- **Ktor JS fetch failures are not `IOException`.** Offline, connection refused (`http://127.0.0.1:9`, in fact a port browsers block:
+  see the correction in "Roaming in browsers, final"), an unresolvable name, and a
   connection that drops all fail with a plain `Error("Fail to fetch")`, caused by the browser's `TypeError: Failed to fetch`, in Chrome,
   Edge and Firefox. `serviceExceptionFor` does not map it, so `ServerClient.request` rethrows it as a bug. There is no `Unreachable` and no
   `reportUnreachable`. A request timeout is still `HttpRequestTimeoutException`, which is mapped.
 - **That error ends roaming.** `RoamingServerAddress` catches only `ServiceException` from a probe. A probe that fails fast throws out of
   the check, and `run` ends: `current` stays null, and every later request fails as `Unreachable` within 1 ms, even after `online`.
-  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a refused address listed above a working
-  one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
+  Seen with DevTools "Offline" in Chrome and Edge (1.02 s after the event), and at start with a "refused" (blocked) address listed
+  above a working one (13 ms). A local address that only times out on the hotspot did not trigger it. Fixed in PR 23: that error maps to
   `Unreachable`, and a loop that a bug ends starts again (ADR 0019).
 - Unnoticed by the web signal, then: every real switch on this PC, apart from what a speed estimate happens to catch late (Chrome, Edge),
   and all of them in Firefox. What is left is the periodic check and failed requests, which PR 23 now maps and reports.
@@ -1903,7 +1974,7 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   hook (not committed) in the `web` facade. Unlike the first run, the hook started the app's own Koin modules (`databaseModule`,
   `networkModule`, `jellyfinModule`). So the source was `RoamingAddressSources`' own, with `JellyfinServerProbe`, default `RoamingTiming`
   and the browser `NetworkChanges`. The saved server had three addresses, in this order:
-  - a refused one (`http://127.0.0.1:9`);
+  - a refused one (`http://127.0.0.1:9`) (a blocked port, see the correction below);
   - the LAN address (`http://192.168.1.10:8096`);
   - the internet address (`https://media.example.com`).
 
@@ -1916,9 +1987,14 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   The owner made the changes by hand. Windows' NetworkProfile log gave the time each network was lost or joined.
 - **No raw error, and no run that a bug ended.** Every failed request was a `ServiceException` (`Unreachable`, or `Timeout` at the 30 s
   request timeout). `reachable` was never unknown again after start, which a replaced source would show. The tabs stayed open 7-10 min.
-- **A refused address listed first: pass (Chrome, Edge, Firefox).** Every check asked all three at once. The refused address failed in
+- **A refused address listed first (a blocked port, see the correction below): pass (Chrome, Edge, Firefox).** Every check asked all
+  three at once. The refused address failed in
   2-28 ms, and the LAN address was in use 12-23 ms after the server was saved and 115-123 ms after a reload (first run: the loop ended in
   13 ms). Every later check ran, including the periodic ones.
+  - Correction (2026-10-21): port 9 is a "bad port" in the Fetch standard (https://fetch.spec.whatwg.org/#bad-port, 9 "discard"), which
+    browsers block before any connection is made. So this case tested a blocked address that fails at once, not a refused connection.
+    A refused one was run in "Roaming failover, headless check" (a closed loopback port): Chromium fails it in 1 ms, but Firefox takes
+    about 2 s per attempt, and a request there took two attempts (4.1 s).
 - **DevTools "Offline": pass (Chrome, Edge); not testable in Firefox, as before.**
   - Chrome and Edge: `offline` and `connection.change` came together and made one check 1.02 s later, in which every probe failed in
     3-5 ms. A request made at the event waited for that check and failed as `Unreachable` after 1.02 s; the later ones failed as
@@ -1930,9 +2006,9 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
 - **A switch to a phone hotspot: pass in all three, through failed requests, in 27-28 s.** The PC joined the hotspot on Wi-Fi, then wired
   Ethernet was turned off. No `online` or `offline` fired in any browser, nor `connection.change` in Edge. What happened next:
   - The request sent around the switch hung for 21.1-24.4 s, failed as `Unreachable`, and started a check.
-  - In that check, the refused address failed at once and the internet address answered in 131-448 ms. The LAN address was still the
-    address in use, so it was used until its own probe timed out at 5.0 s: "a healthy address is never swapped for a lower one
-    mid-check".
+  - In that check, the refused address (a blocked port, see the correction above) failed at once and the internet address answered
+    in 131-448 ms. The LAN address was still the address in use, so it was used until its own probe timed out at 5.0 s: "a healthy
+    address is never swapped for a lower one mid-check".
   - The internet address was in use 28.1 s (Edge), 27.3 s (Chrome) and 27.5 s (Firefox) after the LAN was lost (first run: never, in
     2 of 3 runs).
   - Three requests failed in each browser, all of them sent to the LAN address before the switch to the internet one. In Chrome and Edge

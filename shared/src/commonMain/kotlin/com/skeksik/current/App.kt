@@ -62,6 +62,14 @@ class MainWindowInput {
         focusVisibility.onKeyEvent(event)
         return false
     }
+
+    /**
+     * Android: the window left touch mode. In touch mode the first navigation key (Tab, an arrow, Enter) never reaches
+     * [onPreviewKeyEvent]: Android consumes it to leave touch mode and focuses the first element itself, which should show its ring.
+     */
+    fun onLeftTouchMode() {
+        focusVisibility.onKeyboardNavigation()
+    }
 }
 
 /** The main window's content: the theme, the sidebar and the pages. Needs [CurrentKoin] around it. */

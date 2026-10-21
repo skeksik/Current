@@ -1,8 +1,6 @@
 package com.skeksik.current.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +38,8 @@ import com.skeksik.current.feature.settings.ServerSetupProblem
 import com.skeksik.current.feature.settings.ServerSetupUiState
 import com.skeksik.current.feature.settings.ServerSetupViewModel
 import com.skeksik.current.feature.settings.mayExplain
+import com.skeksik.current.ui.localnetwork.LocalNetworkNotice
+import com.skeksik.current.ui.localnetwork.LocalNetworkNoticeKind
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.SignInRoute
 import com.skeksik.current.ui.navigation.pageViewModel
@@ -69,13 +69,8 @@ import com.skeksik.current.ui.resources.add_server_title
 import com.skeksik.current.ui.resources.add_server_unreachable
 import com.skeksik.current.ui.resources.add_server_version
 import com.skeksik.current.ui.resources.local_network_ask_again
-import com.skeksik.current.ui.resources.local_network_blocked
-import com.skeksik.current.ui.resources.local_network_continue
-import com.skeksik.current.ui.resources.local_network_denied
-import com.skeksik.current.ui.resources.local_network_explain
 import com.skeksik.current.ui.resources.local_network_open_settings
 import com.skeksik.current.ui.resources.local_network_timed_out
-import com.skeksik.current.ui.resources.local_network_try_again
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -160,38 +155,20 @@ internal fun AddServerScreen(navigator: Navigator, addTo: ServerRef? = null, nam
 }
 
 /** Android only: why the next dialog asks for "Nearby devices", what a denial means, and the way back once it is final. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LocalNetworkPrompt(state: LocalNetworkPromptState, viewModel: LocalNetworkPromptViewModel, afterGrant: () -> Unit) {
-    when (val shown = state) {
-        LocalNetworkPromptState.Hidden -> Unit
-        is LocalNetworkPromptState.Ask, LocalNetworkPromptState.Asking -> {
-            val denied = (shown as? LocalNetworkPromptState.Ask)?.denied == true
-            Notice(
-                stringResource(if (denied) Res.string.local_network_denied else Res.string.local_network_explain),
-                if (denied) NoticeKind.Warning else NoticeKind.Info,
-            )
-            OutlinedButton(
-                { viewModel.allow(onGranted = afterGrant) },
-                Modifier.focusRing(MaterialTheme.shapes.extraLarge),
-                enabled = shown != LocalNetworkPromptState.Asking,
-            ) {
-                Text(stringResource(if (denied) Res.string.local_network_ask_again else Res.string.local_network_continue))
-            }
-        }
-        LocalNetworkPromptState.Blocked -> {
-            Notice(stringResource(Res.string.local_network_blocked), NoticeKind.Warning)
-            // Wraps at phone width, where the two buttons do not fit side by side.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                OutlinedButton(viewModel::openSettings, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                    Text(stringResource(Res.string.local_network_open_settings))
-                }
-                OutlinedButton({ viewModel.allow(onGranted = afterGrant) }, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) {
-                    Text(stringResource(Res.string.local_network_try_again))
-                }
-            }
-        }
+    val kind = when (state) {
+        LocalNetworkPromptState.Hidden -> return
+        is LocalNetworkPromptState.Ask -> if (state.denied) LocalNetworkNoticeKind.Denied else LocalNetworkNoticeKind.Explain
+        LocalNetworkPromptState.Asking -> LocalNetworkNoticeKind.Explain
+        LocalNetworkPromptState.Blocked -> LocalNetworkNoticeKind.Blocked
     }
+    LocalNetworkNotice(
+        kind,
+        asking = state == LocalNetworkPromptState.Asking,
+        onAllow = { viewModel.allow(onGranted = afterGrant) },
+        onOpenSettings = viewModel::openSettings,
+    )
 }
 
 /** Under a timeout while access is denied: the permission is the likely cause, with the one way to change it from here. */
