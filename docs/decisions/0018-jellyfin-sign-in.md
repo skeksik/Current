@@ -9,7 +9,8 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
 
 ## Decision
 - **`JellyfinAccounts`** (`data:jellyfin`) owns Jellyfin sessions: password sign-in (`POST /Users/AuthenticateByName`), Quick Connect
-  (`GET /QuickConnect/Enabled`, `POST /QuickConnect/Initiate`, polling `GET /QuickConnect/Connect?secret=` every 5 s for up to 10 minutes,
+  (`GET /QuickConnect/Enabled` to offer it, `POST /QuickConnect/Initiate`, whose 401 means it is off, polling
+  `GET /QuickConnect/Connect?secret=` every 5 s for up to 10 minutes, where no answer or a 5xx means "not yet" and a 404 means expired,
   then `POST /Users/AuthenticateWithQuickConnect`), sign-out, and `authorizedClient` for the data layer to come.
 - **The header** is `MediaBrowser Client="Current", Device="…", DeviceId="…", Version="…"[, Token="…"]` with URL-encoded values, built
   from `DeviceIdentity` and `AppInfo`, sent without `Token` until signed in.
@@ -20,13 +21,15 @@ with the id they reported; ADR 0017 keeps tokens and the per-install device id. 
   (`jellyfin.<server key>.user`), which are not secret and let the app show who is signed in while the server is offline.
 - **At start** saved sessions go straight into the capabilities state, then `GET /Users/Me` checks each in the background: it refreshes
   the user, a 401 signs out, and an unreachable server stays signed in but offline (ADR 0014).
-- **Any 401** from an authorized client signs that server out (`ServerClients`' `onUnauthorized`): a revoked token, or the same device
-  id signed in elsewhere.
-- **Sign-out** ends the session on the server when it answers (`POST /Sessions/Logout`, 5 s), and forgets the token and user either way.
-  Removing a server signs out first.
+- **A 401** from an authorized client signs that server out (`ServerClients`' `onUnauthorized`) while the token that got it is still the
+  current one: a revoked token, or the same device id signed in elsewhere. A 401 for an older token (a request sent before a new sign-in)
+  changes nothing.
+- **Sign-out** forgets the token, user and signed-in state here at once, then ends the session on the server in the app scope, best effort
+  (`POST /Sessions/Logout`, 5 s), with the token and the address in use captured. Removing a server signs out first, so nothing waits on
+  the network and leaving the page cannot stop it halfway.
 - **Permissions:** Jellyfin's `Policy.IsAdministrator` maps to `Permission.admin`; nothing else yet.
 - **ViewModels** (`feature:settings`): `SignInViewModel` (form, Quick Connect code, problems: wrong credentials, unreachable, timed out,
-  refused, different server, Quick Connect off or expired) and `ServersViewModel` (saved servers with who is signed in, sign out, remove,
+  refused, different server, Quick Connect off or expired; one sign-in job at a time) and `ServersViewModel` (saved servers with who is signed in, sign out, remove,
   where tokens are kept, and the opt-in file when there is no keyring).
 
 ## Consequences

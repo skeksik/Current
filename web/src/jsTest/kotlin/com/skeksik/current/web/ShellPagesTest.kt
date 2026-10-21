@@ -123,6 +123,7 @@ class ShellPagesTest {
         assertEquals(
             listOf(
                 "InvalidAddress", "Unreachable", "TimedOut", "Redirected", "NotThisService", "Refused", "AlreadyAdded", "DifferentServer",
+                "ServerNotSaved",
             ),
             ServerSetupProblem.entries.map { it.name },
             "ServerSetupProblemName in webApp/src/strings.ts",

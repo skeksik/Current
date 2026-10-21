@@ -12,7 +12,8 @@ export type ServerSetupProblemName =
   | 'NotThisService'
   | 'Refused'
   | 'AlreadyAdded'
-  | 'DifferentServer';
+  | 'DifferentServer'
+  | 'ServerNotSaved';
 export type SignInProblemName =
   | 'WrongCredentials'
   | 'Unreachable'
@@ -92,6 +93,7 @@ export const strings = {
     Refused: 'The server refused the request.',
     AlreadyAdded: 'This server is already added.',
     DifferentServer: 'Another server answers at this address.',
+    ServerNotSaved: 'This server is no longer saved.',
   } satisfies Record<ServerSetupProblemName, string>,
 
   signInTitle: (server: string) => `Sign in to ${server}`,

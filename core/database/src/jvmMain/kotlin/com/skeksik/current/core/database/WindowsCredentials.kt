@@ -35,8 +35,7 @@ internal class WindowsCredentials private constructor(
     }
 
     override fun put(key: String, value: String) {
-        val bytes = value.encodeToByteArray()
-        require(bytes.size <= MAX_BLOB_SIZE) { "A credential holds at most $MAX_BLOB_SIZE bytes" }
+        val bytes = blobOf(value)
         val blob = Memory(maxOf(bytes.size, 1).toLong()).apply { write(0, bytes, 0, bytes.size) }
         val credential = Credential().apply {
             Type = CRED_TYPE_GENERIC
@@ -101,6 +100,13 @@ internal class WindowsCredentials private constructor(
         private const val CRED_PERSIST_LOCAL_MACHINE = 2
         private const val ERROR_NOT_FOUND = 1168
         private const val MAX_BLOB_SIZE = 5 * 512
+
+        /** [value] as a credential's blob. Too long a value is a store failure, so the caller falls back to memory like for any other. */
+        internal fun blobOf(value: String): ByteArray {
+            val bytes = value.encodeToByteArray()
+            if (bytes.size > MAX_BLOB_SIZE) throw SecretBackendException("A credential holds at most $MAX_BLOB_SIZE bytes")
+            return bytes
+        }
 
         /** Null when not on Windows or advapi32 cannot be loaded. [prefix] is for tests. */
         fun openOrNull(prefix: String = "Current/"): WindowsCredentials? = try {
