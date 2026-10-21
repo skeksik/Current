@@ -14,8 +14,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Settings as one JSON object in [file], kept in memory and written whole on every change: to a temporary file next to it, then moved
- * over it atomically, so a crash leaves the old or the new file, never half of one. A file that does not parse is kept as
- * `<name>.unreadable` and the store starts empty, so the app still starts.
+ * over it atomically, so a crash leaves the old or the new file, never half of one. A file that cannot be read, is not UTF-8 or does
+ * not parse is kept as `<name>.unreadable` and the store starts empty, so the app still starts.
  *
  * With [ownerOnly], the folder and file are readable by this user only where the file system has POSIX permissions (Linux, macOS);
  * used for secrets kept in a file (ADR 0017).
@@ -44,7 +44,12 @@ class JsonFileKeyValueStore(private val file: Path, private val ownerOnly: Boole
 
     private fun load(): MutableMap<String, String> {
         if (!Files.exists(file)) return mutableMapOf()
-        val text = Files.readString(file)
+        val text = try {
+            Files.readString(file)
+        } catch (e: IOException) {
+            // Not UTF-8 (MalformedInputException), or not readable by this process.
+            return setAside()
+        }
         return try {
             json.decodeFromString(serializer, text).toMutableMap()
         } catch (e: SerializationException) {
