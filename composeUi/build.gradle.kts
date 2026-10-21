@@ -19,10 +19,6 @@ kotlin {
         compilerOptions {
             jvmTarget = JvmTarget.JVM_11
         }
-        // Packages the module's composeResources (strings) into the APK; without it the app crashes at start.
-        androidResources {
-            enable = true
-        }
     }
 
     sourceSets {
