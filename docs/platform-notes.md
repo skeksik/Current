@@ -1891,6 +1891,42 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   - A tab hidden for under a minute kept its timers: the 10 s requests ran every 11 s (Edge).
 - Not run: the VPN, and a tab hidden for longer.
 
+## Roaming failover, headless check (checked 2026-10-21 on the same PC, Windows 11 Pro build 26200, with Playwright 1.64.0: Chromium 156.0.8078.4 and Firefox 157.0, headless; ADR 0019)
+- What ran: PR 32 at c45d699, the web dev server on `http://localhost`, and a throwaway hook (not committed) in `core:network`'s
+  `jsMain`. It built `RoamingAddressSources` with default `RoamingTiming` apart from `recheckEvery` (45 s), a probe that does what
+  `JellyfinServerProbe` does (`GET System/Info/Public`, 5 s timeout) through `ServerClients`, and a network signal that never fired.
+  One saved server had two addresses, both stand-ins on loopback ports with the same server id and CORS allowed: "local", first, and
+  "internet", second, which answered after 150 ms. The hook logged with timestamps the address in use, `reachable`, every probe and
+  every request (`System/Ping` through `ServerClient`). Playwright drove the page, and a control port told "local" what to do:
+  - hang: accept connections and requests but never answer, keeping them open (the hotspot case, except that there the connect
+    itself hung);
+  - refuse: stop listening and drop every open connection;
+  - answer again.
+- **A hung local, the failure with no check running: pass.** A request sent as local began to hang failed as `Timeout` after 30.0 s
+  (the request timeout), and the internet address was in use 172 ms (Chromium) and 174 ms (Firefox) after the failure: its probe's
+  time. Local's own probe timed out 5.0 s later; the internet address stayed in use, and a request to it succeeded. Before this PR
+  that move waited for local's probe, about 5 s ("Roaming in browsers, final").
+- **The failure while a check runs and internet has already answered: pass.** Local began to hang 22 s before the periodic check.
+  That check asked only local (the address in use), which timed out after 5.0 s, so a full check followed: the internet probe answered
+  in 170 ms, and local stayed in use, as it had not failed a request yet. 3.1 s into that check (Chromium; 2.1 s in Firefox) the
+  request failed as `Timeout`, and the internet address was in use 0 ms (Chromium) and 1 ms (Firefox) later.
+- **Local back: pass.** Local answered again 3-4 s after the check above ended. The next periodic check, 45 s after it, asked both
+  addresses, local answered in 5-12 ms, and local was in use again 40.9 s (Chromium) and 42.4 s (Firefox) after it came back.
+- **A refused local, for comparison: pass, within the request window.**
+  - 17 s after the last check: the request failed as `Unreachable` in 8 ms (Chromium) and 4.1 s (Firefox), and the internet address
+    was in use 159 ms and 175 ms after the failure. Local's probe failed at once in Chromium, so this case did not wait for it before
+    either.
+  - 2 s after the last check: the request failed just as fast, but the check came only when the 15 s request window ended (ADR 0019),
+    and the internet address was in use 13.1 s (Chromium) and 9.5 s (Firefox) after the failure. Requests meanwhile still go to local.
+    By design. Inference, not run: a hung address is not affected, since its request fails only after 21-30 s, and a check that ends
+    while it hangs has already moved to the internet address.
+- Also seen:
+  - Firefox takes about 2 s to fail a fetch to a closed loopback port, and the request above took two of those (4.1 s). Chromium fails
+    it in 1 ms. A fetch to port 9 fails in 1 ms in both, because both browsers block that port before connecting. So "A refused address
+    listed first" in "Roaming in browsers, final", which used port 9, saw a blocked port, not a refusal.
+  - Every run ended with `reachable` true and no run ended by a bug.
+- Not run: a connect that hangs (SYN unanswered), as on the hotspot; Edge; https.
+
 ## ktor-network 3.6.0 (checked 2026-10-19 from Maven Central: `.module`, `.pom`, source jars)
 - Licence: Apache-2.0 (POM and source headers). Depends on kotlinx-coroutines-core, ktor-utils and kotlin-stdlib; the core already has
   Ktor client 3.6.0. It is a new dependency, so it needs approval (CLAUDE.md, ADR 0009).
