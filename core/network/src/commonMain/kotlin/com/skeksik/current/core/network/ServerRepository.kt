@@ -9,9 +9,9 @@ import com.skeksik.current.core.model.ServerStatus
 import com.skeksik.current.core.model.ServiceType
 import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,11 +61,11 @@ class StoredServerRepository(
 
     init {
         state.value.forEach(::announce)
-        if (scope != null) {
+        // Undispatched, so it listens before this returns: a change made right after is not missed.
+        scope?.launch(start = CoroutineStart.UNDISPATCHED) {
             store.changedElsewhere
                 .filter { it == null || it == INDEX || it.startsWith(ENTRY_PREFIX) }
-                .onEach { reload() }
-                .launchIn(scope)
+                .collect { reload() }
         }
     }
 

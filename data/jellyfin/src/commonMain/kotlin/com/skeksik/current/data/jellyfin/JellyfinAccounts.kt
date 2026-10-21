@@ -29,11 +29,10 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -115,9 +114,9 @@ internal class StoredJellyfinAccounts(
      * Puts saved sessions into the capabilities state, then checks each with its server in the background. From then on, follows the
      * sessions other copies of the app sharing the stores (browser tabs) start and end.
      */
-    fun restore(): Job =
-        scope.launch {
-            follow()
+    fun restore(): Job {
+        follow()
+        return scope.launch {
             servers.servers.value.filter { it.ref.service == ServiceType.jellyfin }.forEach { server ->
                 val token = secrets.get(tokenKey(server.ref))
                 val user = settings.get(userKey(server.ref))?.let(::decodeUser)
@@ -130,6 +129,7 @@ internal class StoredJellyfinAccounts(
                 launch { verify(server, token) }
             }
         }
+    }
 
     /**
      * Another copy wrote a token or a user: this copy takes on what the stores hold now, so every copy converges on the last write. It
@@ -139,11 +139,13 @@ internal class StoredJellyfinAccounts(
         // The servers a change touches; every one for a cleared store (a null key).
         fun touched(key: String?, owner: (String) -> ServerRef?): List<ServerRef> =
             if (key == null) (servers.servers.value.map { it.ref } + tokens.value.keys).distinct() else listOfNotNull(owner(key))
-        val changed = merge(
-            secrets.changedElsewhere.map { key -> touched(key) { tokenOwner(it) } },
-            settings.changedElsewhere.map { key -> touched(key) { userOwner(it) } },
-        )
-        scope.launch { changed.collect { refs -> refs.forEach { adopt(it) } } }
+        // Undispatched, so each listens before restore returns: a change made right after is not missed.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            secrets.changedElsewhere.collect { key -> touched(key) { tokenOwner(it) }.forEach { adopt(it) } }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            settings.changedElsewhere.collect { key -> touched(key) { userOwner(it) }.forEach { adopt(it) } }
+        }
     }
 
     /**
