@@ -1,130 +1,95 @@
-import { createContext, useContext, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import type { CurrentWeb, PlaybackSupportPage, PlaybackSupportView } from 'current-core';
-import { useObservable, usePage } from './hooks';
+import { useEffect, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import type { CurrentWeb, RouteView } from 'current-core';
+import { Page } from './components';
+import { useObservable } from './hooks';
+import { Icon, type IconName } from './icons';
+import { Link, NavProvider, useNav } from './nav';
+import { AddServer } from './pages/AddServer';
+import { Home } from './pages/Home';
+import { PlaybackSupport } from './pages/PlaybackSupport';
+import { Settings } from './pages/Settings';
+import { SignIn } from './pages/SignIn';
+import { strings, webStrings } from './strings';
 
-const Core = createContext<CurrentWeb>(null!);
-const useCore = () => useContext(Core);
+/** The sidebar's entries, top to bottom; `owns` tells which pages highlight an entry. */
+const sidebar: { label: string; icon: IconName; path: string; owns: string[] }[] = [
+  { label: strings.navHome, icon: 'home', path: '/', owns: ['home'] },
+  { label: strings.navSettings, icon: 'settings', path: '/settings', owns: ['settings', 'addServer', 'signIn', 'playbackSupport'] },
+];
 
-const titles: Record<string, string> = { home: 'Home', playbackSupport: 'Playback support', notFound: 'Not found' };
-
+/** The desktop shell's layout: the sidebar on the left, the current page beside it (on narrow windows, the sidebar above it). */
 export function App({ core }: { core: CurrentWeb }) {
   const route = useObservable(core.route);
+  return (
+    <NavProvider core={core} route={route}>
+      <Shell route={route} />
+    </NavProvider>
+  );
+}
+
+function Shell({ route }: { route: RouteView }) {
+  const nav = useNav();
+  // Escape goes back on every page, as on desktop; Alt+Left and the browser's Back are the browser's own.
   useEffect(() => {
-    document.title = `${titles[route.kind] ?? ''} · Current`;
-  }, [route.kind]);
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return;
+      nav.back();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nav]);
+
   let page: ReactNode;
   switch (route.kind) {
     case 'home': page = <Home />; break;
+    case 'settings': page = <Settings />; break;
+    case 'addServer': page = <AddServer />; break;
+    case 'signIn': page = <SignIn path={route.path} />; break;
     case 'playbackSupport': page = <PlaybackSupport />; break;
     default: page = <NotFound />;
   }
   return (
-    <Core.Provider value={core}>
-      <header className="header">
-        <Link path="/" className="brand">Current</Link>
-        <nav>
-          <Link path="/settings/playback" current={route.kind === 'playbackSupport'}>Playback support</Link>
-        </nav>
-      </header>
-      <main className="page">{page}</main>
-    </Core.Provider>
+    <div className="shell">
+      {/* Moves focus without touching the URL: a fragment would add a history entry the router does not count. */}
+      <a className="skip-link" href="#main" onClick={skipToContent}>{webStrings.skipToContent}</a>
+      <nav className="sidebar" aria-label={strings.appName} onKeyDown={arrowKeys}>
+        <p className="sidebar-title">{strings.appName}</p>
+        <ul>
+          {sidebar.map((entry) => (
+            <li key={entry.path}>
+              <Link path={entry.path} className="sidebar-item" current={entry.owns.includes(route.kind)} focusId={`nav:${entry.path}`}>
+                <Icon name={entry.icon} />
+                {entry.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      {/* Keyed by path, so each page starts afresh, as a new back stack entry does on desktop. */}
+      <main id="main" className="main" tabIndex={-1} key={route.path}>{page}</main>
+    </div>
   );
 }
 
-/** A real link: middle-click, new tab and copy link work; a plain click navigates inside the app. */
-function Link({ path, className, current, children }: { path: string; className?: string; current?: boolean; children: ReactNode }) {
-  const core = useCore();
-  const onClick = (e: MouseEvent) => {
-    if (core.onLinkClick(path, e.button, e.ctrlKey, e.metaKey, e.shiftKey, e.altKey)) e.preventDefault();
-  };
-  return <a href={path} className={className} aria-current={current ? 'page' : undefined} onClick={onClick}>{children}</a>;
+function skipToContent(e: MouseEvent) {
+  e.preventDefault();
+  (document.getElementById('page-title') ?? document.getElementById('main'))?.focus();
 }
 
-function Home() {
-  return (
-    <>
-      <h1>Home</h1>
-      <p className="message">Nothing here yet: signing in to Jellyfin and browsing your libraries come next.</p>
-    </>
-  );
+/** Up and Down move between the sidebar's entries and stop at the ends; Tab leaves the sidebar. */
+function arrowKeys(e: KeyboardEvent<HTMLElement>) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('.sidebar-item'));
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  if (index < 0) return;
+  e.preventDefault();
+  items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
 }
 
 function NotFound() {
   return (
-    <>
-      <h1>Not found</h1>
-      <p className="message">There is no page at this address. <Link path="/">Go home</Link></p>
-    </>
+    <Page title={webStrings.notFoundTitle} hasBack={false}>
+      <p className="muted">{webStrings.notFoundMessage} <Link path="/">{webStrings.notFoundHome}</Link></p>
+    </Page>
   );
 }
-
-function PlaybackSupport() {
-  const core = useCore();
-  const page = usePage(() => core.playbackSupportPage(), [core]);
-  return (
-    <>
-      <h1>Playback support</h1>
-      <p className="message">What this browser plays itself, from its probes. The server remuxes or transcodes the rest.</p>
-      {page && <PlaybackSupportReport page={page} />}
-    </>
-  );
-}
-
-function PlaybackSupportReport({ page }: { page: PlaybackSupportPage }) {
-  const state = useObservable(page.state);
-  if (state.probing) return <p className="message" role="status">Probing…</p>;
-  return (
-    <>
-      <section>
-        <h2>Direct play</h2>
-        {state.direct.length === 0 ? <p className="message">No container plays directly.</p> : (
-          <table>
-            <thead><tr><th>Container</th><th>Video</th><th>Audio</th></tr></thead>
-            <tbody>
-              {state.direct.map((c) => (
-                <tr key={c.container}><td>{c.container}</td><td>{list(c.video)}</td><td>{list(c.audio)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-      <section>
-        <h2>Video</h2>
-        <table>
-          <thead><tr><th>Codec</th><th>Dynamic ranges</th></tr></thead>
-          <tbody>
-            {state.ranges.map((r) => <tr key={r.codec}><td>{r.codec}</td><td>{list(r.ranges)}</td></tr>)}
-          </tbody>
-        </table>
-        <Facts state={state} />
-      </section>
-      <details>
-        <summary>Probe answers</summary>
-        <p className="message">In the format of <code>docs/web-probes/</code>, to record this browser as a test fixture.</p>
-        <CopyButton text={state.answersJson} />
-        <pre>{state.answersJson}</pre>
-      </details>
-    </>
-  );
-}
-
-function Facts({ state }: { state: PlaybackSupportView }) {
-  return (
-    <dl>
-      <dt>HDR display</dt><dd>{state.hdrDisplay ? 'yes' : 'no'}</dd>
-      <dt>10-bit</dt><dd>{list(state.tenBit)}</dd>
-      <dt>2160p</dt><dd>{list(state.uhd)}</dd>
-      <dt>Audio channels</dt><dd>{state.maxAudioChannels}</dd>
-      <dt>Server HLS, copied</dt><dd>video {list(state.hlsVideo)}; audio {list(state.hlsAudio)}</dd>
-      <dt>HLS through</dt><dd>{state.mse ? 'Media Source Extensions' : state.nativeHls ? 'the browser' : 'nothing'}</dd>
-    </dl>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => navigator.clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false));
-  return <button type="button" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>;
-}
-
-const list = (items: string[]) => (items.length ? items.join(', ') : 'none');
