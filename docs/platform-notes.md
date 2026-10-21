@@ -52,6 +52,52 @@ Facts below were read from the linked sources on that date. Re-check before rely
 - Subtitles: a developer forum thread reports native subtitles work with `AVPlayerLayer` but are lost with `AVSampleBufferDisplayLayer`; `AVPlayerItemLegibleOutput` gives attributed text that must be laid out manually.
   This is a user report, not Apple guidance. Source: https://developer.apple.com/forums/thread/700128
 
+## Apple system integration with a custom player (read 2026-10-21 in Apple's documentation, read as JSON from developer.apple.com; nothing run)
+Input for ADR 0007's amendment 2026-10-21: what our own player UI must do itself on every engine.
+- **Now Playing.** `MPNowPlayingInfoCenter` (iOS, tvOS 5+, macOS 10.12.2+): the system shows its `nowPlayingInfo` on the Lock Screen
+  and in Control Center; the app does not control the layout. It takes `MPMediaItemPropertyTitle`, `...Artist`, `...AlbumTitle`,
+  `...Artwork`, `...PlaybackDuration` and others, plus `MPNowPlayingInfoPropertyElapsedPlaybackTime` and `...PlaybackRate`, from which
+  the system computes elapsed time itself (no frequent updates needed). On macOS `playbackState` must be set every time playback starts
+  or stops, "otherwise remote control functionality may not work as expected".
+  - tvOS: once an `MPNowPlayingSession` (tvOS 14+, iOS 16+, not macOS) is used, the system ignores the default info center, so the whole
+    app moves to sessions; PiP needs the player tied to a session. `AVPlayerViewController` owns its own session. Both come from the
+    `MPNowPlayingSession` page and "Adopting Picture in Picture in a custom player"; that the session takes a non-AVPlayer engine is not
+    stated (the page speaks of `AVPlayer` instances).
+- **Remote commands.** `MPRemoteCommandCenter.shared()` (iOS, tvOS 7.1+, macOS 10.12.2+) responds to "remote control events sent by
+  external accessories and system controls": `skipForwardCommand`/`skipBackwardCommand` (`preferredIntervals` in seconds),
+  `changePlaybackPositionCommand` (iOS 9.1+, tvOS 9+, macOS 10.12.2+), `nextTrackCommand`, play/pause. Each can be disabled.
+- **Picture in Picture.** `AVPictureInPictureController` (iOS 9+, tvOS 14+, macOS 10.15+); `init(contentSource:)` with
+  `ContentSource(sampleBufferDisplayLayer:playbackDelegate:)` and `AVPictureInPictureSampleBufferPlaybackDelegate` (iOS, tvOS 15+,
+  macOS 12+) is the path for a player that is not `AVPlayer`. Check `isPictureInPictureSupported()` first (otherwise `init` returns
+  nil); observe `isPictureInPicturePossible`; keep a strong reference; restore the UI in
+  `restoreUserInterfaceForPictureInPictureStopWithCompletionHandler`. iOS and tvOS need the audio session and background modes. "Only
+  begin PiP playback in response to user interaction and never programmatically" (App Store review rejects otherwise); the automatic
+  start on leaving the app is `canStartPictureInPictureAutomaticallyFromInline` (iOS 14.2+, not tvOS or macOS), "only for content that
+  you intend to be the user's primary focus".
+- **AirPlay picker.** `AVRoutePickerView` (iOS, tvOS 11+, macOS 10.15+): a button that opens the system's list of nearby receivers,
+  with video-capable devices higher when the app prefers video.
+- **Display criteria.** `AVDisplayManager.preferredDisplayCriteria` exists on tvOS 11.2+ and visionOS only, and applies only when user
+  settings allow; details under "HDR and Dolby Vision: Apple, AVPlayer". There is no such API on iOS or macOS.
+- **Display awake.** `AVPlayer.preventsDisplaySleepDuringVideoPlayback` defaults to true on iOS and tvOS and to false on macOS. Another
+  engine: `UIApplication.isIdleTimerDisabled` on iOS and tvOS (reset it when playback stops; Apple names "programs where the app needs to
+  continue displaying content when user interaction is minimal"), and on macOS an IOKit assertion
+  `IOPMAssertionCreateWithName` with `kIOPMAssertionTypePreventUserIdleDisplaySleep`.
+- Sources: https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter/playbackstate ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfopropertyelapsedplaybacktime ,
+  https://developer.apple.com/documentation/mediaplayer/mpnowplayingsession ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter ,
+  https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter/changeplaybackpositioncommand ,
+  https://developer.apple.com/documentation/mediaplayer/mpskipintervalcommand/preferredintervals ,
+  https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-in-a-custom-player ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class ,
+  https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/canstartpictureinpictureautomaticallyfrominline ,
+  https://developer.apple.com/documentation/avkit/avroutepickerview ,
+  https://developer.apple.com/documentation/avkit/avdisplaymanager/preferreddisplaycriteria ,
+  https://developer.apple.com/documentation/avfoundation/avplayer/preventsdisplaysleepduringvideoplayback ,
+  https://developer.apple.com/documentation/uikit/uiapplication/isidletimerdisabled ,
+  https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep
+
 ## Desktop and web playback (checked 2026-10-18; input for the M1 video spikes)
 **Compose over native video.** Compose Multiplatform 1.12 has no supported way to draw Compose over native video:
 - Desktop: "The Swing component within `SwingPanel` will always be layered above the Compose Multiplatform component". The experimental interop
@@ -2674,4 +2720,12 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
       a `TypeError` at once: see "Local server discovery, run on devices".)
     - Chrome 145 and 156 changes (third-party reports only).
   - ktor-network: the wasm-js source jar was not opened; nothing was run on any target.
+- Apple system integration with a custom player (section of that name; documentation only):
+  - That the fallback engine can feed an `AVSampleBufferDisplayLayer` for PiP (and keep HDR there), and that `MPNowPlayingSession`
+    works on tvOS without an `AVPlayer`.
+  - That media keys and the macOS menu bar's Now Playing reach `MPRemoteCommandCenter` and `MPNowPlayingInfoCenter` (the pages say
+    "system controls", Lock Screen and Control Center, not media keys or the menu bar by name).
+  - AirPlay video from the fallback engine: `AVRoutePickerView` picks a route, but what plays there without `AVPlayer` is not stated.
+  - Matching frame rate and dynamic range on iOS and macOS (no display-criteria API there).
+  - The remux route (ADR 0007): whether AVPlayer plays a local HLS/fMP4 repackaged on the device, and how it is served to it.
 - Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
