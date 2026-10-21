@@ -36,6 +36,7 @@ import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
 import com.skeksik.current.core.designsystem.Panel
+import com.skeksik.current.core.designsystem.PanelTitle
 import com.skeksik.current.core.designsystem.SectionTitle
 import com.skeksik.current.core.designsystem.rememberListFocus
 import com.skeksik.current.core.designsystem.focusRing
@@ -160,7 +161,7 @@ internal fun SettingsScreen(navigator: Navigator) {
 
         SectionTitle(stringResource(Res.string.settings_about))
         Panel {
-            Text(stringResource(Res.string.app_name), style = MaterialTheme.typography.titleMedium)
+            PanelTitle(stringResource(Res.string.app_name))
             Text(stringResource(Res.string.settings_version, AppInfo.VERSION), style = MaterialTheme.typography.bodyMedium)
         }
         CopyDiagnostics()
@@ -194,7 +195,7 @@ private fun ServerPanel(
 ) {
     Panel(modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Text(row.name, style = MaterialTheme.typography.titleMedium)
+            PanelTitle(row.name)
             Text(row.address, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val status = row.signedInAs?.let { stringResource(Res.string.settings_signed_in_as, it) }
                 ?: stringResource(Res.string.settings_signed_out)

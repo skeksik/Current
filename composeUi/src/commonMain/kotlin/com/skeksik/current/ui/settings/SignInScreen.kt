@@ -26,6 +26,7 @@ import com.skeksik.current.core.designsystem.InlineProgress
 import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.Page
 import com.skeksik.current.core.designsystem.Panel
+import com.skeksik.current.core.designsystem.PanelTitle
 import com.skeksik.current.core.designsystem.codeStyle
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.formField
@@ -123,7 +124,7 @@ private fun SignInForm(form: SignInUiState.Form, viewModel: SignInViewModel) {
 private fun QuickConnectCode(code: String, cancel: () -> Unit) {
     val cancelFocus = remember { FocusRequester() }
     Panel {
-        Text(stringResource(Res.string.sign_in_quick_connect_title), style = MaterialTheme.typography.titleMedium)
+        PanelTitle(stringResource(Res.string.sign_in_quick_connect_title))
         Text(code, style = codeStyle, color = MaterialTheme.colorScheme.primary)
         Text(stringResource(Res.string.sign_in_quick_connect_message), style = MaterialTheme.typography.bodyMedium)
         InlineProgress(stringResource(Res.string.sign_in_quick_connect_waiting))
