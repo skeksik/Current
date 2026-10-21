@@ -21,7 +21,11 @@ private fun server(key: String, vararg scopes: AddressScope) = SavedServer(
     ServerRef(ServiceType.jellyfin, key),
     "id-$key",
     key,
-    scopes.mapIndexed { index, scope -> ServerAddress("http://$key-$index.example:8096", scope) },
+    // The URL decides: `.lan` is local, `.example.com` is on the internet.
+    scopes.mapIndexed { index, scope ->
+        val host = if (scope == AddressScope.Local) "$key-$index.lan" else "$key-$index.example.com"
+        ServerAddress("http://$host:8096", scope)
+    },
 )
 
 private class Servers(vararg saved: SavedServer) : ServerRepository {
@@ -81,6 +85,26 @@ class HomeLocalNetworkViewModelTest {
             assertEquals(HomeLocalNetworkState.Hidden, viewModel.state.value, "$status")
             viewModel.refresh()
             assertEquals(HomeLocalNetworkState.Hidden, viewModel.state.value, "$status")
+            assertEquals(0, access.requests)
+        }
+    }
+
+    @Test
+    fun aServerReachedOnlyThroughAnOverlayVpnIsNeverAsked() {
+        // Local by scope, but the permission does not cover the VPN (ADR 0020): neither the ask nor the blocked notice shows.
+        val tailscale = SavedServer(
+            ServerRef(ServiceType.jellyfin, "t"),
+            "id-t",
+            "t",
+            listOf(
+                ServerAddress("https://media.example.ts.net", AddressScope.Local),
+                ServerAddress("http://100.100.1.2:8096", AddressScope.Local),
+                ServerAddress("http://[fd7a:115c:a1e0::1]:8096", AddressScope.Local),
+            ),
+        )
+        for (status in LocalNetworkPermission.entries) {
+            val access = FakeAccess(status)
+            assertEquals(HomeLocalNetworkState.Hidden, viewModel(Servers(tailscale), access).state.value, "$status")
             assertEquals(0, access.requests)
         }
     }
