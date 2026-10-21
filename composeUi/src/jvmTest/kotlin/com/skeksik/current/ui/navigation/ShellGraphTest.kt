@@ -32,6 +32,16 @@ class ShellGraphTest {
     }
 
     @Test
+    fun noDestinationOverridesAnother() {
+        // Koin throws instead of logging an override warning when overriding is off.
+        val koin = koinApplication {
+            allowOverride(false)
+            modules(settingsUiModule, homeUiModule)
+        }.koin
+        assertEquals(2, koin.getAll<ShellDestination>().size)
+    }
+
+    @Test
     fun theSidebarFollowsOrderNotRegistrationAndTheAppStartsAtHome() {
         val graph = ShellGraph(listOf(SettingsDestination, HomeDestination))
         assertEquals(listOf<Any>(HomeRoute, SettingsRoute), graph.sidebar.map { it.route })

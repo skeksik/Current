@@ -4,12 +4,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavBackStackEntry
 import org.jetbrains.compose.resources.StringResource
+import org.koin.core.module.Module
+import org.koin.core.qualifier.named
 import kotlin.reflect.KClass
 
 /**
  * What one feature adds to the shell's navigation (ADR 0014): its pages and, if it has one, its sidebar entry. Each feature's Compose
- * code binds its destination in its own Koin module (`bind ShellDestination::class`); the shell collects every binding, so the shell's
- * list of modules is the only place that names them all.
+ * code binds its destination in its own Koin module with [shellDestination]; the shell collects every binding, so the shell's list of
+ * modules is the only place that names them all.
  */
 interface ShellDestination {
     /** Every page this feature shows. Routes are `@Serializable` types; [sidebar]'s route must be one of them. */
@@ -17,6 +19,14 @@ interface ShellDestination {
 
     /** Null for a feature reached only from other pages. */
     val sidebar: SidebarEntry?
+}
+
+/**
+ * Binds [destination] for the shell. Each binding is qualified by the destination's type: Koin indexes a type by type and qualifier, so
+ * unqualified bindings of one interface from two modules would override each other's index (a warning; `getAll` still finds both).
+ */
+inline fun <reified T : ShellDestination> Module.shellDestination(destination: T) {
+    single<ShellDestination>(named<T>()) { destination }
 }
 
 /** One page: its [route] type and how to draw it. Read the route's arguments with `entry.toRoute<T>()`. */
