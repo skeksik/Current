@@ -184,11 +184,7 @@ internal fun ServerAddressesScreen(route: ServerAddressesRoute, navigator: Navig
 @Composable
 private fun CurrentlyUsing(state: ServerAddressesUiState, name: String, refresh: () -> Unit) {
     Panel {
-        Text(
-            stringResource(Res.string.addresses_current_title),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        PanelTitle(stringResource(Res.string.addresses_current_title))
         // Read out when it changes, as a check ends or roaming moves to another address.
         Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             when (state.status) {
