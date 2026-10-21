@@ -1397,13 +1397,71 @@ research agent reading the same files.
 - Versus `java.net` on the JVM: java.net is enough there and adds nothing. ktor-network would give one Kotlin API for jvm, Android, iOS,
   macOS and tvOS; the web still needs an interface with a "not available" implementation. Choosing is a design decision (ADR), not made here.
 
+## Request timeouts on blocking engines (checked 2026-10-21 in the Ktor 3.6.0 source jars and the Android reference; one JVM test; run on an Android 17 phone)
+- Seen on an Android 17 phone (PR 23's roaming run): over a VPN, 5 s probes of an internet host name ended after 6.0 s and once 11.0 s,
+  and requests held for 11 s.
+- **Ktor's request timeout does not end a call that is blocked in the engine.** In `ktor-client-core` 3.6.0:
+  - `plugins/HttpTimeout.kt`, `applyRequestTimeout`: after the timeout, a launched job calls `executionContext.cancel(...)` on the
+    request's job. Nothing cancels the caller's coroutine.
+  - `engine/HttpClientEngine.kt`, `executeWithinCallContext`: the engine runs as `async(callContext) { execute(requestData) }.await()`.
+    The call job is `Job(requestData.executionContext)`, and the execution context is a `SupervisorJob` without a parent
+    (`request/HttpRequest.kt`; `plugins/HttpRequestLifecycle.kt` wraps it in another one). A cancelled `async` completes only when its
+    body returns, so the caller stays in `await()` until the engine's blocking call returns.
+  - `engine/Utils.kt`, `attachToUserJob`: a cancellation of the caller's own job is passed on to the call job, and the caller's
+    `await()` is cancellable. So a coroutine timeout around the request (`withTimeout`) does return on time, and it does not wait for
+    the blocked call, which is not its child.
+- The Android engine (`ktor-client-android` 3.6.0, `AndroidClientEngine.kt`, `AndroidURLConnectionUtils.kt`) makes blocking
+  `HttpURLConnection` calls on the engine's dispatcher (Dispatchers.IO). On cancellation it only calls `disconnect()`
+  (`disconnectOnCancellation`). `setupRequestTimeoutAttributes` lowers `connectTimeout` to the request timeout when that is shorter;
+  `readTimeout` is the socket timeout.
+- Android reference, `URLConnection.setConnectTimeout`, https://developer.android.com/reference/java/net/URLConnection: the timeout is
+  "used when opening a communications link". "If the hostname resolves to multiple IP addresses, Android's default implementation of
+  HttpURLConnection will try each in RFC 3484 order. If connecting to each of these addresses fails, multiple timeouts will elapse
+  before the connect attempt throws an exception. Host names that support both IPv6 and IPv4 always have at least 2 IP addresses."
+- Android reference, `InetAddress`, https://developer.android.com/reference/java/net/InetAddress: name lookups take no timeout; "The
+  result of unsuccessful host name resolution is cached for a very short period of time (10 seconds)".
+- So on Android the connect timeout applies per address, and the DNS lookup is outside every timeout. The guess that 11.0 s was two
+  connects to a dual-stack name is **refuted** by the phone run below: the delay was the lookup itself, and the name has one address.
+- JVM test (a throwaway test, not committed; a fake engine that blocks its thread for 2 s): with `HttpTimeout` alone and a 300 ms
+  request timeout, the call returned after 2.05 s with the engine's own exception; with `withTimeout(300)` around it, after 304 ms.
+  `core:network`'s `RequestDeadlineTest` keeps the same kind of engine to check the fix.
+- Fix: `ServerClients` installs `RequestDeadline` (`core:network`). It runs `proceed` in `withTimeoutOrNull` for the request's
+  request timeout and throws `HttpRequestTimeoutException`, which maps to `ServiceErrorKind.Timeout`. The blocked thread finishes later
+  on its own. It does not cover reading a body after the headers; the read timeout does.
+- Phone run (Pixel 8 Pro, Android 17, SDK 37; debug build of this fix; a throwaway harness, not committed, that timed
+  `JellyfinServerProbe.identify` (5 s), a plain `HttpURLConnection` (connect and read timeouts 5 s, what the engine did before the fix),
+  `InetAddress.getAllByName`, and a socket connect per resolved address; Wi-Fi with IPv4 and global IPv6, and the same VPN as in PR
+  23's run).
+  Every probe ended by its deadline:
+  - VPN on, the saved internet name (`https://media.example.com`): probe Timeout after 5.01-5.10 s (9 runs). The lookup alone
+    failed with `UnknownHostException` after 6.02-6.04 s every time (6 runs), and the plain `HttpURLConnection` took the same 6.03 s
+    (2 runs). So the 6.0 s before the fix was the lookup, outside every timeout, not a connect. With the VPN off the name resolves to
+    1 IPv4 and no IPv6 address (the Wi-Fi has IPv6, so the name has no AAAA record), and the probe succeeds in 0.33 s. With the VPN on
+    it does not resolve at all, so no connect runs. 11.0 s did not recur. It could have been two lookups back to back, but that was not
+    checked.
+  - Four probes back to back in one process, VPN on: 5.03, 5.01, 5.01, 5.02 s, while the abandoned lookups were still running.
+  - Repeat (case 4): the negative lookup cache made a probe fail fast as Unreachable (0.02-0.05 s), but only right after a lookup had
+    finished. A lookup 1 s after a failed one returned at once, but one 3 s after took the full 6 s again. So on this phone a failed
+    lookup is cached for between 1 and 3 s, not the 10 s the `InetAddress` reference states. A probe started 1 to 3 s or more after
+    the previous lookup ended waits the full deadline again. The same goes for a probe started while that lookup still runs.
+  - The cancelled probe's lookup ran to its end and was cached. A lookup 2 s after a probe's Timeout returned the cached failure in
+    0.00 s. So `disconnect()` from another thread does not end a lookup in progress (an inference from the cache; the thread was not
+    watched).
+  - `https://name.invalid`, VPN on and off: Unreachable (`UnknownHostException`) after 0.07 s and 0.14 s.
+  - An IP literal with nothing listening (`http://192.168.1.10:8096`, an unused address on the phone's subnet, and an unreachable
+    private address), VPN on and off: probe Timeout after 5.03 s (4 runs). The plain `HttpURLConnection` and a single socket connect
+    ended with `SocketTimeoutException` after 5.01 s. One address means one connect timeout.
+- Option not taken: the OkHttp engine (`ktor-client-okhttp`; OkHttp and Okio are Apache-2.0). OkHttp's call timeout spans the whole
+  call ("resolving DNS, connecting, writing the request body, server processing, and reading the response body", `OkHttpClient.kt`,
+  okhttp 5.3.2 source jar). It is a new dependency (approval, ADR 0009); its size on Android was not checked.
+
 ## Not verified (research before depending on it)
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015
   maps only `IOException`s to `Unreachable`; anything else passes through unmapped, and its message may contain the request URL.
   Seen on Android 17: a missing `INTERNET` permission throws `SecurityException` (section "Roaming on Android"); PR 23 maps that one
   to `Unreachable`.
-- Whether `HttpTimeout`'s request timeout works the same on the Android, Darwin and JS engines. On Android 17 a 5 s probe once ended
-  after 11.0 s over a VPN, probably in a DNS lookup (section "Roaming on Android"); the cause was not confirmed.
+- Whether `HttpTimeout`'s request timeout works the same on the Darwin and JS engines; on a blocking engine it does not end the call
+  (section "Request timeouts on blocking engines"; `RequestDeadline` returned on time on an Android 17 phone there).
 - Local server discovery: Jellyfin's protocol, Apple's local network permission and entitlements, and browser limits (mixed content,
   private network access) for local addresses (roadmap, M1 spike).
 - For the video spikes: desktop playback on hybrid-GPU laptops and lower-end GPUs (ADR 0010 measured one desktop with an RTX 5090), tone-mapped output
