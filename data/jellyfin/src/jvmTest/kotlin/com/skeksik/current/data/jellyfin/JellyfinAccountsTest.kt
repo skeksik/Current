@@ -42,7 +42,6 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -234,7 +233,7 @@ class JellyfinAccountsTest {
         val accounts = accounts()
         accounts.signIn(home.ref, "alex", "pw")
         accounts.signOut(home.ref)
-        advanceUntilIdle()
+        runCurrent()
         assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
         assertNull(secrets.get("jellyfin/home/token"))
         assertNull(settings.get("jellyfin.home.user"))
@@ -243,7 +242,7 @@ class JellyfinAccountsTest {
         accounts.signIn(home.ref, "alex", "pw")
         routes["/Sessions/Logout"] = { throw java.net.ConnectException("offline") }
         accounts.signOut(home.ref)
-        advanceUntilIdle()
+        runCurrent()
         assertNull(secrets.get("jellyfin/home/token"))
         assertFalse(status.signedIn)
     }
@@ -279,7 +278,7 @@ class JellyfinAccountsTest {
 
         accounts.signOut(home.ref)
         servers.remove(home.ref)
-        advanceUntilIdle()
+        runCurrent()
         assertTrue("Token=\"token1\"" in requestTo("/Sessions/Logout").headers[HttpHeaders.Authorization]!!)
         assertNull(secrets.get("jellyfin/home/token"))
     }
@@ -292,7 +291,7 @@ class JellyfinAccountsTest {
 
         routes["/Users/Me"] = json("""{"Id":"user1","Name":"Alex Renamed","Policy":{"IsAdministrator":false}}""")
         accounts().restore()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals("Alex Renamed", status.user?.name)
         assertTrue(status.signedIn)
         assertEquals(emptySet(), status.user?.permissions)
@@ -305,7 +304,7 @@ class JellyfinAccountsTest {
         accounts().signIn(home.ref, "alex", "pw")
         routes["/Users/Me"] = status(HttpStatusCode.Unauthorized)
         accounts().restore()
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(status.signedIn)
         assertNull(secrets.get("jellyfin/home/token"))
         assertNull(settings.get("jellyfin.home.user"))
@@ -317,7 +316,7 @@ class JellyfinAccountsTest {
         accounts().signIn(home.ref, "alex", "pw")
         routes["/Users/Me"] = { throw java.net.ConnectException("offline") }
         accounts().restore()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(false, status.reachable)
         assertTrue(status.signedIn)
     }
@@ -326,7 +325,7 @@ class JellyfinAccountsTest {
     fun aUserWithoutATokenIsForgottenAtStart() = runTest {
         settings.put("jellyfin.home.user", """{"id":"user1","name":"Alex","admin":false}""")
         accounts().restore()
-        advanceUntilIdle()
+        runCurrent()
         assertNull(settings.get("jellyfin.home.user"))
         assertFalse(status.signedIn)
     }
@@ -340,7 +339,7 @@ class JellyfinAccountsTest {
         val client = assertNotNull(accounts.authorizedClient(home.ref))
         client.use { assertFailsWith<ServiceException> { it.request { get("Items") } } }
         assertTrue("Token=\"token1\"" in requestTo("/Items").headers[HttpHeaders.Authorization]!!)
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(status.signedIn)
         assertNull(secrets.get("jellyfin/home/token"))
     }
@@ -357,7 +356,7 @@ class JellyfinAccountsTest {
         accounts.signIn(home.ref, "alex", "pw")
         routes["/Items"] = status(HttpStatusCode.Unauthorized)
         old.use { assertFailsWith<ServiceException> { it.request { get("Items") } } }
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(status.signedIn)
         assertEquals("token2", secrets.get("jellyfin/home/token"))
@@ -383,7 +382,7 @@ class JellyfinAccountsTest {
         routes["/Users/AuthenticateByName"] = authResult(token = "token2")
         accounts.signIn(home.ref, "alex", "pw")
         revoked.complete(Unit)
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(status.signedIn)
         assertEquals("token2", secrets.get("jellyfin/home/token"))
