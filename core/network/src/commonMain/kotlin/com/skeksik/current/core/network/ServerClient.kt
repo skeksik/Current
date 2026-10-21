@@ -56,6 +56,7 @@ class ServerClients(
             expectSuccess = true
             followRedirects = false
             install(HttpTimeout) { requestTimeoutMillis = requestTimeout.inWholeMilliseconds }
+            install(RequestDeadline) { requestTimeout = this@ServerClients.requestTimeout }
             install(ServerRequests) {
                 this.server = server
                 this.address = address
