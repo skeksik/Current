@@ -11,12 +11,13 @@ import com.skeksik.current.core.database.KeyValueStore
 /**
  * `ACCESS_LOCAL_NETWORK` (ADR 0020): a runtime permission from API 37, required when the app targets 37. Below API 37 the app has
  * local access with `INTERNET` alone and must not ask, so the state is [LocalNetworkPermission.NotNeeded] there. The dialog itself
- * goes through [requester], which the shell implements with an activity.
+ * goes through [requester], which the shell implements with an activity (the Activity Result API's `RequestPermission` for
+ * [PERMISSION], and `shouldShowRequestPermissionRationale` after a denial for [PermissionAnswer.canAskAgain]).
  */
 class AndroidLocalNetworkAccess(
     context: Context,
     store: KeyValueStore,
-    private val requester: PermissionRequester,
+    private val requester: LocalNetworkRequester,
 ) : LocalNetworkAccess {
     private val context = context.applicationContext
     private val state = LocalNetworkPermissionState(store)
@@ -29,7 +30,7 @@ class AndroidLocalNetworkAccess(
     // Asks even when Blocked: Android then answers at once without a dialog, unless it has reset the denials since.
     override suspend fun request(): LocalNetworkPermission = when (val current = status()) {
         LocalNetworkPermission.NotNeeded, LocalNetworkPermission.Granted -> current
-        LocalNetworkPermission.CanAsk, LocalNetworkPermission.Blocked -> state.record(requester.request(PERMISSION))
+        LocalNetworkPermission.CanAsk, LocalNetworkPermission.Blocked -> state.record(requester.request())
     }
 
     override fun openSettings() {

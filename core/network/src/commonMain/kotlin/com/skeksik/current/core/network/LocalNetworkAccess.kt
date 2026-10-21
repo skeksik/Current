@@ -60,6 +60,8 @@ enum class LocalNetworkAskReason {
 /**
  * Whether to ask for local network access now (ADR 0020): when the user opens "Add server", or when a saved server has a local
  * address, and only while the dialog can still be shown. Never otherwise, so a user with internet addresses only is never asked.
+ * Once [LocalNetworkPermission.Blocked], this stays false: the screen offers the settings page, and may also offer "Try again", which
+ * calls [LocalNetworkAccess.request] and notices if the platform has reset its denials.
  */
 fun shouldAskForLocalNetwork(reason: LocalNetworkAskReason, servers: List<SavedServer>, status: LocalNetworkPermission): Boolean {
     if (status != LocalNetworkPermission.CanAsk) return false
@@ -75,9 +77,9 @@ fun shouldAskForLocalNetwork(reason: LocalNetworkAskReason, servers: List<SavedS
  */
 data class PermissionAnswer(val granted: Boolean, val canAskAgain: Boolean? = null)
 
-/** Shows the system dialog for one permission. The shell implements it, because only an activity can show the dialog. */
-fun interface PermissionRequester {
-    suspend fun request(permission: String): PermissionAnswer
+/** Shows the platform's local network dialog. The shell implements it, because only an activity can show the dialog on Android. */
+fun interface LocalNetworkRequester {
+    suspend fun request(): PermissionAnswer
 }
 
 /**
@@ -87,7 +89,8 @@ fun interface PermissionRequester {
  * A denial is final ([LocalNetworkPermission.Blocked]) by the platform's signal, [PermissionAnswer.canAskAgain], when the shell gives
  * one: `true` always means the dialog can show again. `false` is believed from the second denial on, because Android makes a denial
  * permanent only when the user denies twice; a `false` after the first can come from a dialog dismissed without an answer. Without a
- * signal, a counter decides: the second denial is final. A grant clears both.
+ * signal, a counter decides: the second denial is final. A grant clears both; a `true` signal brings the count back to one denial, so
+ * a later dismissed dialog is not taken for a final denial.
  */
 internal class LocalNetworkPermissionState(private val store: KeyValueStore) {
     fun status(granted: Boolean): LocalNetworkPermission = when {
@@ -98,7 +101,7 @@ internal class LocalNetworkPermissionState(private val store: KeyValueStore) {
 
     fun record(answer: PermissionAnswer): LocalNetworkPermission {
         if (answer.granted) return granted()
-        val denials = (store.get(DENIALS)?.toIntOrNull() ?: 0) + 1
+        val denials = if (answer.canAskAgain == true) 1 else (store.get(DENIALS)?.toIntOrNull() ?: 0) + 1
         store.put(DENIALS, denials.toString())
         val blocked = answer.canAskAgain?.let { !it && denials >= 2 } ?: (denials >= 2)
         return if (blocked) {

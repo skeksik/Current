@@ -24,7 +24,7 @@ val networkModule = module {
     single { NetworkLogger.None }
     single { ServerClients(get(), get()) }
     single<ServerAddressSources> { FirstAddressSources() }
-    // Android's shell binds AndroidLocalNetworkAccess over this (ADR 0020).
+    // Android's shell binds AndroidLocalNetworkAccess over this, in a module loaded after this one (ADR 0020).
     single<LocalNetworkAccess> { LocalNetworkAccess.NotNeeded }
     // Created at start so the saved servers are in the capabilities state before any feature reads it.
     single<ServerRepository>(createdAtStart = true) { StoredServerRepository(get(), get()) }

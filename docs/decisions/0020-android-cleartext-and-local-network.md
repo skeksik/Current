@@ -16,14 +16,16 @@ does not fail, it times out. The system dialog speaks of "nearby devices", not s
 - **`LocalNetworkAccess`** (`core:network`): `status()`, `request()` and `openSettings()`, with the states `NotNeeded`, `Granted`,
   `CanAsk` and `Blocked`. Desktop, web and (for now) Apple bind `NotNeeded`. Android binds `AndroidLocalNetworkAccess`: `NotNeeded`
   below API 37, where `INTERNET` is enough and the docs say not to ask; otherwise the platform's check. The dialog goes through a
-  `PermissionRequester` the shell implements with the Activity Result API, so the component needs no activity and no Compose.
+  `LocalNetworkRequester` the shell implements with the Activity Result API, so the component needs no activity and no Compose.
 - **When to ask** (`shouldAskForLocalNetwork`): when the user opens "Add server", or when a saved server has a local address, and only
   while the dialog can still show. Never at start for a user whose servers are all on the internet. The shell explains why in a sentence
   first. A denial means local addresses cannot be reached while internet addresses still work; the shell says so and, once `Blocked`,
   links to the app's settings page.
 - **`Blocked`** is the platform's signal when the shell has one (`shouldShowRequestPermissionRationale` after a denial), believed from the
   second denial on, since Android makes a denial permanent only then; otherwise a counter makes the second denial final. Kept in the
-  settings store, because without an activity Android only reports granted or not. A grant clears it.
+  settings store, because without an activity Android only reports granted or not. A grant clears it. While `Blocked` the app never
+  asks on its own; the screen's "Try again" calls `request()`, which notices if Android has reset its denials.
+- **Koin:** `networkModule` binds `NotNeeded`; the Android shell binds `AndroidLocalNetworkAccess` in a module loaded after it.
 
 ## Consequences
 - Any http host is allowed by the platform; a request that skips the app's rule is not stopped by Android.

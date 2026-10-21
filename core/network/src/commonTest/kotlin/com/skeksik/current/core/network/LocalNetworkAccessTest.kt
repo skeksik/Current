@@ -58,6 +58,15 @@ class LocalNetworkAccessTest {
     }
 
     @Test
+    fun afterAResetADismissedDialogIsNotFinal() {
+        val state = LocalNetworkPermissionState(InMemoryKeyValueStore())
+        repeat(3) { state.record(PermissionAnswer(granted = false, canAskAgain = false)) }
+        assertEquals(LocalNetworkPermission.CanAsk, state.record(PermissionAnswer(granted = false, canAskAgain = true)))
+        // The second denial since the reset is believed again.
+        assertEquals(LocalNetworkPermission.Blocked, state.record(PermissionAnswer(granted = false, canAskAgain = false)))
+    }
+
+    @Test
     fun aBlockSurvivesARestartAndAGrantClearsIt() {
         val store = InMemoryKeyValueStore()
         LocalNetworkPermissionState(store).apply {
