@@ -399,6 +399,44 @@ used command-line tool; named in the conversation, not here (CLAUDE.md).
   while the app ran, dark to light and back, turned the frame and the app's colours with it within the next capture (about 4 s).
 - Not verified: value 20 (or the undocumented 19) on Windows 10; that the JBR API returns null on another JDK.
 
+## Esc on desktop, and Back keys (read 2026-10-21 in the compose-multiplatform-core source at tag `v1.12.1` and the navigation-compose 2.10.0-rc01 sources jar; not yet run by hand)
+- Where desktop's Esc-goes-back came from: `compose/ui/ui/src/desktopMain/.../scene/ComposeSceneMediator.desktop.kt`, `onKeyEvent`. A key
+  goes through four steps in order: the window's `onPreviewKeyEvent`, the scene (the focused element), the window's `onKeyEvent`, and
+  `navigationEventInput.onKeyEvent`. The first that returns true consumes it.
+- `navigationEventInput` is a `BackNavigationEventInput` (`compose/ui/ui/src/skikoMain/.../navigationevent/BackNavigationEventInput.kt`),
+  added to the window's `NavigationEventDispatcher`. On an Esc `KeyDown` it calls `dispatchOnBackCompleted()`. NavHost's own handler
+  (`rememberNavHostEventHandler` in navigation-compose, registered once per NavHost and enabled while the back stack has more than one
+  entry) then pops the back stack. No app code was involved.
+- Compose `Dialog` and `Popup` on desktop (`Dialog.skiko.kt`, `Popup.skiko.kt`) close on Esc through the same dispatcher: while shown, each
+  adds a handler (`dismissOnBackPress`, "back button on Android or escape key on desktop"). So swallowing Esc in the window's
+  `onKeyEvent` would also stop it from closing dialogs.
+- `NavigationEventDispatcher.addHandler`: "All `PRIORITY_OVERLAY` handlers are called before any `PRIORITY_DEFAULT` handlers. Within each
+  priority group, handlers are invoked in a Last-In, First-Out (LIFO) order". Dialogs, popups and NavHost all use the default priority.
+- What the app does (`BackInput`, `ShellBackHandler`):
+  - Esc: on desktop the shell adds its own handler right after NavHost, so it is newer than NavHost's. It ignores back events that come
+    from Esc. A dialog or menu opens later, so it is newer still and closes on Esc as before.
+  - Alt+Left and X1: the window feeds them to its own `NavigationEventInput`, so they work with nothing focused, and an open dialog or
+    menu takes them first.
+  - Android: the shell adds no handler. NavHost keeps the system and remote Back, predictive back included.
+  - The API is `org.jetbrains.androidx.navigationevent:navigationevent-compose` 1.1.0. Before this change, navigation-compose-desktop
+    2.10.0-rc01 already pulled it in at that version, at runtime only.
+- The mouse back button: AWT button 4 maps to `PointerButton.Back` (`composePointerButton` in the same mediator file: `PointerButton(button - 1)`).
+  The run below confirmed that Windows sends XBUTTON1 as that button. Linux is not verified, and neither is that Android provides a
+  `LocalNavigationEventDispatcherOwner` (without one, Alt+Left does nothing there).
+- Which hook sees X1 over a dialog (read in the same tag):
+  - Desktop's default layer type is `OnSameCanvas` (`ComposeFeatureFlags.desktop.kt`, `compose.layers.type` unset; the app doesn't set
+    it). A `Dialog` or `Popup` is then a layer of the window's own scene. A modal layer takes the pointer events, so a `pointerInput` on
+    the window's content never sees X1 while the Remove dialog is open. The run below shows exactly that.
+  - `ComposeWindow.addMouseListener` forwards to `ComposeWindowPanel.contentComponent` (`ComposeWindow.desktop.kt`,
+    `ComposeWindowPanel.desktop.kt`). That is the one AWT component that gets every mouse event of the window, its same-canvas layers
+    included.
+  - So the app adds `BackButtonListener`, an AWT `MouseListener`, there. It goes back on the press of button 4 only, and replaces the
+    content's `pointerInput`, so one click goes back once. It feeds the same `BackInput` as Alt+Left, so an open dialog closes first.
+  - Not covered: `compose.layers.type=WINDOW`, where a dialog is a window of its own.
+  - Feeding X1 from the dialog's own root (where `trackFocusVisibility` sits) would need the same code in every dialog and menu, so
+    that option was not taken.
+  - X1 over a dialog is fixed and was re-run at 7354157: it closes the dialog ("Compose navigation: Windows and Android Emulator run").
+
 ## Dependency graph and Dependabot (checked 2026-10-20)
 - GitHub's automatic dependency submission ran a dynamic "Automatic Dependency Submission" workflow and reported every Gradle
   configuration under `settings.gradle.kts`. All 52 Maven alerts on 2026-10-20 were build tooling: Netty from the Android Gradle
@@ -1255,6 +1293,26 @@ research agent reading the same files.
   your app."
 - What the app does (ADR 0020): after a denial on any screen, no screen shows the dialog on its own; each explains, and the dialog
   shows only when the user presses "Ask again", so a second, permanent denial is always the user's own choice.
+
+## Android backup rules (read 2026-10-21 at https://developer.android.com/identity/data/autobackup; not yet run with `bmgr`)
+- Auto Backup "includes almost all app files" by default, shared preferences among them. It uploads at most 25 MB per app to the user's
+  Google Drive, and "only the most recent backup is stored". Since Android 12, device-to-device transfer has its own rules.
+- Apps that target Android 12 (API 31) or later name their rules in `android:dataExtractionRules`, with separate `<cloud-backup>` and
+  `<device-transfer>` sections. For Android 11 (API 30) and earlier they need a second file in `android:fullBackupContent`
+  (`<full-backup-content>`). The page's own sample excludes one shared preferences file with
+  `<exclude domain="sharedpref" path="device.xml"/>`.
+- "If you specify an `<include>` element, the system no longer includes any files by default and backs up only the files specified."
+  An exclude-only file therefore keeps everything else backed up.
+- Files in `getCacheDir()`, `getCodeCacheDir()` and `getNoBackupFilesDir()` "are always excluded even if you try to include them". The
+  page recommends Block Store, not shared preferences or a file, for credentials that should move to a new device.
+- On API 31+ some manufacturers keep device-to-device transfer even with `android:allowBackup="false"`, so rules are the reliable way
+  to keep a file out.
+- What the app does (`androidApp/src/main/res/xml`):
+  - It backs up settings (`current.xml`) and excludes the machine-local store (`current-local.xml`, with the device id, ADR 0017) from
+    both cloud backup and device transfer.
+  - It also excludes `current-secrets.xml`, reserved for M4's Keystore-backed secret store. Keystore keys never leave the device.
+  - Not verified: `adb shell bmgr backupnow com.skeksik.current` followed by a restore on another emulator, checking that
+    `current-local.xml` is missing.
 
 ## Reading the request log on a device (ADR 0015 addendum, 2026-10-21; Android Emulator run below)
 - Android debug build: `adb logcat -s CurrentNet`. The check is `ApplicationInfo.FLAG_DEBUGGABLE`, since a library cannot read the
@@ -2316,6 +2374,69 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
     Covered by `RoamingAddressSourcesTest` only.
 - Also seen, not from this PR and already noted above: the sidebar takes about half the width at phone size, and the "No credential
   store was found" note shows on Android.
+
+## Compose navigation: Windows and Android Emulator run (checked 2026-10-21 on Windows 11 Pro build 26200.9711 with Azul Zulu 21, and on the Android Emulator 37.2.12.0, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05, Pixel 8 profile 1080x2400 at 420 dpi with a hardware keyboard; PR 46 at dc86173)
+- What ran: `:desktopApp:run` with `APPDATA` and `LOCALAPPDATA` pointed at a throwaway folder, driven by mouse and keyboard through
+  desktop automation; and the debug build on a fresh AVD, driven by `adb shell input` and, for Alt+Left, the host keyboard in the
+  emulator window, read with `uiautomator dump` and screenshots. A throwaway stand-in for `System/Info/Public` on a loopback port (not
+  committed) let the desktop save a server; it was then stopped, so that server did not answer. Signed out throughout.
+- Desktop:
+  - 1, Esc never goes back: **pass.** On Add server, Esc in the field and Esc after a click on empty space left the page and the
+    typed text. A click on empty space does not clear focus, though: typed letters still landed in the field. So "nothing focused"
+    was checked on Settings, which has no field: Esc after a click on empty space stayed on Settings.
+  - 2, Esc closes transient UI: **pass.** Esc closed the Remove dialog and the page stayed on Settings. The app has no dropdown or menu
+    of its own. The text field's right-click menu (Paste, Select all) closed on Esc, with the page and the text kept.
+  - 3, Alt+Left: **pass.** It went back one page with the field focused (Add server to Settings) and with nothing focused (Settings
+    to Home). With the Remove dialog open it closed the dialog and stayed on Settings. With the field's right-click menu open, it closed
+    the menu and stayed.
+  - 4, mouse back button: **pass on a page, fail with a dialog open.** The physical button was not pressed: X1 was sent as XBUTTON1
+    with Win32 `mouse_event`. On Addresses, after a click on empty space, X1 went back to Settings (twice). With the Remove dialog
+    open, X1 over the dialog and over its scrim did nothing: the dialog stayed open and the page stayed. A likely cause, not checked
+    in the source: the X1 listener is a `pointerInput` on the main window's content, and a dialog's pointer events go to the dialog's
+    own layer. Esc and Alt+Left do close the dialog.
+    Fixed afterwards: X1 is now an AWT listener on the window (`BackButtonListener`, see "Esc on desktop, and Back keys"). Re-run below.
+  - Re-run of case 4 at 7354157, same machine and setup (a saved server on a loopback stand-in, signed out). X1 was injected again
+    as XBUTTON1 down and up with Win32 `mouse_event`, at the pointer; the physical button was not pressed.
+    - X1 with the pointer over the Remove dialog's text: **pass.** The dialog closed, the server stayed, the page stayed on Settings.
+    - X1 with the pointer over the scrim outside the dialog: **pass.** Same result.
+    - X1 with no dialog open: **pass.** Add address to Addresses with the field focused, then Addresses to Settings after a click on
+      empty space (nothing focused): one page per click.
+    - Alt+Left: **pass,** unchanged. With the Remove dialog open the first press closed it and stayed on Settings; the next went back
+      one page.
+  - 5, long history: **pass.** 56 pages were opened as 14 rounds of Home (sidebar), Settings (sidebar), Addresses, Add address. 49
+    Alt+Left presses showed Add address, Addresses, Settings and Home in turn, newest first, with no early Home. They ended on
+    Addresses, the 7th page opened and the oldest of the 50 kept. Two more presses stayed there.
+  - 6, Retry focus: **not run as written: no page shows Retry.** `ErrorState` has no caller in this build. Its buttons use the same
+    rule as Home's empty states (`StateButtons`), so the rule was checked there, with the saved server not answering:
+    - The sidebar holds focus: Tab to the sidebar's Home entry, Enter. Home turns into "You are signed out" with Sign in, and focus and
+      its ring stay on the sidebar entry. Tab to Settings, Enter, then Alt+Left back to Home: focus stays on the Settings entry. Pass.
+    - Nothing holds focus after keyboard input: Tab to Sign in, Enter, then Alt+Left back to Home. Sign in takes focus with its ring.
+      Pass.
+    - Add server's Check by Tab and Enter, with nothing answering: "No server answered. Check the address, the port and that the
+      server is running." shows and focus goes back to the address field, with no ring on Check. That is the form's own rule.
+- Android:
+  - 7, system Back: **pass.** From Add server with text typed, the first Back closed the soft keyboard (page and text kept). The next
+    went to Settings, then Home, then the launcher. A slow edge swipe held partway showed the back arrow with Settings crossfading into
+    Home; releasing it went to Home.
+  - 8, Alt+Left from the host keyboard: **pass.** Add server to Settings to Home, one page each. On Home the app went to the background,
+    as with system Back. Alt+Left on a sub-page of the system Settings app did nothing, so the steps came from the app's own handler,
+    which needs a `LocalNavigationEventDispatcherOwner`: Android has one.
+  - 9, rotation and recreation: **pass** for all three. Home, Settings, Add server, then:
+    - Rotation to landscape: the manifest sets no `configChanges`, so the activity was recreated. Add server came back with its text.
+    - "Don't keep activities" (`always_finish_activities` 1): the Home key destroyed the activity (`wm_on_destroy_called` in the
+      events log), and the launcher icon brought back Add server.
+    - `am kill com.skeksik.current` after the Home key: the process was gone, and the launcher icon started a new one on Add server.
+    - Each time Back went to Settings, then Home. Where the soft keyboard was up, one Back first closed it.
+  - 10, backup rules: **pass.** `bmgr enable true`, the local transport (`com.android.localtransport/.LocalTransport`), then
+    `bmgr backupnow com.skeksik.current`: Success. `dumpsys backup` names the package but lists no files, so the transport's archive
+    was read as root: `tar -tvf` of `/data/user/0/com.android.localtransport/files/1/_full/com.skeksik.current` lists `_manifest`,
+    `f/profileInstalled` and `sp/current.xml` only.
+    - Left out: `current-local.xml`, which the app writes at start, and `current-secrets.xml`.
+    - No server was saved on the emulator, so `current.xml` and `current-secrets.xml` were written with `run-as` for this check.
+    - The first `backupnow` after `am force-stop` gave "Backup is not allowed" (a stopped package). After one launch it passed.
+    - Not run: device-transfer rules and a restore.
+- Also seen, already noted above: the sidebar takes about half the width at phone size, and the "No credential store was found" note
+  shows on Android.
 
 ## Desktop packaging (read 2026-10-21 in the Compose Multiplatform docs and the compose-multiplatform plugin source on `master`; packaged only in CI)
 - jlink copies only listed modules into the packaged runtime. "The Gradle plugin does not automatically determine necessary JDK Modules

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backup rules for Android 12 and later (docs/platform-notes.md, "Android backup rules"). Settings and saved servers (current.xml) are
+    backed up and moved to a new device; machine-local values are not:
+    - current-local.xml: the machine-local store, with the device id servers tie sessions to (ADR 0017). Two devices must never share it.
+    - current-secrets.xml: reserved for the Keystore-backed secret store (M4). Keystore keys never leave the device, so data they encrypt
+      is useless anywhere else. A secret store that writes another file must exclude it here, or keep it in getNoBackupFilesDir().
+    Only excludes: an include would back up nothing but what it names.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="current-local.xml" />
+        <exclude domain="sharedpref" path="current-secrets.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="current-local.xml" />
+        <exclude domain="sharedpref" path="current-secrets.xml" />
+    </device-transfer>
+</data-extraction-rules>

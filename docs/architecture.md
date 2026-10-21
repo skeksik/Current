@@ -74,10 +74,19 @@ checks that each route is registered once, and orders the sidebar. Pages move th
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other; routes only their own feature opens (a server's addresses) stay in its package. Every page works
 with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
 focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element.
+Pages place focus by themselves only after keyboard input, so a touch never opens a soft keyboard. There are two exceptions: focus that
+follows the user's own action on the page, and a form whose first field is the point of the page (Add server, Sign in), which focuses that
+field when it opens. They never take focus from an element that holds it, such as the sidebar.
 Navigation keeps one history, as a browser does (`ShellHistory`): every page opened, from the sidebar or from another page, is a new
-step, except the page already shown, and any Back (the Back button on inner pages, Alt+Left, Esc, a system or remote Back) goes one step
-back through it, so Home → Settings → Add server → Home → Settings goes back through Home, Add server, Settings and Home. A sidebar entry
+step, except the page already shown, and any Back goes one step back through it. Back is the Back button on inner pages, Alt+Left, the
+mouse back button on desktop, or a system or remote Back. Alt+Left and the mouse button work with nothing focused: the window feeds them to
+the shell (`MainWindowInput`, `BackInput`). They reach the window's navigation events, as a system Back does, so an open dialog or menu
+closes first. Esc follows platform guidelines: it closes dialogs, menus and other transient UI, and never goes back. On desktop, Compose
+itself turns an Esc that nothing handled into a back event, and the shell ignores those (docs/platform-notes.md, "Esc on desktop"). Back goes
+through the whole history, so Home → Settings → Add server → Home → Settings goes back through Home, Add server, Settings and Home. A sidebar entry
 always opens its feature's first page; the highlighted entry is the feature owning the page shown (Settings while Add server is shown).
+Each page's route is read back from its back stack entry (`ShellNavigator`), so the history survives an Android activity recreation or
+process death.
 The history keeps the newest 50 pages; past that, the oldest is dropped (the shell rebuilds the back stack, so the pages it keeps lose
 their saved state). The web shell has its own router (ADR 0011) with the same rules over the browser's history: every page opened is
 a history entry and any Back (the page's Back button, the browser's Back or Alt+Left) goes one entry back. Escape follows the

@@ -102,8 +102,9 @@ private fun StateButtons(primary: StateAction, secondary: StateAction?) {
             OutlinedButton(secondary.onClick, Modifier.focusRing(MaterialTheme.shapes.extraLarge)) { Text(secondary.label) }
         }
     }
-    // Not after a click or a touch, nor at start: focus nobody asked for would act on the next Enter.
-    LaunchedEffect(Unit) { if (focusVisibility.keyboard) focus.requestFocus() }
+    // Not after a click or a touch, nor at start: focus nobody asked for would act on the next Enter. Nor while something else holds
+    // focus (the sidebar, while a page turns from loading into this state): the next key belongs there.
+    LaunchedEffect(Unit) { if (focusVisibility.keyboard && !focusVisibility.focusHeld) focus.requestFocus() }
 }
 
 /** A small spinner with [message], inside a form or a list rather than in place of the page. */

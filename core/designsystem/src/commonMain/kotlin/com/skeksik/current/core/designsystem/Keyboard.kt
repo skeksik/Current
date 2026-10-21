@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MinimumInteractiveLeftAlignmentLine
 import androidx.compose.material3.MinimumInteractiveTopAlignmentLine
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -93,6 +94,19 @@ class FocusVisibility {
         pointerPresses++
     }
 
+    /**
+     * Whether an element inside a tracked root ([trackFocusVisibility]: the window's content, a dialog) holds focus. A plain field, like
+     * [keyboard]: an element placing focus by itself reads it first, so it never takes focus from where the user is.
+     */
+    val focusHeld: Boolean get() = focusHolders.isNotEmpty()
+
+    private val focusHolders = mutableSetOf<Any>()
+
+    /** The tracked root [root] gained or lost focus inside it. */
+    fun onRootFocusChanged(root: Any, hasFocus: Boolean) {
+        if (hasFocus) focusHolders += root else focusHolders -= root
+    }
+
     /** Taken when an element gains focus; pass it to [showsRing] while the element keeps focus. */
     internal fun focusGained(): FocusArrival = FocusArrival(byKeyboard = keyboard, pointerPresses = pointerPresses)
 
@@ -113,7 +127,8 @@ internal data class FocusArrival(val byKeyboard: Boolean, val pointerPresses: In
 val LocalFocusVisibility = staticCompositionLocalOf { FocusVisibility() }
 
 /**
- * Feeds key and pointer presses inside this element to [LocalFocusVisibility], without consuming them. Put it on the root of a window and
+ * Feeds key and pointer presses inside this element to [LocalFocusVisibility], without consuming them, and whether something inside
+ * holds focus ([FocusVisibility.focusHeld]). Put it on the root of a window and
  * of each dialog (a dialog gets its input apart from the window). Keys reach it only while something inside has focus, so the window
  * forwards its own key events too, and the first key after a click or tap on empty space counts: desktop's `Window(onPreviewKeyEvent)`
  * and Android's `Activity.dispatchKeyEvent`, through the app's `MainWindowInput`. On Android the first Tab after a tap never gets that
@@ -122,10 +137,12 @@ val LocalFocusVisibility = staticCompositionLocalOf { FocusVisibility() }
 @Composable
 fun Modifier.trackFocusVisibility(): Modifier {
     val visibility = LocalFocusVisibility.current
+    val root = remember { Any() }
+    DisposableEffect(visibility) { onDispose { visibility.onRootFocusChanged(root, hasFocus = false) } }
     return onPreviewKeyEvent {
         visibility.onKeyEvent(it)
         false
-    }.pointerInput(visibility) {
+    }.onFocusChanged { visibility.onRootFocusChanged(root, it.hasFocus) }.pointerInput(visibility) {
         awaitPointerEventScope {
             while (true) {
                 if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Press) visibility.onPointerPress()
