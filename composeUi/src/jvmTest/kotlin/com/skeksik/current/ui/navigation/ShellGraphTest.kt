@@ -14,6 +14,7 @@ import org.koin.dsl.koinApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -84,5 +85,25 @@ class ShellGraphTest {
         val graph = ShellGraph(listOf(HomeDestination, SettingsDestination))
         assertSame(SettingsDestination, graph.owner { it == AddServerRoute::class })
         assertSame(HomeDestination, graph.owner { it == HomeRoute::class })
+    }
+
+    @Test
+    fun theHistoryKeepsEveryPageWhileThereIsRoom() {
+        assertNull(ShellHistory.keptBeforeOpening(List(ShellHistory.LIMIT - 1) { it }))
+        // Home, Settings, Add server, Home, Settings: all five are kept, so Back walks through each.
+        assertNull(ShellHistory.keptBeforeOpening(listOf("Home", "Settings", "Add server", "Home"), limit = 5))
+    }
+
+    @Test
+    fun aFullHistoryDropsItsOldestPagesToMakeRoomForOneMore() {
+        val full = List(ShellHistory.LIMIT) { it }
+        assertEquals(full.drop(1), ShellHistory.keptBeforeOpening(full))
+        val pages = listOf("Home", "Settings", "Add server", "Home", "Settings")
+        assertEquals(listOf("Add server", "Home", "Settings"), ShellHistory.keptBeforeOpening(pages, limit = 4))
+    }
+
+    @Test
+    fun theHistoryKeepsAtLeastThePageShownAndTheOneBeforeIt() {
+        assertFailsWith<IllegalArgumentException> { ShellHistory.keptBeforeOpening(listOf("Home"), limit = 1) }
     }
 }

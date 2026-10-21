@@ -27,7 +27,9 @@ import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavGraph
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -46,6 +48,7 @@ import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.ui.navigation.Navigator
 import com.skeksik.current.ui.navigation.ShellGraph
+import com.skeksik.current.ui.navigation.ShellHistory
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.app_name
 import com.skeksik.current.ui.resources.nav_back
@@ -53,8 +56,9 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.reflect.KClass
 
 /**
- * The app on wide screens: the sidebar from [graph], and the current page beside it. Pages below a sidebar entry's first page get a Back
- * button at the top of the page ([LocalPageTop]); Alt+Left goes back too.
+ * The app on wide screens: the sidebar from [graph], and the current page beside it. Navigation keeps one history ([ShellHistory]): a
+ * sidebar entry opens its feature's first page as a new step, and any Back goes one step back through it. Pages below a sidebar entry's
+ * first page get a Back button at the top of the page ([LocalPageTop]); Alt+Left, Esc and a system or remote Back work on every page.
  *
  * A page shown again after the one above it left (any Back: the button, Alt+Left, Esc, a system or remote Back) gets focus on its first
  * element, or the sidebar entry when it has none, unless the page puts focus somewhere itself (on what opened the page that left).
@@ -64,20 +68,20 @@ import kotlin.reflect.KClass
 @Composable
 fun Shell(graph: ShellGraph) {
     val controller = rememberNavController()
-    val navigator = remember(controller) { ControllerNavigator(controller) }
+    // Back stack entries shown so far in this composition: one shown again is a return. Not saved, so a recreated activity restores none.
+    val shownEntries = remember { mutableSetOf<String>() }
+    // Entries rebuilt when the history is trimmed were shown before: going back to one is a return.
+    val navigator = remember(controller) { ControllerNavigator(controller, graph.start, onRebuilt = shownEntries::addAll) }
     val entry by controller.currentBackStackEntryAsState()
     val destination = entry?.destination
     val owner = destination?.let { shown -> graph.owner { shown.hasRoute(it) } }
-    val atSidebarRoot = destination == null || graph.sidebar.any { destination.hasRoute(it.route::class) }
     val selectedEntry = remember { FocusRequester() }
     val focusVisibility = LocalFocusVisibility.current
     var sidebarHasFocus by remember { mutableStateOf(false) }
-    // Back stack entries shown so far in this composition: one shown again is a return. Not saved, so a recreated activity restores none.
-    val shownEntries = remember { mutableSetOf<String>() }
 
     SidebarScaffold(
         modifier = Modifier.trackFocusVisibility().onPreviewKeyEvent { event ->
-            val back = event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed && !atSidebarRoot
+            val back = event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && event.isAltPressed && navigator.canGoBack
             if (back) navigator.back()
             back
         },
@@ -95,12 +99,8 @@ fun Shell(graph: ShellGraph) {
                     selected = selected,
                     modifier = if (selected) modifier.focusRequester(selectedEntry) else modifier,
                 ) {
-                    // Every entry opens its feature's first page on top of the start page, even the entry already shown: an inner
-                    // page (Add server) is left, not kept for later.
-                    controller.navigate(sidebar.route) {
-                        popUpTo(graph.start)
-                        launchSingleTop = true
-                    }
+                    // A new step on top of whatever is shown, even an inner page of the same feature (Add server): Back returns there.
+                    navigator.open(sidebar.route)
                 }
             }
         },
@@ -137,16 +137,54 @@ private fun BackButton(onClick: () -> Unit) {
     }
 }
 
-private class ControllerNavigator(private val controller: NavHostController) : Navigator {
-    // Single top: a held Enter or a double click opens a page once.
-    override fun open(route: Any) = controller.navigate(route) { launchSingleTop = true }
+/**
+ * [Navigator] over the shell's [controller], keeping its back stack to [ShellHistory.LIMIT] pages. Navigation cannot drop the oldest entry,
+ * so the newest ones are rebuilt in a fresh back stack instead, from the routes they were opened with (the first page shown, which was not
+ * opened here, from [start]). A rebuilt page starts afresh: its saved state (scroll, what opened the page above it) is gone.
+ */
+private class ControllerNavigator(
+    private val controller: NavHostController,
+    private val start: Any,
+    private val onRebuilt: (entryIds: List<String>) -> Unit,
+) : Navigator {
+    private val routes = mutableMapOf<String, Any>()
+
+    val canGoBack: Boolean get() = controller.previousBackStackEntry != null
+
+    override fun open(route: Any) {
+        // Single top: a held Enter, a double click or the page already shown opens it once, so it adds no step to make room for.
+        if (controller.currentDestination?.hasRoute(route::class) != true) {
+            ShellHistory.keptBeforeOpening(pages())?.let(::rebuild)
+        }
+        controller.navigate(route) { launchSingleTop = true }
+        recordCurrent(route)
+    }
 
     override fun replace(route: Any) {
         val current = controller.currentDestination?.id
         controller.navigate(route) { if (current != null) popUpTo(current) { inclusive = true } }
+        recordCurrent(route)
     }
 
     override fun back() {
-        if (controller.previousBackStackEntry != null) controller.popBackStack()
+        if (canGoBack) controller.popBackStack()
+    }
+
+    private fun pages(): List<NavBackStackEntry> = controller.currentBackStack.value.filter { it.destination !is NavGraph }
+
+    private fun rebuild(kept: List<NavBackStackEntry>) {
+        val keptRoutes = kept.map { routes[it.id] ?: start }
+        controller.navigate(keptRoutes.first()) { popUpTo(controller.graph.id) { inclusive = true } }
+        recordCurrent(keptRoutes.first())
+        keptRoutes.drop(1).forEach { route ->
+            controller.navigate(route)
+            recordCurrent(route)
+        }
+        onRebuilt(pages().map { it.id })
+    }
+
+    private fun recordCurrent(route: Any) {
+        routes.keys.retainAll(pages().map { it.id }.toSet())
+        controller.currentBackStackEntry?.let { routes[it.id] = route }
     }
 }

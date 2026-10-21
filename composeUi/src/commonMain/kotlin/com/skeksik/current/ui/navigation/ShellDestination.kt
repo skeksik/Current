@@ -45,9 +45,23 @@ class SidebarEntry(
     val order: Int,
 )
 
+/**
+ * The shell's navigation history: every page opened, from the sidebar or from another page, is a step that any Back goes back through,
+ * and only the newest [LIMIT] are kept.
+ */
+object ShellHistory {
+    const val LIMIT = 50
+
+    /** The pages to keep, oldest first, before one more is opened on top of [pages]: null while there is room, else the newest [limit] - 1. */
+    fun <T> keptBeforeOpening(pages: List<T>, limit: Int = LIMIT): List<T>? {
+        require(limit > 1) { "The history keeps at least the page shown and the one before it" }
+        return if (pages.size < limit) null else pages.takeLast(limit - 1)
+    }
+}
+
 /** How a page moves to another page. */
 interface Navigator {
-    /** Opens [route] on top of the current page. */
+    /** Opens [route] on top of the current page, as a new step in the history ([ShellHistory]). */
     fun open(route: Any)
 
     /** Opens [route] in place of the current page, so Back skips it (a finished step, such as adding a server). */
