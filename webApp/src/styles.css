@@ -523,24 +523,18 @@ pre {
   border-radius: var(--radius-s);
 }
 
-/* Copy diagnostics, by hand when the page has no clipboard. */
-.diagnostics {
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: var(--space-s);
-  padding: var(--space-m);
-  border: 1px solid var(--outline);
-  border-radius: var(--radius-s);
-  background: var(--surface);
-  color: var(--text);
-  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
-  resize: vertical;
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-m);
 }
 
-.diagnostics:focus-visible,
-.diagnostics:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: -1px;
-  border-color: var(--primary);
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-l);
+  max-width: var(--content-max-width);
+  padding: var(--space-xxl) var(--space-xl);
 }

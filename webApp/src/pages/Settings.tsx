@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ServerRowView, SettingsPage } from 'current-core';
-import { copyText } from '../clipboard';
+import { copyText, type CopyResult } from '../clipboard';
 import { Notice, Page, Panel } from '../components';
 import { Icon } from '../icons';
 import { useObservable, usePage } from '../hooks';
 import { focusSoon, Link, useCore } from '../nav';
-import { strings, webStrings } from '../strings';
+import { strings, textFor, webStrings } from '../strings';
 
 /** Settings: servers (add, sign in, sign out, remove), where sign-ins are kept, what this browser plays, and about. */
 export function Settings() {
@@ -57,7 +57,8 @@ function SettingsContent({ page }: { page: SettingsPage }) {
           ))}
         </ul>
       )}
-      <Notice kind="info">{strings.settingsSecrets[state.secretStorage] ?? ''}</Notice>
+      {/* An unknown store says nothing rather than something wrong. */}
+      <Notice kind="info">{textFor(strings.settingsSecrets, state.secretStorage, '')}</Notice>
       {state.fileOffered && (
         <button type="button" className="button outlined" onClick={() => page.keepSecretsInFile()}>{strings.settingsSecretsKeepInFile}</button>
       )}
@@ -90,53 +91,55 @@ function SettingsContent({ page }: { page: SettingsPage }) {
   );
 }
 
-/** Copy diagnostics; without a clipboard (plain http), the text is shown selected, to copy by hand. */
+/**
+ * Copy diagnostics. The text is made at the click; without a clipboard (plain http) it is shown and selected for the user to copy, and
+ * the outcome is announced in a status line, as on Playback support (`copyText`).
+ */
 function Diagnostics() {
   const core = useCore();
-  const [copied, setCopied] = useState(false);
-  const [byHand, setByHand] = useState<string | null>(null);
-  const field = useRef<HTMLTextAreaElement>(null);
+  // A new object per click, so the copy runs again even when the text is unchanged.
+  const [request, setRequest] = useState<{ text: string } | null>(null);
+  const [result, setResult] = useState<CopyResult | null>(null);
+  const shown = useRef<HTMLPreElement>(null);
+  // Copies once the text is rendered, so the fallback element holds it to select.
   useEffect(() => {
-    if (byHand == null) return;
-    field.current?.focus();
-    field.current?.select();
-  }, [byHand]);
-  // Cleared after a while, and at the next click, so a second copy is confirmed again.
+    if (request == null) return;
+    let current = true;
+    copyText(request.text, shown.current).then((it) => current && setResult(it));
+    return () => {
+      current = false;
+    };
+  }, [request]);
+  // "Copied" fades after a while; the other results stay, since the user still has something to do.
   useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 3000);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-  const copy = async () => {
-    setCopied(false);
-    const text = core.diagnostics();
-    const done = await copyText(text);
-    setCopied(done);
-    setByHand(done ? null : text);
+    if (result !== 'copied') return;
+    const timer = setTimeout(() => setResult(null), 4000);
+    return () => clearTimeout(timer);
+  }, [result]);
+  const copy = () => {
+    setResult(null);
+    setRequest({ text: core.diagnostics() });
   };
+  // Shown only where the user may have to copy it: no clipboard (plain http), or the browser refused.
+  const shownText =
+    request != null && (!navigator.clipboard?.writeText || result === 'selected' || result === 'failed') ? request.text : null;
   return (
     <>
       <p>{strings.settingsDiagnosticsHint}</p>
-      <p>
+      <div className="copy">
         <button type="button" className="button outlined" onClick={copy}>{strings.settingsCopyDiagnostics}</button>
-        {copied && <span role="status"> {strings.settingsDiagnosticsCopied}</span>}
-      </p>
-      {byHand != null && (
-        <>
-          <Notice kind="info">{webStrings.settingsDiagnosticsByHand}</Notice>
-          <textarea
-            ref={field}
-            className="diagnostics"
-            readOnly
-            rows={10}
-            value={byHand}
-            aria-label={webStrings.settingsDiagnosticsLabel}
-          />
-        </>
-      )}
+        <span className="muted" role="status">{result && diagnosticsMessages[result]}</span>
+      </div>
+      {shownText != null && <pre ref={shown}>{shownText}</pre>}
     </>
   );
 }
+
+const diagnosticsMessages: Record<CopyResult, string> = {
+  copied: strings.settingsDiagnosticsCopied,
+  selected: webStrings.copySelected,
+  failed: webStrings.copyFailed,
+};
 
 const sessionFocusId = (id: string) => `session:${id}`;
 const removeFocusId = (id: string) => `remove:${id}`;
@@ -173,9 +176,12 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
  */
 function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: () => void; dismiss: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const shown = dialog.current;
     shown?.showModal();
+    // Explicitly, not by button order: showModal() focuses the first focusable element, and React's autoFocus runs before it.
+    cancelButton.current?.focus();
     return () => shown?.close();
   }, []);
   // The page behind a modal dialog is inert, so the dialog closes before focus moves there.
@@ -199,7 +205,7 @@ function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: 
       <h2 id="remove-title">{strings.settingsRemoveTitle(row.name)}</h2>
       <p id="remove-message">{strings.settingsRemoveMessage}</p>
       <div className="dialog-buttons">
-        <button type="button" className="text-button" autoFocus onClick={cancel}>{strings.settingsCancel}</button>
+        <button ref={cancelButton} type="button" className="text-button" onClick={cancel}>{strings.settingsCancel}</button>
         <button
           type="button"
           className="text-button danger"

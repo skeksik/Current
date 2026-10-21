@@ -108,4 +108,33 @@ class ShellPagesTest {
         assertEquals("123456", code.code)
         assertEquals("signedIn", SignInUiState.SignedIn("alex").toView().kind)
     }
+
+    /**
+     * These enums cross the facade by name, and webApp/src/strings.ts gives each name a text through a hand-written union type. A new
+     * value fails here: add it to the union in strings.ts (the TypeScript build then asks for its text) and to this list.
+     */
+    @Test
+    fun enumNamesMatchTheUnionsInTheWebStrings() {
+        assertEquals(
+            listOf("CredentialManager", "SecretService", "Browser", "File", "Memory"),
+            SecretStorage.entries.map { it.name },
+            "SecretStorageName in webApp/src/strings.ts",
+        )
+        assertEquals(
+            listOf(
+                "InvalidAddress", "Unreachable", "TimedOut", "Redirected", "NotThisService", "Refused", "AlreadyAdded", "DifferentServer",
+                "ServerNotSaved",
+            ),
+            ServerSetupProblem.entries.map { it.name },
+            "ServerSetupProblemName in webApp/src/strings.ts",
+        )
+        assertEquals(
+            listOf(
+                "WrongCredentials", "Unreachable", "TimedOut", "Refused", "DifferentServer", "QuickConnectDisabled", "QuickConnectExpired",
+                "ServerNotSaved",
+            ),
+            SignInProblem.entries.map { it.name },
+            "SignInProblemName in webApp/src/strings.ts",
+        )
+    }
 }

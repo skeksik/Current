@@ -19,7 +19,8 @@ so two machines must never share one. `%APPDATA%` roams with domain profiles, an
     memory holds. Never written without that choice.
   - **A keyring that fails at run time** (locked and dismissed): memory for the rest of the run.
   - **Web: `localStorage`** under `current.secret.`. It survives restarts, which staying signed in needs, and any script on the origin can
-    read it. The web app must keep foreign scripts out with a strict Content-Security-Policy.
+    read it. The web app must keep foreign scripts out with a strict Content-Security-Policy: the production build carries it as
+    a `<meta>` tag, and a host sends it as a header (docs/web-hosting.md).
   - **Android and Apple: memory until M4**, which brings a Keystore-backed store and the Keychain (this device only).
 - **Machine-local store** for values that must not roam: `%LOCALAPPDATA%\Current\local.json` on Windows, `$XDG_STATE_HOME/current/local.json`
   (default `~/.local/state/current`) on Linux. Elsewhere it is the settings store's kind under its own name; keeping it out of phone
