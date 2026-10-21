@@ -6,8 +6,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Where [SecretStore] keeps secrets right now, so the UI can say what "stay signed in" means here (ADR 0017). */
 enum class SecretStorage {
-    /** The OS credential store: Windows Credential Manager, the Secret Service on Linux. */
-    Keyring,
+    /** Windows Credential Manager, the OS credential store on Windows. */
+    CredentialManager,
+
+    /** The Secret Service, the OS credential store on Linux (GNOME Keyring, KWallet or another provider; which one is not known). */
+    SecretService,
 
     /** The browser's `localStorage`: kept across restarts, readable by any script on the page's origin. */
     Browser,

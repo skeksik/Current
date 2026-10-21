@@ -57,7 +57,8 @@ import com.skeksik.current.ui.resources.settings_remove_title
 import com.skeksik.current.ui.resources.settings_secrets_browser
 import com.skeksik.current.ui.resources.settings_secrets_file
 import com.skeksik.current.ui.resources.settings_secrets_keep_in_file
-import com.skeksik.current.ui.resources.settings_secrets_keyring
+import com.skeksik.current.ui.resources.settings_secrets_credential_manager
+import com.skeksik.current.ui.resources.settings_secrets_secret_service
 import com.skeksik.current.ui.resources.settings_secrets_memory
 import com.skeksik.current.ui.resources.settings_servers
 import com.skeksik.current.ui.resources.settings_sign_in
@@ -188,7 +189,8 @@ private fun RemoveDialog(row: ServerRow, confirm: () -> Unit, dismiss: () -> Uni
 }
 
 private fun SecretStorage.description() = when (this) {
-    SecretStorage.Keyring -> Res.string.settings_secrets_keyring
+    SecretStorage.CredentialManager -> Res.string.settings_secrets_credential_manager
+    SecretStorage.SecretService -> Res.string.settings_secrets_secret_service
     SecretStorage.Browser -> Res.string.settings_secrets_browser
     SecretStorage.File -> Res.string.settings_secrets_file
     SecretStorage.Memory -> Res.string.settings_secrets_memory

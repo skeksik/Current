@@ -19,6 +19,8 @@ internal class WindowsCredentials private constructor(
     private val api: Advapi32Credentials,
     private val prefix: String,
 ) : SecretBackend {
+    override val storage = SecretStorage.CredentialManager
+
     override fun get(key: String): String? {
         val result = PointerByReference()
         if (!call { api.CredReadW(WString(prefix + key), CRED_TYPE_GENERIC, 0, result) }) return null
