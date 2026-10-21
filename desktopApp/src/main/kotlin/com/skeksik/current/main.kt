@@ -1,5 +1,6 @@
 package com.skeksik.current
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
@@ -20,6 +21,9 @@ fun main() = application {
             onPreviewKeyEvent = input::onPreviewKeyEvent,
         ) {
             LaunchedEffect(Unit) { window.minimumSize = Dimension(760, 520) }
+            // The app follows the system theme (CurrentTheme), and so does the title bar.
+            val dark = isSystemInDarkTheme()
+            LaunchedEffect(dark) { WindowsTitleBar.setDark(window, dark) }
             AppContent(input)
         }
     }
