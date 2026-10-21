@@ -62,6 +62,14 @@
     <string name="add_server_refused">The server refused the request.</string>
     <string name="add_server_already_added">This server is already added.</string>
     <string name="add_server_different_server">Another server answers at this address.</string>
+    <string name="local_network_explain">To reach a server on your home network, Current needs the permission Android calls "Nearby devices".</string>
+    <string name="local_network_continue">Continue</string>
+    <string name="local_network_denied">Without "Nearby devices", servers on your home network cannot be reached, even by an internet name that leads to them at home. Other servers on the internet still work.</string>
+    <string name="local_network_ask_again">Ask again</string>
+    <string name="local_network_blocked">"Nearby devices" is turned off for Current, so servers on your home network cannot be reached, even by an internet name that leads to them at home. Other servers on the internet still work. You can turn it on in the app's settings.</string>
+    <string name="local_network_timed_out">If this server is on your home network, or its name leads there at home, "Nearby devices" being off is the likely cause.</string>
+    <string name="local_network_open_settings">Open settings</string>
+    <string name="local_network_try_again">Try again</string>
 
     <!-- Sign in -->
     <string name="sign_in_title">Sign in to %1$s</string>

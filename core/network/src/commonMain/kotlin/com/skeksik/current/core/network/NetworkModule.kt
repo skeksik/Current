@@ -24,6 +24,7 @@ val networkModule = module {
     single { NetworkLogger.None }
     single { ServerClients(get(), get()) }
     single<ServerAddressSources> { FirstAddressSources() }
+    single<LocalNetworkAccess> { platformLocalNetworkAccess() }
     // Created at start so the saved servers are in the capabilities state before any feature reads it.
     single<ServerRepository>(createdAtStart = true) { StoredServerRepository(get(), get()) }
 }

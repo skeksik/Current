@@ -12,6 +12,7 @@ kotlin {
 }
 dependencies {
     implementation(project(":shared"))
+    implementation(project(":core:network"))
 
     implementation(libs.androidx.activity.compose)
 
