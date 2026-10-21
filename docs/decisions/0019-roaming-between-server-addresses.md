@@ -14,8 +14,9 @@ is on, so a signal can only mean "something may have changed".
   and its settle, a resumed network, a request (no address, or the address in use failing), a timer, and each probe's result. Only the
   loop changes the state (the address in use, whether requests are held, the check running, the retry wait); requests read what it
   publishes and wait on it. The settle and the timers are scheduled events, and probes run as child jobs that post their results;
-  each carries a token of the settle, timer or check it belongs to, and the loop ignores one that has been replaced. The rules below
-  are the loop's.
+  each carries a token of the settle, timer or check it belongs to, and the loop ignores one that has been replaced. Requests and
+  resumed networks are queued only when one is not already waiting, so the queue stays bounded however fast they come. The rules
+  below are the loop's.
 - **One `RoamingServerAddress` per saved server**, made by `RoamingAddressSources` (bound in Koin in place of the first address),
   started for every saved server and shared by every client of that server. It runs in the app scope until the server is removed,
   follows edits to its addresses, and has no address once stopped.
@@ -49,7 +50,8 @@ is on, so a signal can only mean "something may have changed".
   - when the same network is usable again (`NetworkChange.Resumed`): on Android when the system unblocks the default network (it
     blocks a background app's network, and a check made then finds nothing), and on iOS and tvOS when the app comes back to the
     foreground. The check starts at once, the address in use stays, and the retry waits start over. A request that was waiting across
-    it starts its wait again instead of failing;
+    it starts its wait again instead of failing, once per resumed network and never beyond twice the bound in all. The macOS
+    wake is not a signal yet (a follow-up);
   - when a request to the address in use cannot connect or times out (reports for an address no longer in use are ignored), and
     when a request finds no address at all. Never while a check runs, which answers it, and at most once per 15 s after the last
     check ended; a request that comes sooner is kept and the check comes when that window ends. So a caller that retries on every
