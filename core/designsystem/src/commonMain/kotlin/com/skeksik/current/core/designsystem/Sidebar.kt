@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Radius
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 import com.skeksik.current.core.designsystem.CurrentTokens.Spacing
@@ -87,7 +88,8 @@ fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, modifier: M
         modifier
             .fillMaxWidth()
             .height(Size.sidebarItemHeight)
-            .focusRing(shape)
+            // Entries sit Spacing.xs apart and their fill is not the ring's colour, so the ring hugs the edge.
+            .focusRing(shape, gap = 0.dp)
             .clip(shape)
             .background(if (selected) colors.primary.copy(alpha = 0.16f) else colors.surface)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)

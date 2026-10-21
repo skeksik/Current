@@ -1,6 +1,5 @@
 package com.skeksik.current.core.designsystem
 
-import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -8,12 +7,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -21,16 +24,28 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.unit.Dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
 
 // Every screen works with the keyboard alone (and later a remote): visible focus, arrows and Tab move it, Enter acts.
 
-/** Draws a ring in the accent colour while this element or one inside it has focus. Put it before the focusable element's own modifiers. */
+/**
+ * Draws a ring in the accent colour while this element or one inside it has focus. The ring is drawn outside the element, [gap] away from
+ * its edge, so it shows on a filled button of the same colour, and it takes no layout space. Put it before the focusable element's own
+ * modifiers, before any clip.
+ */
 @Composable
-fun Modifier.focusRing(shape: Shape): Modifier {
+fun Modifier.focusRing(shape: Shape, gap: Dp = Size.focusRingGap): Modifier {
     var focused by remember { mutableStateOf(false) }
-    val color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent
-    return onFocusChanged { focused = it.hasFocus }.border(Size.focusRing, color, shape)
+    val color = MaterialTheme.colorScheme.primary
+    return onFocusChanged { focused = it.hasFocus }.drawWithContent {
+        drawContent()
+        if (!focused) return@drawWithContent
+        val stroke = Size.focusRing.toPx()
+        val outset = gap.toPx() + stroke / 2
+        val outline = shape.createOutline(GeometrySize(size.width + 2 * outset, size.height + 2 * outset), layoutDirection, this)
+        translate(-outset, -outset) { drawOutline(outline, color, style = Stroke(stroke)) }
+    }
 }
 
 /**

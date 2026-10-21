@@ -57,6 +57,8 @@ object CurrentTokens {
         /** Forms and text blocks stay readable on wide windows. */
         val contentMaxWidth = 640.dp
         val focusRing = 2.dp
+        /** Space between an element and its focus ring, so the ring shows on a fill of the same colour. */
+        val focusRingGap = 2.dp
     }
 
     object Type {
