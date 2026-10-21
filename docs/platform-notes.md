@@ -2496,8 +2496,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   line in `~/.accessibility.properties` (`java.awt.Toolkit`, `jdk21u`). `jabswitch /enable` writes that line
   (`assistive_technologies=com.sun.java.accessibility.AccessBridge`) and sets the Windows accessibility registry key (`jabswitch.cpp`).
   The plugin's jlink step passes `--strip-native-commands` (`AbstractJLinkTask.kt`), which is why the bundled runtime has the Access
-  Bridge DLLs but no `jabswitch.exe`. Not tried: whether passing the property as a JVM argument of the packaged app makes Narrator or
-  NVDA see the Compose content without the user running `jabswitch`. A follow-up.
+  Bridge DLLs but no `jabswitch.exe`. Narrator cannot read the app with any setting, and an installed NVDA turns the bridge on by itself:
+  see "Windows screen readers and the desktop app".
 - No single-instance check: a second launch opens a second window with its own state over the same settings files (Windows run). A
   follow-up.
 - Window icon: `main.kt` sets the `Window` icon from `icons/current.png`, which the build puts on the classpath (the installer's own
@@ -2674,7 +2674,8 @@ Win+Ctrl+Enter, Ctrl+Caps Lock+F12 (developer mode) shows what it can see.
 - Not run: Firefox, Safari; the policy as response headers (docs/web-hosting.md) on a real host.
 
 ## Not verified (research before depending on it)
-- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app, the
+- Desktop installers on a real machine (see "Desktop installer: Windows run" and "Desktop packaging"): NVDA in the packaged app (the
+  checklist in "Windows screen readers and the desktop app"), the
   window icon and the new install folder (`Current App`) by hand, the Installed-apps icon in Settings, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
