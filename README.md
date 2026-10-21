@@ -20,6 +20,7 @@ Every service is optional: the app works with whichever of them you run.
 .\gradlew.bat :desktopApp:run                          # desktop (use ./gradlew on macOS/Linux)
 npm --prefix webApp ci; npm --prefix webApp run dev  # web: builds the Kotlin library, then serves http://localhost:5173
 .\gradlew.bat :androidApp:installDebug                 # Android
+.\gradlew.bat :desktopApp:packageMsi                   # Windows installer in desktopApp/build/compose/binaries/main/msi
 ```
 
 ## Docs

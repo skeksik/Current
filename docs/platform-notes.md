@@ -2244,7 +2244,33 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   server is no longer saved." Sign in asks `GET /QuickConnect/Enabled` once for its button and again when Quick Connect starts.
 - Not run: Firefox, Safari, Edge; Chrome's local network access prompt (the dev page is on loopback).
 
+## Desktop packaging (read 2026-10-21 in the Compose Multiplatform docs and the compose-multiplatform plugin source on `master`; packaged only in CI)
+- jlink copies only listed modules into the packaged runtime. "The Gradle plugin does not automatically determine necessary JDK Modules
+  ... failure to provide the necessary modules can lead to `ClassNotFoundException` at runtime." `suggestModules` runs jdeps, whose
+  "output might be incomplete or list unnecessary modules"; `includeAllModules` is the size-for-safety alternative
+  (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html). In the plugin source on `master` (not the 1.12.1 tag) the task is named
+  `suggestRuntimeModules`, and the defaults are `java.base`, `java.desktop`, `java.logging`, `jdk.crypto.ec`
+  (`gradle-plugins/compose/.../dsl/JvmApplicationDistributions.kt`, `DEFAULT_RUNTIME_MODULES`).
+- Windows screen readers work through Java Access Bridge, "disabled by default" (`jabswitch.exe /enable`). A packaged app needs the
+  `jdk.accessibility` module. The page names NVDA's Speech Viewer and JAWS' speech history for checking announcements
+  (https://kotlinlang.org/docs/multiplatform/compose-desktop-accessibility.html).
+- `packageName` is "the application's name"; `description` and `vendor` have no default. `windows { upgradeUuid }` "enables users to update
+  the application via the installer, when there is a version newer than an installed version. The value must remain constant".
+  `perUserInstall`, `menu`, `menuGroup`, `shortcut` and `dirChooser` (default true) exist in the plugin's `WindowsPlatformSettings`;
+  `linux { packageName, debMaintainer, appCategory, menuGroup, shortcut }` in `LinuxPlatformSettings`. MSI versions are
+  `MAJOR.MINOR.BUILD` (255, 255, 65535 at most); a DEB version must start with a digit (docs page above).
+- jpackage needs JDK 17 or newer, taken from `JAVA_HOME` or `javaHome` (docs page above); the plugin falls back to the `java.home` of the
+  JVM running Gradle (`JvmApplicationData.kt`). The desktop app sets `javaHome` from a Temurin 21 Gradle toolchain (cross-cutting review A7).
+- WiX: on Windows the plugin downloads WiX 3.11 binaries from the wixtoolset GitHub releases (`downloadWix`, `unzipWix`) unless `WIX_PATH` is
+  set or `compose.desktop.application.downloadWix=false` (`internal/wixToolset.kt`).
+- The modules the app needs beyond the defaults: `java.net.http` (ktor-client-java uses the JDK's `HttpClient`), `jdk.accessibility`, and
+  `jdk.unsupported` as a cheap safety net. JNA (Credential Manager, libsecret, the title bar) logs through `java.logging`, a default.
+  CI checks the packaged runtime's `release` file for them (`scripts/check-desktop-runtime.sh`) and starts the packaged app for 20 s.
+- Not verified: installing the MSI, its Start menu entry and icon, an in-place upgrade, a per-user uninstall, NVDA through the packaged
+  runtime, a DEB on a real Debian or Ubuntu desktop.
+
 ## Not verified (research before depending on it)
+- Desktop installers on a real machine (see "Desktop packaging"): the MSI install, upgrade and uninstall, NVDA in the packaged app, the DEB.
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
 - Which exceptions the Android, Darwin and JS Ktor engines throw for a refused connection, an unknown host or a TLS failure. ADR 0015

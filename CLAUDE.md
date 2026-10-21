@@ -49,6 +49,7 @@ Research notes with sources and the list of still-unverified claims: docs/platfo
 ## Commands (Windows: `.\gradlew.bat`, macOS/Linux: `./gradlew`)
 ```
 ./gradlew :desktopApp:run                              # run desktop app
+./gradlew :desktopApp:packageMsi                       # Windows installer (packageDeb on Linux); version from current.version
 npm --prefix webApp run dev                            # run web app (npm ci first; builds the Kotlin library, then Vite)
 ./gradlew :androidApp:installDebug                     # install on device/emulator
 ./gradlew jvmTest                                      # JVM tests in every module
