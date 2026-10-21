@@ -64,4 +64,20 @@ class FocusVisibilityTest {
         assertFalse(visibility.showsRing(arrival))
         assertFalse(visibility.showsRing(visibility.focusGained()))
     }
+
+    @Test
+    fun focusIsHeldWhileAnyTrackedRootHoldsIt() {
+        val visibility = FocusVisibility()
+        val window = Any()
+        val dialog = Any()
+        assertFalse(visibility.focusHeld)
+        visibility.onRootFocusChanged(window, hasFocus = true)
+        assertTrue(visibility.focusHeld)
+        // Focus moves into a dialog: the order in which the two roots hear of it does not matter.
+        visibility.onRootFocusChanged(dialog, hasFocus = true)
+        visibility.onRootFocusChanged(window, hasFocus = false)
+        assertTrue(visibility.focusHeld)
+        visibility.onRootFocusChanged(dialog, hasFocus = false)
+        assertFalse(visibility.focusHeld)
+    }
 }
