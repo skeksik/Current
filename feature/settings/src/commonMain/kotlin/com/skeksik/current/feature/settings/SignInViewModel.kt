@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 
 /** Settings > Servers > Sign in to a saved Jellyfin server (ADR 0018). */
 sealed interface SignInUiState {
-    /** [quickConnect] once the server says Quick Connect is on; [working] while a password sign-in runs. */
+    /** [quickConnect] once the server says Quick Connect is on; [working] while a password sign-in runs or Quick Connect starts. */
     data class Form(
         val username: String = "",
         val password: String = "",
@@ -61,6 +61,7 @@ class SignInViewModel internal constructor(
     private val _state = MutableStateFlow<SignInUiState>(SignInUiState.Form())
     val state: StateFlow<SignInUiState> = _state.asStateFlow()
 
+    /** The one sign-in at a time: a password sign-in, or Quick Connect from asking for a code until it ends. */
     private var work: Job? = null
 
     init {
@@ -84,6 +85,7 @@ class SignInViewModel internal constructor(
         val form = _state.value as? SignInUiState.Form ?: return
         if (form.working || form.username.isBlank()) return
         _state.value = form.copy(working = true, problem = null)
+        work?.cancel()
         work = scope.launch {
             _state.value = try {
                 SignInUiState.SignedIn(accounts.signIn(server, form.username.trim(), form.password).name)
@@ -98,6 +100,7 @@ class SignInViewModel internal constructor(
     fun startQuickConnect() {
         val form = _state.value as? SignInUiState.Form ?: return
         if (form.working) return
+        _state.value = form.copy(working = true, problem = null)
         work?.cancel()
         work = scope.launch {
             _state.value = try {
@@ -105,9 +108,9 @@ class SignInViewModel internal constructor(
                 _state.value = SignInUiState.QuickConnect(request.code)
                 SignInUiState.SignedIn(accounts.finishQuickConnect(server, request).name)
             } catch (e: ServiceException) {
-                form.copy(problem = problemFor(e))
+                form.copy(working = false, problem = problemFor(e))
             } catch (e: SignInException) {
-                form.copy(problem = problemFor(e.failure))
+                form.copy(working = false, problem = problemFor(e.failure))
             }
         }
     }
