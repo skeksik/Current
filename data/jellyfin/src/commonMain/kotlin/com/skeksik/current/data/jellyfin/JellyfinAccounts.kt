@@ -8,7 +8,9 @@ import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.model.User
+import com.skeksik.current.core.network.FixedServerAddress
 import com.skeksik.current.core.network.MutableCapabilitiesState
+import com.skeksik.current.core.network.ServerAddressSource
 import com.skeksik.current.core.network.ServerAddressSources
 import com.skeksik.current.core.network.ServerClient
 import com.skeksik.current.core.network.ServerClients
@@ -32,6 +34,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -72,10 +76,13 @@ interface JellyfinAccounts {
     /** Waits until the code is approved, then signs in. Throws [SignInFailure.QuickConnectExpired] when it is not approved in time. */
     suspend fun finishQuickConnect(server: ServerRef, request: QuickConnectRequest): User
 
-    /** Ends the session on the server when it can be reached, and forgets the token either way. */
+    /**
+     * Forgets the session here at once (token, user, capabilities), then ends it on the server in the background, best effort, so the
+     * server may be removed right after.
+     */
     suspend fun signOut(server: ServerRef)
 
-    /** A client that sends [server]'s token, or null when signed out. A 401 signs the server out. Callers close it. */
+    /** A client that sends [server]'s token, or null when signed out. A 401 signs the server out if the token is still current. Callers close it. */
     suspend fun authorizedClient(server: ServerRef): ServerClient?
 }
 
@@ -95,6 +102,12 @@ internal class StoredJellyfinAccounts(
 ) : JellyfinAccounts {
     /** Tokens in memory, so requests do not ask the keyring each time. Updated atomically: restore runs beside the UI. */
     private val tokens = MutableStateFlow<Map<ServerRef, String>>(emptyMap())
+
+    /** Keeps a token being stored and a stale one being removed from the [SecretStore] apart, so a removal never hits a newer token. */
+    private val secretsLock = Mutex()
+
+    /** Signed out here, with the stored token not removed yet: [authorizedClient] must not read it back. */
+    private val signingOut = MutableStateFlow<Set<ServerRef>>(emptySet())
 
     /** Puts saved sessions into the capabilities state, then checks each with its server in the background. */
     fun restore(): Job =
@@ -144,9 +157,11 @@ internal class StoredJellyfinAccounts(
 
     override suspend fun startQuickConnect(server: ServerRef): QuickConnectRequest {
         val saved = saved(server)
-        if (!quickConnectEnabled(server)) throw SignInException(SignInFailure.QuickConnectDisabled)
-        val started = clientFor(saved, token = null).use { client ->
-            client.request { post("QuickConnect/Initiate").body<QuickConnectResultDto>() }
+        val started = try {
+            clientFor(saved, token = null).use { client -> client.request { post("QuickConnect/Initiate").body<QuickConnectResultDto>() } }
+        } catch (e: ServiceException) {
+            // Jellyfin answers 401 when Quick Connect is off, so no separate check is needed.
+            if (e.kind == ServiceErrorKind.Unauthorized) throw SignInException(SignInFailure.QuickConnectDisabled) else throw e
         }
         if (started.secret.isBlank() || started.code.isBlank()) throw ServiceException(server, ServiceErrorKind.InvalidResponse)
         return QuickConnectRequest(started.code, started.secret)
@@ -170,23 +185,46 @@ internal class StoredJellyfinAccounts(
         }
     }
 
-    /** True once approved. The server forgets unknown or expired secrets (404). */
+    /**
+     * True once approved. The server forgets unknown or expired secrets (404). No answer or a server error counts as not yet: the user
+     * may be walking to another device while the network changes, and the time limit ends the wait.
+     */
     private suspend fun poll(client: ServerClient, request: QuickConnectRequest): Boolean = try {
         client.request { get("QuickConnect/Connect") { parameter("secret", request.secret) }.body<QuickConnectResultDto>() }.authenticated
     } catch (e: ServiceException) {
-        if (e.kind == ServiceErrorKind.NotFound) throw SignInException(SignInFailure.QuickConnectExpired) else throw e
+        when (e.kind) {
+            ServiceErrorKind.NotFound -> throw SignInException(SignInFailure.QuickConnectExpired)
+            ServiceErrorKind.Unreachable, ServiceErrorKind.Timeout, ServiceErrorKind.ServerError -> false
+            else -> throw e
+        }
     }
 
     override suspend fun signOut(server: ServerRef) {
-        val token = tokens.value[server] ?: secrets.get(tokenKey(server))
+        // Everything the caller needs happens before the first suspension, so a cancelled caller cannot leave it half done.
         val saved = servers.server(server)
-        if (token != null && saved != null) endSession(saved, token)
-        forget(server)
+        // The address in use now is proved; after the server is removed its roaming source has none.
+        val address = saved?.let(addresses::forServer)?.let { source -> source.current.value?.let(::FixedServerAddress) ?: source }
+        val known = tokens.value[server]
+        signingOut.update { it + server }
+        tokens.update { it - server }
+        settings.remove(userKey(server))
+        capabilities.update(server) { it.copy(signedIn = false, user = null) }
+        scope.launch {
+            // Without a token in memory, restore has not read it yet: the stored one is this session's.
+            val token = try {
+                forgetStored(server, known)
+            } finally {
+                signingOut.update { it - server }
+            }
+            if (token != null && saved != null && address != null) endSession(saved, token, address)
+        }
     }
 
     override suspend fun authorizedClient(server: ServerRef): ServerClient? {
         val saved = servers.server(server) ?: return null
-        val token = tokens.value[server] ?: secrets.get(tokenKey(server))?.also { found -> tokens.update { it + (server to found) } } ?: return null
+        val token = tokens.value[server]
+            ?: secrets.get(tokenKey(server))?.takeIf { server !in signingOut.value }?.also { found -> tokens.update { it + (server to found) } }
+            ?: return null
         return clientFor(saved, token)
     }
 
@@ -197,17 +235,19 @@ internal class StoredJellyfinAccounts(
         if (token == null || user == null) throw ServiceException(saved.ref, ServiceErrorKind.InvalidResponse)
         val reported = result.serverId ?: user.serverId
         if (reported != null && normalisedId(reported) != normalisedId(saved.serverId)) {
-            endSession(saved, token)
+            endSession(saved, token, addresses.forServer(saved))
             throw SignInException(SignInFailure.DifferentServer)
         }
-        secrets.put(tokenKey(saved.ref), token)
-        tokens.update { it + (saved.ref to token) }
+        secretsLock.withLock {
+            secrets.put(tokenKey(saved.ref), token)
+            tokens.update { it + (saved.ref to token) }
+        }
         return remember(saved.ref, user).also { capabilities.update(saved.ref) { it.copy(reachable = true) } }
     }
 
-    private suspend fun endSession(server: SavedServer, token: String) {
+    private suspend fun endSession(server: SavedServer, token: String, address: ServerAddressSource) {
         try {
-            clientFor(server, token, signOutOn401 = false).use { client ->
+            clientFor(server, token, address, signOutOn401 = false).use { client ->
                 client.request { post("Sessions/Logout") { timeout { requestTimeoutMillis = 5_000 } } }
             }
         } catch (e: ServiceException) {
@@ -224,18 +264,45 @@ internal class StoredJellyfinAccounts(
     private fun markSignedIn(server: ServerRef, user: User) =
         capabilities.update(server) { it.copy(signedIn = true, user = user) }
 
-    private suspend fun forget(server: ServerRef) {
-        tokens.update { it - server }
-        secrets.remove(tokenKey(server))
-        settings.remove(userKey(server))
-        capabilities.update(server) { it.copy(signedIn = false, user = null) }
+    /**
+     * Signs [server] out after a 401 for [token], only while [token] is still its session: a request sent before a new sign-in gets a
+     * 401 for the old token (Jellyfin revokes it), and must not end the new session.
+     */
+    private suspend fun forget(server: ServerRef, token: String) {
+        secretsLock.withLock {
+            if (tokens.value[server] != token) return
+            removeToken(server, token)
+            settings.remove(userKey(server))
+            capabilities.update(server) { it.copy(signedIn = false, user = null) }
+        }
     }
 
-    private fun clientFor(server: SavedServer, token: String?, signOutOn401: Boolean = true): ServerClient = clients.create(
+    /** Removes the stored token of a signed-out session: [known] if it was in memory, else whatever is stored. Returns it, if any. */
+    private suspend fun forgetStored(server: ServerRef, known: String?): String? = secretsLock.withLock {
+        val current = tokens.value[server]
+        // A new session was kept since.
+        if (current != null && current != known) return@withLock null
+        val token = known ?: secrets.get(tokenKey(server)) ?: return@withLock null
+        removeToken(server, token)
+        token
+    }
+
+    /** Call with [secretsLock] held. */
+    private suspend fun removeToken(server: ServerRef, token: String) {
+        if (secrets.get(tokenKey(server)) == token) secrets.remove(tokenKey(server))
+        tokens.update { if (it[server] == token) it - server else it }
+    }
+
+    private fun clientFor(
+        server: SavedServer,
+        token: String?,
+        address: ServerAddressSource = addresses.forServer(server),
+        signOutOn401: Boolean = true,
+    ): ServerClient = clients.create(
         server = server.ref,
-        address = addresses.forServer(server),
+        address = address,
         auth = JellyfinAuthorization(device) { token },
-        onUnauthorized = if (token != null && signOutOn401) ({ scope.launch { forget(server.ref) } }) else null,
+        onUnauthorized = if (token != null && signOutOn401) ({ scope.launch { forget(server.ref, token) } }) else null,
     )
 
     private fun saved(server: ServerRef): SavedServer =
