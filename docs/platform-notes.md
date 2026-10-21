@@ -2249,6 +2249,39 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   server is no longer saved." Sign in asks `GET /QuickConnect/Enabled` once for its button and again when Quick Connect starts.
 - Not run: Firefox, Safari, Edge; Chrome's local network access prompt (the dev page is on loopback).
 
+## Local network rules: Android Emulator run (checked 2026-10-21 on the Android Emulator 37.2.12, Google APIs x86_64 image, Android 17, SDK 37, build CE2A.260420.019, security patch 2026-05-05, Pixel 7 profile 1080x2400 at 420 dpi; PR 43 at db3a345)
+- What ran: the debug build on a fresh AVD, driven by `adb shell input` and read with `uiautomator dump`. The permission state was read
+  with `dumpsys package` (undecided: no `USER_SET`). Saved servers were written into the app's preferences with `run-as` after
+  `pm clear`, each with a stale stored scope, so the scope recomputed on load was tested too. The Jellyfin stand-in was a throwaway
+  script on the host (not committed), reached as 10.0.2.2. It answered `System/Info/Public` and `QuickConnect/Enabled`, logged each
+  request with its time, and could be paused: while paused it held every request open without answering.
+- 1, overlay VPN address: **pass.** Undecided permission. A saved Jellyfin server at `https://media.tailnet-name.ts.net` only, stored
+  as `Local`: Home shows "You are signed out" with no "Nearby devices" notice and no dialog, and Settings shows no Blocked banner, only
+  Offline, since nothing answers there. A server at a `100.64.0.0/10` address gives the same. With the permission denied and
+  `USER_FIXED`, the `.ts.net` server still shows no notice on Home and no Blocked banner. Through the app it can't be saved, because
+  nothing answers the check. Add server asks before the first check of any address, so the dialog did show there for the `.ts.net`
+  address. That is by design: an internet name can lead to the local network.
+- 2, a LAN server still asks: **pass.** `http://192.168.1.10:8096`, stored as `Internet`: Home shows the "Nearby devices" notice with
+  Continue above "You are signed out", as before.
+- 3, empty field: **pass.** Undecided, Add server, `KEYCODE_ENTER` with the field empty: no system dialog, and "That is not a server
+  address." shows. The permission is still undecided afterwards.
+- 4, Offline clears on success: **pass.** Permission granted, stand-in reachable, so Settings showed no Offline. Then the stand-in
+  was paused and Sign in opened, which sends `QuickConnect/Enabled`:
+  - The request was held for 30.0 s (the request timeout). The check it asked for started at once, and its probe got no answer for
+    5 s, so Settings showed Offline. The next check was due 15 s after that miss.
+  - The stand-in resumed 6.5 s after the miss. Sign in opened again 2.2 s later, and `QuickConnect/Enabled` got its 200.
+  - Settings showed no Offline at the first read, 3.3 s after that request. The next check's `System/Info/Public` came 6.3 s after
+    the request, so the request cleared Offline, not a check.
+  - A first attempt missed the Sign in button, which Offline had pushed down. Nothing was sent then, so Offline stayed until the timer
+    check proved the address. Requests sent while paused were dropped without an answer on resume.
+- 5, unprobed servers: **pass for Seerr; Stash not shown.**
+  - A saved Seerr server shows Offline straight away, with nothing at its address. It also does with the live stand-in at its
+    address: Seerr has no address source yet, so it always shows Offline.
+  - A saved Stash server shows neither Offline nor online. No screen sends Stash a request yet, so the failure count never starts.
+    Covered by `RoamingAddressSourcesTest` only.
+- Also seen, not from this PR and already noted above: the sidebar takes about half the width at phone size, and the "No credential
+  store was found" note shows on Android.
+
 ## Not verified (research before depending on it)
 - That the internet probe logged as `no response` at home was cancelled by its check, not failed (section "The internet probe that
   "fails" at home"): read in the code, not yet seen as `cancelled` on a device.
