@@ -70,6 +70,7 @@ The history scan found no private IPs, hostnames or tokens in the repository.
    (Later reversed: #46 follows that suggestion, and Esc never goes back.)
 2. **The player UI on Apple.** ADR 0007 says the player UI is always the app's own. The HIG says to use the system video player, most
    strongly on tvOS (remote commands, PiP, skip-intro actions). Decide before the M4 player spike.
+   (Decided 2026-10-21 in #47: the UI stays the app's own on every engine and provides what the system player does; ADR 0007, amendment.)
 3. **Commit author on `main`.** Squash merges take the author name from the GitHub profile, so they carry the account's display name
    instead of `skeksik`. History can't be rewritten without force-pushing `main`. Setting the profile name fixes future merges.
 4. **Shared test fakes.** Seven `ServerRepository` fakes keep server order differently from the real repository. One faithful fake needs
