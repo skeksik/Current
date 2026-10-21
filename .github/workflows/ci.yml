@@ -35,7 +35,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: webApp/package-lock.json
-      - run: ./gradlew jvmTest :web:jsNodeTest :desktopApp:classes
+      # jsNodeTest runs every pure-Kotlin module's commonTest on Node, and the web facade's own tests.
+      - run: ./gradlew jvmTest jsNodeTest :desktopApp:classes
       - name: Web app (npm licences, contrast, Kotlin library, Vite build)
         working-directory: webApp
         run: |
@@ -160,5 +161,8 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - run: xcodebuild -version
+      # commonTest of the pure-Kotlin modules as a native macOS binary, with the appleMain code that the JVM and Node runs never
+      # reach. iOS and tvOS simulator tests are not run, to keep CI short.
+      - run: ./gradlew macosArm64Test
       # Unsigned app builds for iOS simulator, macOS and tvOS simulator. Each one's build phase links the Shared framework for its SDK.
       - run: ./scripts/build-apple-app.sh

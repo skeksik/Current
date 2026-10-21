@@ -1,21 +1,22 @@
 package com.skeksik.current.feature.settings
 
+import com.skeksik.current.core.database.InMemoryKeyValueStore
 import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
+import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerAddressSource
 import com.skeksik.current.core.network.ServerAddressSources
-import com.skeksik.current.core.network.ServerRepository
 import com.skeksik.current.core.network.ServerUrl
+import com.skeksik.current.core.network.StoredServerRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -29,20 +30,6 @@ class RoamingNoticesViewModelTest {
     private val homeServer = SavedServer(home, "0123456789abcdef0123456789abcdef", "Living room", listOf(local, internet))
     private val officeServer = SavedServer(office, "fedcba9876543210fedcba9876543210", "Office", listOf(internet))
 
-    private class FakeServers(initial: List<SavedServer>) : ServerRepository {
-        private val state = MutableStateFlow(initial)
-        override val servers: StateFlow<List<SavedServer>> = state
-
-        override fun save(server: SavedServer) {
-            state.value = if (state.value.any { it.ref == server.ref }) state.value.map { if (it.ref == server.ref) server else it }
-            else state.value + server
-        }
-
-        override fun remove(ref: ServerRef) {
-            state.value = state.value.filterNot { it.ref == ref }
-        }
-    }
-
     /** One address source per server, whose switches the test sends. */
     private class FakeSource : ServerAddressSource {
         override val current = MutableStateFlow<ServerUrl?>(null)
@@ -51,7 +38,10 @@ class RoamingNoticesViewModelTest {
         override fun reportUnreachable(address: ServerUrl) = Unit
     }
 
-    private val servers = FakeServers(listOf(homeServer, officeServer))
+    private val servers = StoredServerRepository(InMemoryKeyValueStore(), MutableCapabilitiesState()).apply {
+        save(homeServer)
+        save(officeServer)
+    }
     private val sources = mapOf(home to FakeSource(), office to FakeSource())
 
     private fun TestScope.viewModel(): RoamingNoticesViewModel {

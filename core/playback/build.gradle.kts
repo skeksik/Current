@@ -23,6 +23,8 @@ kotlin {
 
     js {
         browser()
+        // Only to run commonTest on Node (`jsNodeTest`), which needs no browser.
+        nodejs()
     }
 
     android {

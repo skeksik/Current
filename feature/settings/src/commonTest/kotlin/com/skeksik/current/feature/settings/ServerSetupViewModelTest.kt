@@ -5,7 +5,6 @@ import com.skeksik.current.core.model.AddressScope
 import com.skeksik.current.core.model.SavedServer
 import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
-import com.skeksik.current.core.model.ServerStatus
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.core.network.MutableCapabilitiesState
 import com.skeksik.current.core.network.ServerIdentity
@@ -15,14 +14,10 @@ import com.skeksik.current.core.network.ServerUrl
 import com.skeksik.current.core.network.ServiceErrorKind
 import com.skeksik.current.core.network.ServiceException
 import com.skeksik.current.core.network.StoredServerRepository
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -51,84 +46,77 @@ class ServerSetupViewModelTest {
         }
     }
 
-    private class FakeServers(initial: List<SavedServer> = emptyList()) : ServerRepository {
-        private val state = MutableStateFlow(initial)
-        override val servers: StateFlow<List<SavedServer>> = state
-
-        override fun save(server: SavedServer) {
-            state.value = state.value.filterNot { it.ref == server.ref } + server
-        }
-
-        override fun remove(ref: ServerRef) {
-            state.value = state.value.filterNot { it.ref == ref }
-        }
-    }
-
     private val capabilities = MutableCapabilitiesState()
 
-    private fun CoroutineScope.viewModel(probe: FakeProbe, servers: ServerRepository = FakeServers(), addTo: ServerRef? = null) =
-        ServerSetupViewModel(probe, servers, capabilities, addTo, scope = this)
+    /** The real repository over an in-memory store, holding [saved]. */
+    private fun servers(vararg saved: SavedServer) =
+        StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { saved.forEach(::save) }
 
-    private suspend fun ServerSetupViewModel.checked(input: String): ServerSetupUiState {
-        onInput(input)
-        check()
-        return withTimeout(5_000) { state.first { it !is ServerSetupUiState.Checking } }
+    private fun TestScope.viewModel(probe: FakeProbe, servers: ServerRepository = servers(), addTo: ServerRef? = null) =
+        ServerSetupViewModel(probe, servers, capabilities, addTo, scope = backgroundScope)
+
+    /** The state once the check has run as far as it can without the clock moving. */
+    private fun TestScope.checked(viewModel: ServerSetupViewModel, input: String): ServerSetupUiState {
+        viewModel.onInput(input)
+        viewModel.check()
+        runCurrent()
+        return viewModel.state.value
     }
 
     @Test
-    fun httpsWinsWhenBothAnswer() = runBlocking {
+    fun httpsWinsWhenBothAnswer() = runTest {
         val probe = FakeProbe(mapOf("https://media.example.com" to home, "http://media.example.com" to home))
-        val found = assertIs<ServerSetupUiState.Found>(viewModel(probe).checked("media.example.com"))
+        val found = assertIs<ServerSetupUiState.Found>(checked(viewModel(probe), "media.example.com"))
         assertEquals("https://media.example.com", found.address)
         assertEquals("Home", found.name)
         assertFalse(found.plainHttpOnInternet)
     }
 
     @Test
-    fun httpOnTheDefaultPortIsFoundWhenNothingElseAnswers() = runBlocking {
+    fun httpOnTheDefaultPortIsFoundWhenNothingElseAnswers() = runTest {
         val probe = FakeProbe(mapOf("http://192.168.1.10:8096" to home))
-        val found = assertIs<ServerSetupUiState.Found>(viewModel(probe).checked("192.168.1.10"))
+        val found = assertIs<ServerSetupUiState.Found>(checked(viewModel(probe), "192.168.1.10"))
         assertEquals("http://192.168.1.10:8096", found.address)
         assertEquals(AddressScope.Local, found.scope)
         assertFalse(found.plainHttpOnInternet)
     }
 
     @Test
-    fun plainHttpOnTheInternetIsFlagged() = runBlocking {
+    fun plainHttpOnTheInternetIsFlagged() = runTest {
         val probe = FakeProbe(mapOf("http://media.example.com" to home))
-        val found = assertIs<ServerSetupUiState.Found>(viewModel(probe).checked("http://media.example.com"))
+        val found = assertIs<ServerSetupUiState.Found>(checked(viewModel(probe), "http://media.example.com"))
         assertTrue(found.plainHttpOnInternet)
     }
 
     @Test
-    fun aHangingHttpsCandidateDoesNotBlockOnceItFails() = runBlocking {
+    fun aHangingHttpsCandidateDoesNotBlockOnceItFails() = runTest {
         val probe = FakeProbe(mapOf("https://media.lan" to ServiceErrorKind.Timeout, "http://media.lan" to home))
-        assertIs<ServerSetupUiState.Found>(viewModel(probe).checked("media.lan"))
+        assertIs<ServerSetupUiState.Found>(checked(viewModel(probe), "media.lan"))
         Unit
     }
 
     @Test
-    fun theMostTellingFailureIsShown() = runBlocking {
+    fun theMostTellingFailureIsShown() = runTest {
         val redirect = FakeProbe(mapOf("https://media.example.com" to 302))
-        assertEquals(ServerSetupProblem.Redirected, viewModel(redirect).checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.Redirected, checked(viewModel(redirect), "media.example.com").problem())
         val foreign = FakeProbe(mapOf("http://media.example.com" to ServiceErrorKind.NotFound))
-        assertEquals(ServerSetupProblem.NotThisService, viewModel(foreign).checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.NotThisService, checked(viewModel(foreign), "media.example.com").problem())
         val silent = FakeProbe(emptyMap())
-        assertEquals(ServerSetupProblem.Unreachable, viewModel(silent).checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.Unreachable, checked(viewModel(silent), "media.example.com").problem())
     }
 
     @Test
-    fun textThatIsNoAddressIsRejectedWithoutAsking() = runBlocking {
+    fun textThatIsNoAddressIsRejectedWithoutAsking() = runTest {
         val probe = FakeProbe(emptyMap())
-        assertEquals(ServerSetupProblem.InvalidAddress, viewModel(probe).checked("  ").problem())
+        assertEquals(ServerSetupProblem.InvalidAddress, checked(viewModel(probe), "  ").problem())
         assertEquals(emptyList(), probe.asked)
     }
 
     @Test
-    fun confirmSavesTheServerAndMarksItReachable() = runBlocking {
-        val servers = FakeServers()
+    fun confirmSavesTheServerAndMarksItReachable() = runTest {
+        val servers = servers()
         val viewModel = viewModel(FakeProbe(mapOf("https://media.example.com" to home)), servers)
-        viewModel.checked("https://media.example.com")
+        checked(viewModel, "https://media.example.com")
         viewModel.confirm()
 
         val saved = assertIs<ServerSetupUiState.Saved>(viewModel.state.value).server
@@ -138,23 +126,22 @@ class ServerSetupViewModelTest {
     }
 
     @Test
-    fun aServerThatIsAlreadySavedIsNotAddedTwice() = runBlocking {
+    fun aServerThatIsAlreadySavedIsNotAddedTwice() = runTest {
         val saved = SavedServer(ServerRef(ServiceType.jellyfin, "a"), home.serverId, "Home", listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Local)))
         val probe = FakeProbe(mapOf("https://media.example.com" to home))
-        assertEquals(ServerSetupProblem.AlreadyAdded, viewModel(probe, FakeServers(listOf(saved))).checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.AlreadyAdded, checked(viewModel(probe, servers(saved)), "media.example.com").problem())
     }
 
     @Test
-    fun anAddressIsAddedOnlyWhenTheSameServerAnswers() = runBlocking {
+    fun anAddressIsAddedOnlyWhenTheSameServerAnswers() = runTest {
         val saved = SavedServer(ServerRef(ServiceType.jellyfin, "a"), home.serverId, "Home", listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Local)))
-        val servers = FakeServers(listOf(saved))
-        capabilities.put(ServerStatus(saved.ref))
+        val servers = servers(saved)
 
         val stranger = viewModel(FakeProbe(mapOf("https://media.example.com" to other)), servers, addTo = saved.ref)
-        assertEquals(ServerSetupProblem.DifferentServer, stranger.checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.DifferentServer, checked(stranger, "media.example.com").problem())
 
         val same = viewModel(FakeProbe(mapOf("https://media.example.com" to home)), servers, addTo = saved.ref)
-        same.checked("media.example.com")
+        checked(same, "media.example.com")
         same.confirm()
         assertEquals(
             listOf("http://192.168.1.10:8096", "https://media.example.com"),
@@ -166,15 +153,15 @@ class ServerSetupViewModelTest {
     @Test
     fun anAddressForARemovedServerSaysSo() = runTest {
         val saved = SavedServer(ServerRef(ServiceType.jellyfin, "a"), home.serverId, "Home", listOf(ServerAddress("http://192.168.1.10:8096", AddressScope.Local)))
-        val servers = StoredServerRepository(InMemoryKeyValueStore(), capabilities).apply { save(saved) }
+        val servers = servers(saved)
         val probe = FakeProbe(mapOf("https://media.example.com" to home))
 
         // Removed on another page before the check.
         val early = viewModel(probe, servers, addTo = saved.ref)
         val late = viewModel(probe, servers, addTo = saved.ref)
-        assertIs<ServerSetupUiState.Found>(late.checked("media.example.com"))
+        assertIs<ServerSetupUiState.Found>(checked(late, "media.example.com"))
         servers.remove(saved.ref)
-        assertEquals(ServerSetupProblem.ServerNotSaved, early.checked("media.example.com").problem())
+        assertEquals(ServerSetupProblem.ServerNotSaved, checked(early, "media.example.com").problem())
 
         // Removed between the check and the confirmation.
         late.confirm()
@@ -183,12 +170,15 @@ class ServerSetupViewModelTest {
     }
 
     @Test
-    fun typingCancelsARunningCheck() = runBlocking {
+    fun typingCancelsARunningCheck() = runTest {
         val probe = FakeProbe(mapOf("https://media.example.com" to "hang"))
         val viewModel = viewModel(probe)
         viewModel.onInput("https://media.example.com")
         viewModel.check()
+        runCurrent()
+        assertTrue("https://media.example.com" in probe.asked)
         viewModel.onInput("other")
+        runCurrent()
         assertEquals(ServerSetupUiState.Editing("other"), viewModel.state.value)
     }
 
