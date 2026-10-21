@@ -1126,6 +1126,29 @@ research agent reading the same files.
   title overlaps the clock), so system bar insets are not applied. A "took too long" error stays on the page after the permission is
   granted in settings, until the next **Check**.
 
+## Local network permission on Android: emulator rerun (checked 2026-10-21 on the Android Emulator, Android 17, API 37; PR 27 debug build)
+- Build: `fix/android-network-setup` at 6c4dedb (includes the Compose resources fix; no local change), `./gradlew :androidApp:installDebug`.
+  AVD: Pixel 8 profile, `system-images;android-37.0;google_apis;x86_64` (r06), portrait 1080x2400. App data cleared with `pm clear`
+  before each case, so the permission started undecided. Driven with `adb shell input` and `uiautomator dump`.
+- Server: a stand-in on the host answering `GET /System/Info/Public` with a Jellyfin-shaped body, reached at the emulator's private
+  alias for the host. Android treats that alias as local network: while denied, no request reached the stand-in. Split DNS was
+  stood in by a public wildcard-DNS name that resolves to the same private alias; no real split-DNS name was available.
+- Steps 2 and 3 from the PR, rerun for the fixes from the device run:
+  2. Denial: **pass.** **Continue**, **Don't allow** (`USER_SET`): the notice now says a denial also blocks an internet name that leads
+     home, and that other internet servers still work. A **Check** of the private address ended in "The server took too long to
+     answer." plus the new hint ("Nearby devices" being off is the likely cause) with **Ask again**. **Ask again**, **Allow**: the
+     timed-out check ran again by itself in the same second and found the server ("On your local network"), no **Check** tapped.
+  3. Final denial: **pass.** A second **Don't allow** gave `USER_FIXED` and the Blocked notice. **Open settings** and **Try again** now
+     wrap onto separate lines at portrait width, both fully readable (**Open settings** breaks its label over two lines inside the
+     button). **Try again** showed no dialog. A **Check** then timed out with the hint, which offers **Open settings** here instead of
+     **Ask again**. The hint's **Open settings** opened Current's App info; `pm grant` for the permission, Back: the timed-out check ran
+     again on resume and found the server.
+  - Split-DNS stand-in while denied: **pass.** The name timed out with the same hint; **Ask again**, **Allow** re-ran it and found the
+    server. It is labelled "On the internet" with the plain `http` warning, since the app classifies by name, not by resolved address
+    (as on the device).
+- Not run here: steps 1 and 4 to 6, the dismissed dialog, keyboard and D-pad. Still seen, as on the device: at phone width the sidebar
+  takes about half the screen and the page draws under the status bar.
+
 ## Local network and discovery on desktop JVM (checked 2026-10-19 in the JDK 21 API reference; one JDK 21 install, no LAN)
 - `java.net.DatagramSocket` is enough for UDP broadcast, no dependency: SO_BROADCAST is on by default "where possible" and
   `setBroadcast(boolean)` sets it, though "Some operating systems may require that the Java virtual machine be started with implementation
