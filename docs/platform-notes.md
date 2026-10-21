@@ -1874,6 +1874,8 @@ ran in a Docker container in bridge mode on a NAS OS, on the same /24 as every c
   13 ms). Every later check ran, including the periodic ones.
   - Correction (2026-10-21): port 9 is a "bad port" in the Fetch standard (https://fetch.spec.whatwg.org/#bad-port, 9 "discard"), which
     browsers block before any connection is made. So this case tested a blocked address that fails at once, not a refused connection.
+    A refused one was run in "Roaming failover, headless check" (a closed loopback port): Chromium fails it in 1 ms, but Firefox takes
+    about 2 s per attempt, and a request there took two attempts (4.1 s).
 - **DevTools "Offline": pass (Chrome, Edge); not testable in Firefox, as before.**
   - Chrome and Edge: `offline` and `connection.change` came together and made one check 1.02 s later, in which every probe failed in
     3-5 ms. A request made at the event waited for that check and failed as `Unreachable` after 1.02 s; the later ones failed as
