@@ -39,6 +39,17 @@ Facts below were read from the linked sources on that date. Re-check before rely
   Source: https://kotlinlang.org/docs/native-swift-export.html
 - SKIE converts Flow/StateFlow to AsyncSequence, suspend to async, sealed classes/enums to Swift enums. Release 0.10.15 (latest at check time) mentions Kotlin 2.4.20 support.
   Sources: https://skie.touchlab.co/ , https://github.com/touchlab/SKIE/releases
+- Swift export status, read 2026-10-21 (the project is on Kotlin 2.4.20; the page names no Kotlin version), quoted from
+  https://kotlinlang.org/docs/native-swift-export.html:
+  - "Kotlin's interoperability with Swift through Swift export is currently in Alpha."
+  - "Swift export is currently in Alpha and still incomplete, so breaking changes are expected."
+  - "You can seamlessly call suspending Kotlin code from Swift and export kotlinx.coroutines flows as Swift's AsyncSequence out of the box."
+  - "Swift export currently works only in projects that use direct integration to connect the iOS framework to the Xcode project." Our
+    Xcode build phase uses direct integration (`embedAndSignAppleFrameworkForXcode`); Swift export has its own task,
+    `embedSwiftExportForXcode`.
+  - Known issues it lists: types inheriting from `List`, `Set` or `Map` are ignored (KT-80416) and their inheritors cannot be made from
+    Swift (KT-80417); generic type parameters are erased to their upper bounds; opt-in declarations need a module-level `optIn`.
+  - Not checked: how exceptions from Kotlin reach Swift (the page does not say), and whether it works with this Kotlin, Ktor and Koin set.
 
 ## Apple playback (custom UI)
 - PiP in a custom player: `AVPictureInPictureController` with an `AVPlayerLayer` or `AVSampleBufferDisplayLayer`; app supplies its PiP button, restores its UI in the delegate,
@@ -2728,4 +2739,4 @@ earlier build was installed; the existing `local.json` and `settings.json` were 
   - AirPlay video from the fallback engine: `AVRoutePickerView` picks a route, but what plays there without `AVPlayer` is not stated.
   - Matching frame rate and dynamic range on iOS and macOS (no display-criteria API there).
   - The remux route (ADR 0007): whether AVPlayer plays a local HLS/fMP4 repackaged on the device, and how it is served to it.
-- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; web, Android and Apple builds not verified yet).
+- Exact CMP/Kotlin/AGP/Gradle compatibility of our pinned set (JVM tests and desktop compile pass on Linux; CI also builds the web, Android and Apple targets since 2026-10-18, roadmap M0).
