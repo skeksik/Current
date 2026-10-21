@@ -73,7 +73,7 @@ fun SidebarTitle(text: String) {
  */
 @Composable
 fun SidebarItems(count: Int, item: @Composable (index: Int, modifier: Modifier) -> Unit) {
-    val focus = rememberListFocus(count)
+    val focus = rememberListFocus(List(count) { it })
     with(focus) {
         Column(Modifier.selectableGroup().arrowKeys(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             repeat(count) { index -> item(index, Modifier.item(index)) }
