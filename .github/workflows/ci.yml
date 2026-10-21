@@ -100,6 +100,8 @@ jobs:
         run: |
           sudo apt-get install -y -qq xvfb
           Xvfb :99 -screen 0 1600x1000x24 &
+          # Start the app only once the display accepts connections.
+          for _ in $(seq 50); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
           DISPLAY=:99 ./scripts/smoke-desktop-app.sh desktopApp/build/compose/binaries/main/app/Current/bin/Current
 
   desktop-package-windows:
