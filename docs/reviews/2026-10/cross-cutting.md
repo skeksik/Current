@@ -527,7 +527,7 @@ All sources were read on 2026-10-21. Apple pages were read through their JSON do
 | `versionCode` increases with every release; `versionName` is user-visible | Fixed 1 / "1.0" (A3) | [Android] Derive both from `current.version` |
 | R8: `isMinifyEnabled`, `isShrinkResources`, `proguard-android-optimize.txt` (AGP 9.3+ has an `optimization {}` block) | Minify off (A4) | [Android] Turn R8 on with keep rules for kotlinx.serialization and Ktor before the first tester APK. AGP 9.1.1 is in use, so the older DSL applies |
 | Cleartext: prefer `domain-config`; from API 37 an implicit config allows cleartext to loopback only | Global `base-config` opt-in (E4), justified by typed addresses | [Android] Keep it, but route every network client (Coil, the future Media3) through the app's own HTTP rule, or verify that they respect it (PR #27's open item) |
-| Android 17 (target 37): LAN traffic needs the runtime `ACCESS_LOCAL_NETWORK` or a system picker | Declared and requested at runtime (ADR 0020) | [Android] Matches. Nothing asks for an already saved local server (#38's note); add the Home entry point |
+| Android 17 (target 37): LAN traffic needs the runtime `ACCESS_LOCAL_NETWORK` or a system picker | Declared and requested at runtime (ADR 0020) | [Android] Matches. Home asks for saved local servers since #36 (manager's correction: this review first repeated #38's older note) |
 | Data safety form is required even for apps that collect nothing, plus a privacy policy link and deletion instructions | None | [Android] Add to M8. Unverified: how Play classifies traffic to the user's own self-hosted server |
 | Backups: by default the app's data is backed up | `allowBackup="true"`, no rules (A4) | [Android] `dataExtractionRules` and `fullBackupContent` excluding `current-local` (device id) and future secrets. ADR 0017 plans this for M4; do it before testers |
 
@@ -576,4 +576,4 @@ All sources were read on 2026-10-21. Apple pages were read through their JSON do
 - `core/designsystem` has no contrast test for `darkColors` (`ContrastTest.kt:12` checks light only).
 - `core/designsystem/.../Tokens.kt` is Compose-only, and `webApp/src/styles.css` copies the values by hand (ADR 0006 :20; deferred to M4).
 - `webApp` has no tests and no test script (`webApp/package.json`).
-- #38's note: nothing asks for local network access for an already saved local server (`shouldAskForLocalNetwork` with `SavedServers` is called only in tests).
+- #38's note that nothing asks for local network access for an already saved local server is out of date: `HomeLocalNetworkViewModel` (#36) calls `shouldAskForLocalNetwork` with `SavedServers` (manager's correction).
