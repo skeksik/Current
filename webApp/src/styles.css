@@ -529,3 +529,12 @@ pre {
   align-items: center;
   gap: var(--space-m);
 }
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-l);
+  max-width: var(--content-max-width);
+  padding: var(--space-xxl) var(--space-xl);
+}

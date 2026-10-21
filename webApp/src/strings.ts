@@ -156,6 +156,9 @@ export const webStrings = {
   notFoundHome: 'Go home',
   skipToContent: 'Skip to content',
   navLabel: 'Main',
+  failureTitle: 'Something went wrong',
+  failureMessage: 'The app stopped because of an error. Reload the page to start it again; your servers and sign-ins are kept.',
+  failureReload: 'Reload',
   problemFallback: 'Something went wrong. Try again.',
   signInServerMissingTitle: 'Server not found',
 };
