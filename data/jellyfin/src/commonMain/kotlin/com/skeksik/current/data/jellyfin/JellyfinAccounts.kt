@@ -150,9 +150,10 @@ internal class StoredJellyfinAccounts(
 
     /**
      * Takes on [server]'s session as the stores hold it now. While this copy signs [server] out, its own sign-out finishes first and
-     * adopts after.
+     * adopts after, with [askWhoWithoutUser]: its sign-out removed the user of a session another copy started meanwhile, so the server
+     * says who it is. Following another copy never asks: there a missing user means that copy is signing out, and the token goes next.
      */
-    private suspend fun adopt(server: ServerRef) {
+    private suspend fun adopt(server: ServerRef, askWhoWithoutUser: Boolean = false) {
         if (server.service != ServiceType.jellyfin || server in signingOut.value) return
         secretsLock.withLock {
             val stored = secrets.get(tokenKey(server))
@@ -167,8 +168,7 @@ internal class StoredJellyfinAccounts(
             val user = settings.get(userKey(server))?.let(::decodeUser)
             if (user != null) {
                 markSignedIn(server, user.toUser(server))
-            } else {
-                // A sign-out elsewhere removed the user while this session stayed stored: the server says who it is, as at restore.
+            } else if (askWhoWithoutUser) {
                 servers.server(server)?.let { saved -> scope.launch { verify(saved, stored) } }
             }
         }
@@ -177,6 +177,8 @@ internal class StoredJellyfinAccounts(
     private suspend fun verify(server: SavedServer, token: String) {
         try {
             val user = clientFor(server, token).use { client -> client.request { get("Users/Me").body<UserDto>() } }
+            // Signed out or replaced meanwhile, here or in another copy: the answer is about a session no longer kept.
+            if (tokens.value[server.ref] != token) return
             remember(server.ref, user)
             capabilities.update(server.ref) { it.copy(reachable = true) }
         } catch (e: ServiceException) {
@@ -266,7 +268,7 @@ internal class StoredJellyfinAccounts(
                 signingOut.update { it - server }
             }
             // Another copy may have signed in meanwhile: its session stays stored, and this copy takes it on.
-            adopt(server)
+            adopt(server, askWhoWithoutUser = true)
             if (token != null && saved != null && address != null) endSession(saved, token, address)
         }
     }
