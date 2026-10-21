@@ -27,6 +27,7 @@ import com.skeksik.current.core.designsystem.Notice
 import com.skeksik.current.core.designsystem.NoticeKind
 import com.skeksik.current.core.designsystem.Page
 import com.skeksik.current.core.designsystem.Panel
+import com.skeksik.current.core.designsystem.PanelTitle
 import com.skeksik.current.core.designsystem.focusRing
 import com.skeksik.current.core.designsystem.formField
 import com.skeksik.current.core.model.AddressScope
@@ -126,7 +127,7 @@ internal fun AddServerScreen(navigator: Navigator, addTo: ServerRef? = null, nam
             is ServerSetupUiState.Checking -> InlineProgress(stringResource(Res.string.add_server_checking))
             is ServerSetupUiState.Found -> {
                 Panel {
-                    Text(stringResource(Res.string.add_server_found, shown.name), style = MaterialTheme.typography.titleMedium)
+                    PanelTitle(stringResource(Res.string.add_server_found, shown.name))
                     shown.version?.let { Text(stringResource(Res.string.add_server_version, it), style = MaterialTheme.typography.bodyMedium) }
                     Text(shown.address, style = MaterialTheme.typography.bodyMedium)
                     val scope = if (shown.scope == AddressScope.Local) Res.string.add_server_local else Res.string.add_server_internet

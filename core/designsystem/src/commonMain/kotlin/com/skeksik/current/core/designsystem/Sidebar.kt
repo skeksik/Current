@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.skeksik.current.core.designsystem.CurrentTokens.Radius
 import com.skeksik.current.core.designsystem.CurrentTokens.Size
@@ -63,7 +65,7 @@ fun SidebarTitle(text: String) {
         text,
         style = MaterialTheme.typography.headlineSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.l),
+        modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.l).semantics { heading() },
     )
 }
 
@@ -88,7 +90,8 @@ fun SidebarItem(label: String, icon: ImageVector, selected: Boolean, modifier: M
     Row(
         modifier
             .fillMaxWidth()
-            .height(Size.sidebarItemHeight)
+            // A minimum, not a height: a large system font grows the entry instead of clipping its label.
+            .heightIn(min = Size.sidebarItemHeight)
             // Entries sit Spacing.xs apart and their fill is not the ring's colour, so the ring hugs the edge.
             .focusRing(shape, gap = 0.dp)
             .clip(shape)

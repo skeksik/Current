@@ -14,16 +14,21 @@ object CurrentTokens {
         val accent = Color(0xFF2BB3A6)
         val accentDark = Color(0xFF00796F)
         val onAccent = Color(0xFF00201D)
-        val danger = Color(0xFFE5484D)
+        /** Light enough for text on a dark panel (5.2:1 on [surfaceRaisedDark]). */
+        val danger = Color(0xFFEC6A6E)
         val dangerDark = Color(0xFFB3261E)
         val warning = Color(0xFFF5A524)
         /** Amber dark enough for text on light surfaces (about 5:1 on white). */
         val warningDark = Color(0xFF8A5A00)
 
+        /**
+         * Dark pairs meet the same WCAG AA rule as the light ones (ContrastTest): text 4.5:1 and borders 3:1 against the page, the
+         * sidebar and a raised panel.
+         */
         val ink = Color(0xFF0E1113)
         val surfaceDark = Color(0xFF15191C)
         val surfaceRaisedDark = Color(0xFF1D2226)
-        val outlineDark = Color(0xFF3A4247)
+        val outlineDark = Color(0xFF6B767D)
         val textDark = Color(0xFFE7ECEE)
         val textMutedDark = Color(0xFF9AA5AB)
 
