@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ServerRowView, SettingsPage } from 'current-core';
 import { copyText, type CopyResult } from '../clipboard';
-import { Notice, Page, Panel } from '../components';
+import { ConfirmRemoveDialog, Notice, Page, Panel } from '../components';
 import { Icon } from '../icons';
 import { useObservable, usePage } from '../hooks';
 import { focusSoon, Link, useCore } from '../nav';
 import { strings, textFor, webStrings } from '../strings';
 
-/** Settings: servers (add, sign in, sign out, remove), where sign-ins are kept, what this browser plays, and about. */
+/** Settings: servers (add, sign in, sign out, addresses, remove), where sign-ins are kept, what this browser plays, and about. */
 export function Settings() {
   const core = useCore();
   const page = usePage(() => core.settingsPage(), [core]);
@@ -76,15 +76,19 @@ function SettingsContent({ page }: { page: SettingsPage }) {
       <Diagnostics />
 
       {removing && (
-        <RemoveDialog
-          row={removing}
+        <ConfirmRemoveDialog
+          title={strings.settingsRemoveTitle(removing.name)}
+          message={strings.settingsRemoveMessage}
           confirm={() => {
             page.remove(removing.id);
             setRemoving(null);
             // The removed server's buttons are gone; focus goes to Add server rather than nowhere.
             focusSoon('[data-focus-id="add-server"]');
           }}
-          dismiss={() => setRemoving(null)}
+          cancel={() => {
+            setRemoving(null);
+            focusSoon(`[data-focus-id="${CSS.escape(removeFocusId(removing.id))}"]`);
+          }}
         />
       )}
     </>
@@ -153,7 +157,6 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
         <p>{row.signedInAs != null ? strings.settingsSignedInAs(row.signedInAs) : strings.settingsSignedOut}</p>
         {row.offline && <Notice kind="warning">{strings.settingsOffline}</Notice>}
       </div>
-      {/* Address editing will add its entry here, beside the session and Remove buttons. */}
       <div className="server-actions">
         {row.signedInAs != null ? (
           <button type="button" className="button outlined" data-focus-id={sessionFocusId(row.id)} onClick={signOut}>
@@ -162,61 +165,11 @@ function ServerPanel({ row, signOut, remove }: { row: ServerRowView; signOut: ()
         ) : row.signInPath ? (
           <Link path={row.signInPath} className="button outlined" focusId={sessionFocusId(row.id)}>{strings.settingsSignIn}</Link>
         ) : null}
+        <Link path={row.addressesPath} className="button outlined" focusId={`addresses:${row.id}`}>{strings.settingsAddresses}</Link>
         <button type="button" className="text-button danger" data-focus-id={removeFocusId(row.id)} onClick={remove}>
           {strings.settingsRemove}
         </button>
       </div>
     </Panel>
-  );
-}
-
-/**
- * Asks before removing. Cancel has focus, so Enter alone never removes a server; Escape cancels and focus goes back to the server's
- * Remove button (by its id: after a click, Safari and Firefox on macOS leave focus on the page rather than the button).
- */
-function RemoveDialog({ row, confirm, dismiss }: { row: ServerRowView; confirm: () => void; dismiss: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const shown = dialog.current;
-    shown?.showModal();
-    // Explicitly, not by button order: showModal() focuses the first focusable element, and React's autoFocus runs before it.
-    cancelButton.current?.focus();
-    return () => shown?.close();
-  }, []);
-  // The page behind a modal dialog is inert, so the dialog closes before focus moves there.
-  const close = () => dialog.current?.close();
-  const cancel = () => {
-    close();
-    dismiss();
-    focusSoon(`[data-focus-id="${CSS.escape(removeFocusId(row.id))}"]`);
-  };
-  return (
-    <dialog
-      ref={dialog}
-      className="dialog"
-      aria-labelledby="remove-title"
-      aria-describedby="remove-message"
-      onCancel={(e) => {
-        e.preventDefault();
-        cancel();
-      }}
-    >
-      <h2 id="remove-title">{strings.settingsRemoveTitle(row.name)}</h2>
-      <p id="remove-message">{strings.settingsRemoveMessage}</p>
-      <div className="dialog-buttons">
-        <button ref={cancelButton} type="button" className="text-button" onClick={cancel}>{strings.settingsCancel}</button>
-        <button
-          type="button"
-          className="text-button danger"
-          onClick={() => {
-            close();
-            confirm();
-          }}
-        >
-          {strings.settingsRemove}
-        </button>
-      </div>
-    </dialog>
   );
 }

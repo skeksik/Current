@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { useNav, useRoute } from './nav';
 import { strings } from './strings';
@@ -78,5 +78,61 @@ export function EmptyState({ icon, title, message, action }: { icon: IconName; t
       <p className="muted">{message}</p>
       {action}
     </div>
+  );
+}
+
+/**
+ * Asks before removing something. Cancel has focus, so Enter alone never removes; Escape cancels. [cancel] puts focus back on what
+ * opened the dialog, by its id: after a click, Safari and Firefox on macOS leave focus on the page rather than the button.
+ */
+export function ConfirmRemoveDialog({ title, message, confirm, cancel }: {
+  title: string;
+  message: string;
+  confirm: () => void;
+  cancel: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  useEffect(() => {
+    const shown = dialog.current;
+    shown?.showModal();
+    // Explicitly, not by button order: showModal() focuses the first focusable element, and React's autoFocus runs before it.
+    cancelButton.current?.focus();
+    return () => shown?.close();
+  }, []);
+  // The page behind a modal dialog is inert, so the dialog closes before focus moves there.
+  const close = () => dialog.current?.close();
+  const dismiss = () => {
+    close();
+    cancel();
+  };
+  return (
+    <dialog
+      ref={dialog}
+      className="dialog"
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-message`}
+      onCancel={(e) => {
+        e.preventDefault();
+        dismiss();
+      }}
+    >
+      <h2 id={`${id}-title`}>{title}</h2>
+      <p id={`${id}-message`}>{message}</p>
+      <div className="dialog-buttons">
+        <button ref={cancelButton} type="button" className="text-button" onClick={dismiss}>{strings.settingsCancel}</button>
+        <button
+          type="button"
+          className="text-button danger"
+          onClick={() => {
+            close();
+            confirm();
+          }}
+        >
+          {strings.settingsRemove}
+        </button>
+      </div>
+    </dialog>
   );
 }

@@ -14,6 +14,7 @@ export type ServerSetupProblemName =
   | 'AlreadyAdded'
   | 'DifferentServer'
   | 'ServerNotSaved';
+export type AddressScopeName = 'Local' | 'Internet';
 export type SignInProblemName =
   | 'WrongCredentials'
   | 'Unreachable'
@@ -74,6 +75,25 @@ export const strings = {
     'Copies the app version and the last requests to your servers, without addresses or passwords, to paste into a problem report.',
   settingsCopyDiagnostics: 'Copy diagnostics',
   settingsDiagnosticsCopied: 'Copied',
+  settingsAddresses: 'Addresses',
+
+  addressesTitle: 'Addresses',
+  addressesSubtitle: (server: string) => `${server} is tried at these addresses from the top. The first one that answers is used.`,
+  addressesAdd: 'Add address',
+  addressesScopes: {
+    Local: 'Local network',
+    Internet: 'Internet',
+  } satisfies Record<AddressScopeName, string>,
+  addressesInUse: 'In use',
+  addressesUnreachable: (server: string) => `${server} does not answer at any of these addresses right now.`,
+  addressesMoveUp: 'Move up',
+  addressesMoveDown: 'Move down',
+  addressesMoveUpDescription: (address: string) => `Move ${address} up`,
+  addressesMoveDownDescription: (address: string) => `Move ${address} down`,
+  addressesRemoveDescription: (address: string) => `Remove ${address}`,
+  addressesKeepOne: 'A server keeps at least one address, so this one cannot be removed.',
+  addressesRemoveTitle: (address: string) => `Remove ${address}?`,
+  addressesRemoveMessage: 'Current stops trying this address. You can add it again later, while the server answers there.',
 
   addServerTitle: 'Add a server',
   addServerSubtitle: 'Enter the address of your Jellyfin server, such as media.example.com or 192.168.1.10:8096.',
@@ -99,6 +119,12 @@ export const strings = {
     DifferentServer: 'Another server answers at this address.',
     ServerNotSaved: 'This server is no longer saved.',
   } satisfies Record<ServerSetupProblemName, string>,
+  addAddressTitle: 'Add an address',
+  addAddressSubtitle: (server: string) =>
+    `Enter another address of ${server}, such as media.example.com or 192.168.1.10:8096. It is added only if ${server} answers there.`,
+  addAddressConfirm: 'Add this address',
+  addAddressAlreadyAdded: 'This address is already added.',
+  addAddressServerNotSaved: 'This server is no longer saved.',
 
   signInTitle: (server: string) => `Sign in to ${server}`,
   signInSubtitle: 'Use your Jellyfin account.',

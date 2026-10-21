@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { AddServerPage } from 'current-core';
 import { Notice, Page, Panel, Progress } from '../components';
 import { useObservable, usePage, useRerender } from '../hooks';
-import { useCore, useNav } from '../nav';
+import { Link, useCore, useNav } from '../nav';
 import { strings, textFor, webStrings } from '../strings';
 
 /** Settings > Servers > Add server. Once saved, the sign-in page for the new server takes this page's place. */
@@ -14,6 +14,33 @@ export function AddServer() {
       {page && <AddServerForm page={page} />}
     </Page>
   );
+}
+
+/** Settings > Servers > Addresses > Add address: the same page, accepting only the same server. Goes back to Addresses once added. */
+export function AddServerAddress({ path }: { path: string }) {
+  const core = useCore();
+  const page = usePage(() => core.addServerAddressPage(path), [core, path]);
+  if (!page) return null;
+  if (page.serverName == null) {
+    return (
+      <Page title={webStrings.signInServerMissingTitle}>
+        <Notice>{strings.addAddressServerNotSaved}</Notice>
+        <p><Link path="/settings">{strings.navSettings}</Link></p>
+      </Page>
+    );
+  }
+  return (
+    <Page title={strings.addAddressTitle} subtitle={strings.addAddressSubtitle(page.serverName)}>
+      <AddServerForm page={page} />
+    </Page>
+  );
+}
+
+/** The problem's text; adding an address words two of them for an address. */
+function problemText(problem: string, addingAddress: boolean): string {
+  if (addingAddress && problem === 'AlreadyAdded') return strings.addAddressAlreadyAdded;
+  if (addingAddress && problem === 'ServerNotSaved') return strings.addAddressServerNotSaved;
+  return textFor(strings.addServerProblems, problem, webStrings.problemFallback);
 }
 
 function AddServerForm({ page }: { page: AddServerPage }) {
@@ -34,7 +61,7 @@ function AddServerForm({ page }: { page: AddServerPage }) {
   }, [state.kind, state.address]);
   useEffect(() => {
     if (state.kind !== 'saved') return;
-    // Only Jellyfin has a sign-in page yet; any other service goes back to where Add server was opened.
+    // Only Jellyfin has a sign-in page yet; any other service, and an added address, goes back to where this page was opened.
     if (state.nextPath) nav.replace(state.nextPath);
     else nav.back();
   }, [state.kind, state.nextPath, nav]);
@@ -68,7 +95,7 @@ function AddServerForm({ page }: { page: AddServerPage }) {
       </label>
       {state.kind === 'editing' && (
         <>
-          {state.problem && <Notice>{textFor(strings.addServerProblems, state.problem, webStrings.problemFallback)}</Notice>}
+          {state.problem && <Notice>{problemText(state.problem, page.addingAddress)}</Notice>}
           <div className="buttons">
             <button type="submit" className="button" disabled={state.input.trim() === ''}>{strings.addServerCheck}</button>
           </div>
@@ -93,7 +120,7 @@ function AddServerForm({ page }: { page: AddServerPage }) {
               aria-describedby={state.plainHttpOnInternet ? 'plain-http' : undefined}
               onClick={() => page.confirm()}
             >
-              {strings.addServerConfirm}
+              {page.addingAddress ? strings.addAddressConfirm : strings.addServerConfirm}
             </button>
             <button type="button" className="button outlined" onClick={() => field.current?.focus()}>{strings.addServerChange}</button>
           </div>
