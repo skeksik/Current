@@ -522,3 +522,25 @@ pre {
   border: 1px solid var(--outline);
   border-radius: var(--radius-s);
 }
+
+/* Copy diagnostics, by hand when the page has no clipboard. */
+.diagnostics {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: var(--space-s);
+  padding: var(--space-m);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.diagnostics:focus-visible,
+.diagnostics:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}

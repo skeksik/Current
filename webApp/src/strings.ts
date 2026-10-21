@@ -42,6 +42,10 @@ export const strings = {
   settingsSecretsKeepInFile: 'Keep sign-ins in a file',
   settingsAbout: 'About',
   settingsVersion: (version: string) => `Version ${version}`,
+  settingsDiagnosticsHint:
+    'Copies the app version and the last requests to your servers, without addresses or passwords, to paste into a problem report.',
+  settingsCopyDiagnostics: 'Copy diagnostics',
+  settingsDiagnosticsCopied: 'Copied',
 
   addServerTitle: 'Add a server',
   addServerSubtitle: 'Enter the address of your Jellyfin server, such as media.example.com or 192.168.1.10:8096.',
@@ -100,4 +104,6 @@ export const webStrings = {
   notFoundMessage: 'There is no page at this address.',
   notFoundHome: 'Go home',
   skipToContent: 'Skip to content',
+  settingsDiagnosticsByHand: 'This page cannot copy by itself here. The text below is selected: copy it with your keyboard or menu.',
+  settingsDiagnosticsLabel: 'Diagnostics',
 };

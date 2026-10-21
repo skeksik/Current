@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ServerRowView, SettingsPage } from 'current-core';
+import { copyText } from '../clipboard';
 import { Notice, Page, Panel } from '../components';
 import { Icon } from '../icons';
 import { useObservable, usePage } from '../hooks';
@@ -71,6 +72,7 @@ function SettingsContent({ page }: { page: SettingsPage }) {
         <p className="panel-title">{strings.appName}</p>
         <p>{strings.settingsVersion(core.version)}</p>
       </Panel>
+      <Diagnostics />
 
       {removing && (
         <RemoveDialog
@@ -83,6 +85,47 @@ function SettingsContent({ page }: { page: SettingsPage }) {
           }}
           dismiss={() => setRemoving(null)}
         />
+      )}
+    </>
+  );
+}
+
+/** Copy diagnostics; without a clipboard (plain http), the text is shown selected, to copy by hand. */
+function Diagnostics() {
+  const core = useCore();
+  const [copied, setCopied] = useState(false);
+  const [byHand, setByHand] = useState<string | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (byHand == null) return;
+    field.current?.focus();
+    field.current?.select();
+  }, [byHand]);
+  const copy = async () => {
+    const text = core.diagnostics();
+    const done = await copyText(text);
+    setCopied(done);
+    setByHand(done ? null : text);
+  };
+  return (
+    <>
+      <p>{strings.settingsDiagnosticsHint}</p>
+      <p>
+        <button type="button" className="button outlined" onClick={copy}>{strings.settingsCopyDiagnostics}</button>
+        {copied && <span role="status"> {strings.settingsDiagnosticsCopied}</span>}
+      </p>
+      {byHand != null && (
+        <>
+          <Notice kind="info">{webStrings.settingsDiagnosticsByHand}</Notice>
+          <textarea
+            ref={field}
+            className="diagnostics"
+            readOnly
+            rows={10}
+            value={byHand}
+            aria-label={webStrings.settingsDiagnosticsLabel}
+          />
+        </>
       )}
     </>
   );
