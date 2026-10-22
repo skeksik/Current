@@ -1,7 +1,9 @@
 package com.skeksik.current.ui.shell
 
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -20,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -44,6 +47,7 @@ import com.skeksik.current.core.designsystem.trackFocusVisibility
 import com.skeksik.current.ui.navigation.ShellGraph
 import com.skeksik.current.ui.navigation.ShellHistory
 import com.skeksik.current.ui.navigation.ShellNavigator
+import com.skeksik.current.ui.navigation.ShellOverlay
 import com.skeksik.current.ui.resources.Res
 import com.skeksik.current.ui.resources.app_name
 import com.skeksik.current.ui.resources.nav_back
@@ -65,7 +69,7 @@ import kotlin.reflect.KClass
  * so a tap that opens it on Android also opens the soft keyboard.
  */
 @Composable
-fun Shell(graph: ShellGraph, back: BackInput) {
+fun Shell(graph: ShellGraph, back: BackInput, overlays: List<ShellOverlay> = emptyList()) {
     val controller = rememberNavController()
     // Back stack entries shown so far: one shown again is a return. Saved with the back stack, whose entries keep their ids when restored.
     val shownEntries = rememberSaveable(saver = shownEntriesSaver) { mutableSetOf<String>() }
@@ -102,24 +106,34 @@ fun Shell(graph: ShellGraph, back: BackInput) {
             }
         },
     ) {
-        NavHost(controller, startDestination = graph.start, modifier = Modifier.fillMaxSize()) {
-            graph.pages.forEach { page ->
-                val atRoot = graph.sidebar.any { it.route::class == page.route }
-                @Suppress("UNCHECKED_CAST")
-                composable(page.route as KClass<Any>, typeMap = emptyMap()) { entry ->
-                    val pageFocus = remember { FocusRequester() }
-                    // Before the page's own effects, so a page that focuses something itself has the last word.
-                    LaunchedEffect(Unit) {
-                        val returning = !shownEntries.add(entry.id)
-                        if (returning && focusVisibility.keyboard && !sidebarHasFocus && !pageFocus.requestFocus()) {
-                            selectedEntry.requestFocus()
+        Box(Modifier.fillMaxSize()) {
+            NavHost(controller, startDestination = graph.start, modifier = Modifier.fillMaxSize()) {
+                graph.pages.forEach { page ->
+                    val atRoot = graph.sidebar.any { it.route::class == page.route }
+                    @Suppress("UNCHECKED_CAST")
+                    composable(page.route as KClass<Any>, typeMap = emptyMap()) { entry ->
+                        val pageFocus = remember { FocusRequester() }
+                        // Before the page's own effects, so a page that focuses something itself has the last word.
+                        LaunchedEffect(Unit) {
+                            val returning = !shownEntries.add(entry.id)
+                            if (returning && focusVisibility.keyboard && !sidebarHasFocus && !pageFocus.requestFocus()) {
+                                selectedEntry.requestFocus()
+                            }
+                        }
+                        val top: (@Composable () -> Unit)? = if (atRoot) null else ({ BackButton(navigator::back) })
+                        CompositionLocalProvider(LocalPageTop provides top) {
+                            Box(Modifier.fillMaxSize().focusRequester(pageFocus).focusGroup()) { page.content(entry, navigator) }
                         }
                     }
-                    val top: (@Composable () -> Unit)? = if (atRoot) null else ({ BackButton(navigator::back) })
-                    CompositionLocalProvider(LocalPageTop provides top) {
-                        Box(Modifier.fillMaxSize().focusRequester(pageFocus).focusGroup()) { page.content(entry, navigator) }
-                    }
                 }
+            }
+            // Over the page, at the bottom, where they cover the least.
+            Column(
+                Modifier.align(Alignment.BottomCenter).padding(Spacing.l),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                overlays.forEach { it.Content(Modifier) }
             }
         }
     }

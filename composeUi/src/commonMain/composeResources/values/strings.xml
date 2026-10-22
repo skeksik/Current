@@ -53,6 +53,15 @@
     <string name="addresses_internet">Internet</string>
     <string name="addresses_in_use">In use</string>
     <string name="addresses_unreachable">%1$s does not answer at any of these addresses right now.</string>
+    <string name="addresses_current_title">Currently using</string>
+    <string name="addresses_status_checking">Checking which address answers…</string>
+    <string name="addresses_status_reachable">Reachable</string>
+    <string name="addresses_checking">Checking every address…</string>
+    <string name="addresses_refresh">Refresh</string>
+    <string name="addresses_refresh_description">Check every address of %1$s again</string>
+    <string name="roaming_now_local">%1$s: now on the local network</string>
+    <string name="roaming_now_internet">%1$s: now on the internet</string>
+    <string name="roaming_dismiss">Dismiss</string>
     <string name="addresses_move_up">Move up</string>
     <string name="addresses_move_down">Move down</string>
     <string name="addresses_move_up_description">Move %1$s up</string>

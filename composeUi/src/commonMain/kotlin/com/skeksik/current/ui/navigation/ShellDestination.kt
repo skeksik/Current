@@ -1,6 +1,7 @@
 package com.skeksik.current.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavBackStackEntry
 import org.jetbrains.compose.resources.StringResource
@@ -28,6 +29,22 @@ interface ShellDestination {
  */
 inline fun <reified T : ShellDestination> Module.shellDestination(destination: T) {
     single<ShellDestination>(named<T>()) { destination }
+}
+
+/**
+ * Something a feature draws over every page, at the bottom of the page area, such as a brief notice (ADR 0014). Like a destination, a
+ * feature binds it in its own Koin module with [shellOverlay], and the shell draws every binding without naming the feature. It must
+ * never take focus: the page keeps it.
+ */
+interface ShellOverlay {
+    /** Draws nothing while there is nothing to show. [modifier] places it. */
+    @Composable
+    fun Content(modifier: Modifier)
+}
+
+/** Binds [overlay] for the shell, qualified by its type as [shellDestination] does. */
+inline fun <reified T : ShellOverlay> Module.shellOverlay(overlay: T) {
+    single<ShellOverlay>(named<T>()) { overlay }
 }
 
 /** One page: its [route] type and how to draw it. Read the route's arguments with `entry.toRoute<T>()`. */

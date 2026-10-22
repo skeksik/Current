@@ -9,6 +9,7 @@ import com.skeksik.current.ui.navigation.SettingsRoute
 import com.skeksik.current.ui.navigation.ShellDestination
 import com.skeksik.current.ui.navigation.ShellPage
 import com.skeksik.current.ui.navigation.shellDestination
+import com.skeksik.current.ui.navigation.shellOverlay
 import com.skeksik.current.ui.navigation.SidebarEntry
 import com.skeksik.current.ui.navigation.SignInRoute
 import com.skeksik.current.ui.resources.Res
@@ -51,7 +52,8 @@ object SettingsDestination : ShellDestination {
     override val sidebar = SidebarEntry(SettingsRoute, Res.string.nav_settings, CurrentIcons.Settings, order = 1000)
 }
 
-/** Koin definitions of the settings pages. */
+/** Koin definitions of the settings pages, and the roaming notice over every page. */
 val settingsUiModule = module {
     shellDestination(SettingsDestination)
+    shellOverlay(RoamingNoticeOverlay)
 }

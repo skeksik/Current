@@ -13,10 +13,14 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
@@ -188,8 +192,16 @@ class RoamingAddressSources internal constructor(
     private class StableAddress(first: ManagedServerAddress) : ServerAddressSource {
         private val inner = MutableStateFlow(first)
         private val published = MutableStateFlow<ServerUrl?>(null)
+        private val checkingNow = MutableStateFlow(false)
+        private val switched = MutableSharedFlow<ServerUrl>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
         override val current: StateFlow<ServerUrl?> = published.asStateFlow()
+
+        override val checking: StateFlow<Boolean> = checkingNow.asStateFlow()
+
+        override val switches: SharedFlow<ServerUrl> = switched.asSharedFlow()
+
+        override fun refresh() = inner.value.refresh()
 
         override suspend fun awaitCurrent(): ServerUrl? = inner.value.awaitCurrent()
 
@@ -210,10 +222,13 @@ class RoamingAddressSources internal constructor(
             try {
                 coroutineScope {
                     launch { source.current.collect { published.value = it } }
+                    launch { source.checking.collect { checkingNow.value = it } }
+                    launch { source.switches.collect { switched.tryEmit(it) } }
                     source.run(networkChanges)
                 }
             } finally {
                 published.value = null
+                checkingNow.value = false
             }
         }
     }

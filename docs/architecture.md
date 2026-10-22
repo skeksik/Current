@@ -71,7 +71,7 @@ skip others silently.
 `ShellDestination`: its pages (a `@Serializable` route type and the composable that renders it) and an optional sidebar entry (label, icon,
 `order`; the lowest order is where the app starts). Each feature binds its destination in its own Koin module (`homeUiModule`,
 `settingsUiModule`, with `shellDestination(...)`, which qualifies each binding by its type so none overrides another); `shared` lists those modules in `App.kt`, and `ShellGraph` collects every binding,
-checks that each route is registered once, and orders the sidebar. Pages move through a `Navigator` (open, replace, back). Routes another
+checks that each route is registered once, and orders the sidebar. A feature can also bind a `ShellOverlay` (`shellOverlay(...)`), drawn over every page at the bottom of the page area and never taking focus, such as the roaming notice from `settingsUiModule`; the shell draws every binding without naming the feature. Pages move through a `Navigator` (open, replace, back). Routes another
 feature may open (`SettingsRoute`, `AddServerRoute`, `SignInRoute`) live in the contract's package, so features never import each other; routes only their own feature opens (a server's addresses) stay in its package. Every page works
 with the keyboard alone: focus rings (on focus that arrives by keyboard, gone after a click), Tab and arrow keys move
 focus, Enter submits forms, and going back (by any Back) after keyboard input puts focus on what opened the page left, or on the page's first element.
@@ -129,6 +129,9 @@ The player's UX rules (keyboard, pointer, scrubber, touch, subtitles, Next Up, P
   downloads exist). Every load has a timeout, never an endless spinner.
 - **Admin and paid features** appear only where they apply. No tab exists only to upsell (a general rule; the app has no paid features).
 - **Settings on the Mac:** a settings window bound to Cmd+, , not a small sheet. Platform-only settings stay off other platforms.
+- **Never disable the focused control; ignore input instead.** A control that can become busy while it holds focus (Refresh while a
+  check runs, including one the app started by itself) stays enabled and focusable: a press while busy is ignored, and the busy state
+  shows by a spinner and the control's state description. Disabling it drops keyboard focus to the window's start or the sidebar.
 
 ## Platforms
 | Platform | UI | Engine (planned) |

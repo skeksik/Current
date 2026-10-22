@@ -96,7 +96,7 @@ The module tree and build files exist; sources are empty except `core:model` (AD
 the server clients, error model and redacted request log, kept in memory and copied by Settings > About's "Copy diagnostics" (`core:network`, `AboutViewModel`, ADR 0015), saved servers, the settings store and
 `ServerSetupViewModel` with the Jellyfin probe (ADR 0016), secrets and device identity (`core:database`, ADR 0017),
 Jellyfin sign-in with `SignInViewModel` and `ServersViewModel` (ADR 0018), several addresses per server with roaming
-(which skips local addresses while local network access is denied) and `ServerAddressesViewModel` (ADR 0019), cleartext and the
+(which skips local addresses while local network access is denied) and `ServerAddressesViewModel` with the server's status and Refresh, roaming switch notices (`RoamingNoticesViewModel`) (ADR 0019), cleartext and the
 local network permission on Android (ADR 0020), `HomeViewModel` and `HomeLocalNetworkViewModel`
 (`feature:home`), the Compose desktop shell (design tokens and
 shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens with a server's addresses in `composeUi`, Koin

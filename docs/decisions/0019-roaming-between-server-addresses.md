@@ -137,6 +137,20 @@ is on, so a signal can only mean "something may have changed".
 - **Editing addresses:** `withAddress`, `withoutAddress` (never the last) and `withAddressMoved` on `SavedServer` (`core:network`);
   adding still goes through `ServerSetupViewModel(addTo = …)`, which accepts only the same server id. `ServerAddressesViewModel`
   (`feature:settings`) lists the addresses with their scope and the one in use, and removes and reorders them.
+- **The address screen's status** (`ServerAddressesViewModel`): the server's status (checking, reachable, offline), the address in use
+  with its network kind, and Refresh. Status comes from `reachable` in the capabilities state. It reads "checking" only while
+  `reachable` is unknown or a check runs with no address in use, so the periodic check never makes it flicker. While offline, no
+  address is shown in use, though the source keeps the last proved one. A source publishes whether a check runs or a network settles
+  (`ServerAddressSource.checking`). Refresh (`refresh()`) stays enabled during a check, so it keeps keyboard focus, and is ignored
+  while one runs:
+  - a full check, a pending settle or a suspension already answers it;
+  - a periodic (partial) check is replaced by a full one;
+  - it asks marked names too and starts the retry waits over, keeping the address in use;
+  - Stash goes back to its first address.
+- **Switch notice:** `ServerAddressSource.switches` reports each address roaming moved to from another one it used before. Not a switch:
+  the first address after start, the addresses the first check moves through, or an address an edit of the addresses moved to.
+  `RoamingNoticesViewModel` (`feature:settings`) turns them into a brief notice. It names the server and the network kind, never the
+  address, and clears itself after 4 s. The Compose shell shows it over the page; the web can render the same state later.
 
 ## Consequences
 - Android declares `INTERNET` and `ACCESS_NETWORK_STATE`; without the latter there is no signal. Reaching a local server on Android
@@ -171,14 +185,18 @@ is on, so a signal can only mean "something may have changed".
   `br-*` bridges, a VPN's tunnel), and an IPv6 temporary address that rotates.
 - A server answering at several addresses is asked at all of them on each full check; with a handful of addresses per server that is cheap.
 
-## Addendum 2026-10-21: the address screen (candidates)
-The Addresses page today lists the addresses in priority order with their scope and the one in use, adds one through
-`ServerSetupViewModel`, removes one, and reorders with Move up and Move down. Candidates for a later PR, none decided:
-- A "Currently using" block at the top: the server's status, the address in use, its network kind (local or internet), and a Refresh
-  button that starts a full check.
-- Local addresses added by hand or found by discovery (the spike in docs/platform-notes.md, "Local server discovery, run on devices"),
-  which stops by itself after a short time.
-- Internet addresses in priority order, reordered by dragging as well as by Move up and Move down.
-- Custom HTTP headers per address, for reverse proxies. They touch credentials and redaction (ADR 0015), so header values are secrets:
-  never logged, never copied into diagnostics, and stored like other secrets (ADR 0017).
-- A brief notice when roaming switches to another address.
+## Addendum 2026-10-21: the address screen
+The Addresses page lists the addresses in priority order with their scope and the one in use, adds one through
+`ServerSetupViewModel`, removes one, and reorders with Move up and Move down. The candidates, and what became of them:
+- **Built:** a "Currently using" block at the top: the server's status, the address in use, its network kind (local or internet), and
+  a Refresh button that starts a full check (Decision, "The address screen's status").
+- **Built:** a brief notice when roaming switches to another address (Decision, "Switch notice"), in the Compose shell; the web can
+  render the same state later.
+- **Left out:** reordering internet addresses by dragging. Compose has no reorderable list, and a hand-written long-press drag with
+  auto-scroll for touch and mouse is not small. Move up and Move down stay, and `ServerAddressesViewModel.move(from, to)` is there for
+  a later drag.
+- **Still candidates:** local addresses added by hand or found by discovery (the spike in docs/platform-notes.md, "Local server
+  discovery, run on devices"), which stops by itself after a short time.
+- **Still candidates:** custom HTTP headers per address, for reverse proxies. They touch credentials and redaction (ADR 0015), so
+  header values are secrets: never logged, never copied into diagnostics, and stored like other secrets (ADR 0017). Needs an owner
+  decision on how they are stored.
