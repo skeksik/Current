@@ -40,6 +40,6 @@ val networkModule = module {
         RoamingAddressSources(get(), getAll(), get(), get(), get(AppScope), localAccess = get(), log = get())
     }
     single<LocalNetworkAccess> { platformLocalNetworkAccess() }
-    // Created at start so the saved servers are in the capabilities state before any feature reads it.
-    single<ServerRepository>(createdAtStart = true) { StoredServerRepository(get(), get()) }
+    // Created at start so the saved servers are in the capabilities state before any feature reads it. Follows other browser tabs.
+    single<ServerRepository>(createdAtStart = true) { StoredServerRepository(get(), get(), get<CoroutineScope>(AppScope)) }
 }

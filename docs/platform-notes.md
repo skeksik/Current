@@ -2874,6 +2874,37 @@ with the same server id on `127.0.0.1:18096` and `127.0.0.1:18097`, each answeri
   now." within about 1 s; the "Currently using" block showed no address and no row said "In use". Focus stayed on Refresh. With
   `127.0.0.1:18096` started again, Refresh gave Reachable with that address, and its row said "In use" again.
 
+## Web follow-ups: two-tab browser run (checked 2026-10-22 on Windows 11 Pro build 26200 with Chromium 156.0.8078.4, Playwright's build, headless, through playwright-core 1.64.1; PR 52 at 4775deb)
+- What ran: `npm --prefix webApp ci` and `npm --prefix webApp run build`, then `vite preview` served the production build (with its
+  `<meta>` policy). A throwaway Jellyfin stand-in on `127.0.0.1` (not committed, CORS open) answered `/System/Info/Public`,
+  `/Users/AuthenticateByName` (a new token each time), `/Users/Me` (checking the token), `/QuickConnect/Enabled` and
+  `/Sessions/Logout`, on three ports: two addresses of one server (`127.0.0.1:18096` and `:18097`) and a second server (`:18098`). It
+  logged each request with the token cut to its first 4 characters. A Playwright script (not committed) drove one browser context with
+  two pages, A and B, sharing `localStorage`, and listened to the console, page errors and `securitypolicyviolation`.
+- 54 of 54 checks pass, with no console errors or warnings and no policy violations in any case:
+  - 1. Servers across tabs: pass. A server added in A shows in B's Settings without a reload; removed in B, it leaves A's list. Adding
+    the second server in A afterwards does not bring it back in either tab. Neither tab reloaded.
+  - 2. Sign-in across tabs: pass. Signed in in A, B shows "Signed in as …" without a reload; signed out in B, A shows "Signed out". The
+    stand-in got exactly one `POST /Sessions/Logout`, sent by B with the token of that session, and no token is left in `localStorage`.
+  - 3. Race: pass. B submitted its sign-in 97 ms after the Sign out click in A. Both tabs end signed in with the newer session:
+    `localStorage` holds only the newer token, the one `Sessions/Logout` carried the older token (sent by A, about 100 ms before the
+    new sign-in answered), and none carried the newer one. After reloading both tabs, both are still signed in.
+  - 4. Back and `/settings/`: pass. A page opened by URL and reloaded (Playback support) goes Back to Settings in its place, with
+    `history.length` unchanged and the tab still in the app; Settings has no Back. A reload on a later step goes Back through history.
+    In a fresh tab, `/settings/` followed by the Settings sidebar entry adds no entry, Home adds one, and the browser's Back from Home
+    shows `/settings/` again.
+  - 5. Addresses by keyboard only (Tab, Enter, Esc): pass. Addresses opens with focus on its title; Add address puts focus in the field,
+    the found server moves it to "Add this address", and Enter returns to Addresses with focus on Add address. Move down keeps focus on
+    the moved row's Move up (it is last), Move up then on its Move down. Remove opens the dialog with focus on Cancel; Esc closes it,
+    removes nothing and puts focus back on Remove; Tab and Enter on the dialog's Remove remove the address, with focus on Add address.
+    Every focus stop matched `:focus-visible` and had a ring. On the last address the hint "A server keeps at least one address" shows
+    and no Remove is offered: with one address the row has no buttons at all (hidden, not disabled).
+  - 6. Storage blocked (a context whose `localStorage` and `sessionStorage` getters throw `SecurityError`): pass. Settings says "This
+    browser is not keeping data for this site, so you are signed out when you close or reload the page."; adding the server and
+    signing in still work, with nothing in the console.
+- Not run: Firefox, Safari, Edge; Chrome's own block-site-data setting (only the throwing getters); two separate windows (two pages
+  of one context share storage the same way).
+
 ## Single instance on desktop (read 2026-10-21 in the JDK 21 javadoc, the Win32 docs and the Compose `application` source on `jb-main`; tested on Linux in a container)
 Design: docs/architecture.md, "Single instance (desktop)". What it relies on:
 - The lock dies with the process. `FileLock`: "A file-lock object is initially valid. It remains valid until the lock is released by

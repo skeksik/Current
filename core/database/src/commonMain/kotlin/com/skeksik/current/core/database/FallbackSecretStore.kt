@@ -1,8 +1,10 @@
 package com.skeksik.current.core.database
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /** Storage whose calls can fail, such as `localStorage` when the browser blocks it or it is full: writes say whether they stuck. */
 internal interface FallibleStorage {
@@ -14,6 +16,9 @@ internal interface FallibleStorage {
     fun put(key: String, value: String): Boolean
 
     fun remove(key: String): Boolean
+
+    /** Keys another copy of the app changed here, as [KeyValueStore.changedElsewhere]. */
+    val changedElsewhere: Flow<String?> get() = emptyFlow()
 }
 
 /**
@@ -29,6 +34,9 @@ internal class FallbackSecretStore(private val backend: FallibleStorage, kept: S
 
     private val _storage = MutableStateFlow(if (usable) kept else SecretStorage.Memory)
     override val storage: StateFlow<SecretStorage> = _storage.asStateFlow()
+
+    /** Nothing when [backend] was unusable at start: no other copy can have written to it. */
+    override val changedElsewhere: Flow<String?> = if (usable) backend.changedElsewhere else emptyFlow()
 
     override suspend fun get(key: String): String? = when {
         key in memory -> memory[key]

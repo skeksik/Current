@@ -10,8 +10,28 @@ class RouteTest {
 
     @Test
     fun everyPageParsesFromItsOwnPath() {
-        val routes = listOf(Route.Home, Route.Settings, Route.AddServer, Route.SignIn(server), Route.PlaybackSupport)
+        val routes = listOf(
+            Route.Home,
+            Route.Settings,
+            Route.AddServer,
+            Route.SignIn(server),
+            Route.ServerAddresses(server),
+            Route.AddServerAddress(server),
+            Route.ServerAddresses(ServerRef(ServiceType.stash, "0a1b2c")),
+            Route.PlaybackSupport,
+        )
         routes.forEach { assertEquals(it, Route.parse(it.path)) }
+    }
+
+    @Test
+    fun eachPageHasTheExpectedPath() {
+        assertEquals("/", Route.Home.path)
+        assertEquals("/settings", Route.Settings.path)
+        assertEquals("/settings/servers/add", Route.AddServer.path)
+        assertEquals("/settings/servers/jellyfin/0a1b2c/sign-in", Route.SignIn(server).path)
+        assertEquals("/settings/servers/jellyfin/0a1b2c/addresses", Route.ServerAddresses(server).path)
+        assertEquals("/settings/servers/jellyfin/0a1b2c/addresses/add", Route.AddServerAddress(server).path)
+        assertEquals("/settings/playback", Route.PlaybackSupport.path)
     }
 
     @Test
@@ -24,7 +44,15 @@ class RouteTest {
 
     @Test
     fun anythingElseIsNotFound() {
-        listOf("/settings/servers", "/settings/servers/jellyfin//sign-in", "/settings/servers/jellyfin/0a1b2c", "/library")
+        listOf(
+            "/settings/servers",
+            "/settings/servers/jellyfin//sign-in",
+            "/settings/servers/jellyfin/0a1b2c",
+            "/settings/servers/jellyfin/0a1b2c/addresses/remove",
+            "/settings/servers/plex/0a1b2c/addresses",
+            "/settings/servers/jellyfin/0a1b2c/addresses/add/more",
+            "/library",
+        )
             .forEach { assertEquals(Route.NotFound(it), Route.parse(it)) }
     }
 
@@ -41,6 +69,8 @@ class RouteTest {
         assertEquals(Route.Settings, Route.AddServer.parent)
         assertEquals(Route.Settings, Route.SignIn(server).parent)
         assertEquals(Route.Settings, Route.PlaybackSupport.parent)
+        assertEquals(Route.Settings, Route.ServerAddresses(server).parent)
+        assertEquals(Route.ServerAddresses(server), Route.AddServerAddress(server).parent)
         assertEquals(Route.Home, Route.NotFound("/x").parent)
     }
 
@@ -64,5 +94,7 @@ class RouteTest {
         assertEquals(false, isPlainClick(1, ctrl = false, meta = false, shift = false, alt = false))
         assertEquals(false, isPlainClick(0, ctrl = true, meta = false, shift = false, alt = false))
         assertEquals(false, isPlainClick(0, ctrl = false, meta = true, shift = false, alt = false))
+        assertEquals(false, isPlainClick(0, ctrl = false, meta = false, shift = true, alt = false))
+        assertEquals(false, isPlainClick(0, ctrl = false, meta = false, shift = false, alt = true))
     }
 }

@@ -5,6 +5,9 @@ import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.home.HomeUiState
 import com.skeksik.current.feature.home.HomeViewModel
+import com.skeksik.current.feature.settings.AddressRow
+import com.skeksik.current.feature.settings.ServerAddressesUiState
+import com.skeksik.current.feature.settings.ServerAddressesViewModel
 import com.skeksik.current.feature.settings.ServerRow
 import com.skeksik.current.feature.settings.ServerSetupUiState
 import com.skeksik.current.feature.settings.ServerSetupViewModel
@@ -33,7 +36,7 @@ internal fun HomeUiState.toView() = when (this) {
 
 /**
  * One saved server. [id] names it in [SettingsPage]'s actions. [signedInAs] is null when signed out; [offline] once a check failed.
- * [signInPath] is null for services without a sign-in page.
+ * [signInPath] is null for services without a sign-in page. [addressesPath] is its Addresses page.
  */
 @JsExport
 class ServerRowView(
@@ -43,6 +46,7 @@ class ServerRowView(
     val signedInAs: String?,
     val offline: Boolean,
     val signInPath: String?,
+    val addressesPath: String,
 )
 
 /** [secretStorage] is a `SecretStorage` name ("Browser" on the web); [fileOffered] never holds on the web. */
@@ -80,12 +84,13 @@ private fun ServerRow.toView() = ServerRowView(
     signedInAs = signedInAs,
     offline = reachable == false,
     signInPath = ref.signInPath(),
+    addressesPath = Route.ServerAddresses(ref).path,
 )
 
 /**
  * [kind] is "editing", "checking", "found" or "saved". [problem] is a `ServerSetupProblem` name while editing. The found server's
  * fields are set while [kind] is "found". Once "saved", [nextPath] is the new server's sign-in page, to show in this page's place, or
- * null to go back.
+ * null to go back (always, when adding an address).
  */
 @JsExport
 class AddServerView(
@@ -100,10 +105,17 @@ class AddServerView(
     val nextPath: String?,
 )
 
-/** Add server. The local network prompt is left out: browsers ask themselves, and its state never leaves Hidden here (ADR 0020). */
+/**
+ * Add server, or with [addingAddress], add an address to the saved server named [serverName] (null when it is no longer saved). The
+ * local network prompt is left out: browsers ask themselves, and its state never leaves Hidden here (ADR 0020).
+ */
 @JsExport
-class AddServerPage internal constructor(private val holder: ViewModelHolder<ServerSetupViewModel>) : Page(holder) {
-    val state: Observable<AddServerView> = holder.viewModel.state.observe { it.toView() }
+class AddServerPage internal constructor(
+    private val holder: ViewModelHolder<ServerSetupViewModel>,
+    val addingAddress: Boolean = false,
+    val serverName: String? = null,
+) : Page(holder) {
+    val state: Observable<AddServerView> = holder.viewModel.state.observe { it.toView(addingAddress) }
 
     fun onInput(text: String) = holder.viewModel.onInput(text)
 
@@ -112,7 +124,7 @@ class AddServerPage internal constructor(private val holder: ViewModelHolder<Ser
     fun confirm() = holder.viewModel.confirm()
 }
 
-internal fun ServerSetupUiState.toView(): AddServerView {
+internal fun ServerSetupUiState.toView(addingAddress: Boolean = false): AddServerView {
     fun view(kind: String, problem: String? = null, nextPath: String? = null) =
         AddServerView(kind, input, problem, null, null, null, local = false, plainHttpOnInternet = false, nextPath = nextPath)
     return when (this) {
@@ -129,7 +141,7 @@ internal fun ServerSetupUiState.toView(): AddServerView {
             plainHttpOnInternet = plainHttpOnInternet,
             nextPath = null,
         )
-        is ServerSetupUiState.Saved -> view("saved", nextPath = server.ref.signInPath())
+        is ServerSetupUiState.Saved -> view("saved", nextPath = if (addingAddress) null else server.ref.signInPath())
     }
 }
 
@@ -166,6 +178,52 @@ internal fun SignInUiState.toView() = when (this) {
     is SignInUiState.QuickConnect -> SignInView("quickConnect", "", "", quickConnect = true, working = false, problem = null, code = code)
     is SignInUiState.SignedIn -> SignInView("signedIn", "", "", quickConnect = false, working = false, problem = null, code = null)
 }
+
+/**
+ * One address. [scope] is an `AddressScope` name ("Local" or "Internet"). [inUse] marks the address requests go to now; [canRemove] is
+ * false for a server's last address.
+ */
+@JsExport
+class AddressRowView(val url: String, val scope: String, val plainHttpOnInternet: Boolean, val inUse: Boolean, val canRemove: Boolean)
+
+/**
+ * A server's addresses, highest priority first. [saved] turns false once the server is removed (the app leaves the page);
+ * [unreachable] while it answers at none of them. [addPath] is the Add address page.
+ */
+@JsExport
+class ServerAddressesView(
+    val saved: Boolean,
+    val name: String,
+    val unreachable: Boolean,
+    val addresses: Array<AddressRowView>,
+    val addPath: String,
+)
+
+/** Settings > Servers > a server's addresses (ADR 0019): reorder and remove them; adding one is [AddServerPage] on [addPath]'s route. */
+@JsExport
+class ServerAddressesPage internal constructor(private val holder: ViewModelHolder<ServerAddressesViewModel>, server: ServerRef) :
+    Page(holder) {
+    private val addPath = Route.AddServerAddress(server).path
+
+    val state: Observable<ServerAddressesView> = holder.viewModel.state.observe { it.toView(addPath) }
+
+    /** Does nothing for the last address. */
+    fun remove(url: String) = holder.viewModel.remove(url)
+
+    fun moveUp(url: String) = holder.viewModel.moveUp(url)
+
+    fun moveDown(url: String) = holder.viewModel.moveDown(url)
+}
+
+internal fun ServerAddressesUiState.toView(addPath: String) = ServerAddressesView(
+    saved = saved,
+    name = name,
+    unreachable = reachable == false,
+    addresses = addresses.map { it.toView() }.toTypedArray(),
+    addPath = addPath,
+)
+
+private fun AddressRow.toView() = AddressRowView(url, scope.name, plainHttpOnInternet, inUse, canRemove)
 
 internal val ServerRef.id: String get() = "${service.value}/$key"
 

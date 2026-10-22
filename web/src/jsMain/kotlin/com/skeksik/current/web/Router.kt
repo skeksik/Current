@@ -34,6 +34,18 @@ internal sealed interface Route {
         override val parent: Route = Settings
     }
 
+    /** A saved server's addresses (ADR 0019). The path names the server by its ref only, never an address. */
+    data class ServerAddresses(val server: ServerRef) : Route {
+        override val path = "/settings/servers/${server.service.value}/${server.key}/addresses"
+        override val parent: Route = Settings
+    }
+
+    /** Add an address to a saved server: Add server, accepting only the same server. */
+    data class AddServerAddress(val server: ServerRef) : Route {
+        override val path = "${ServerAddresses(server).path}/add"
+        override val parent: Route = ServerAddresses(server)
+    }
+
     data object PlaybackSupport : Route {
         override val path = "/settings/playback"
         override val parent: Route = Settings
@@ -51,16 +63,23 @@ internal sealed interface Route {
                 Settings.path -> Settings
                 AddServer.path -> AddServer
                 PlaybackSupport.path -> PlaybackSupport
-                else -> signIn(clean) ?: NotFound(path)
+                else -> serverPage(clean) ?: NotFound(path)
             }
         }
 
-        private fun signIn(path: String): Route? {
+        /** `/settings/servers/<service>/<key>/` and a page of that server. */
+        private fun serverPage(path: String): Route? {
             val parts = path.removePrefix("/").split('/')
-            if (parts.size != 5 || parts[0] != "settings" || parts[1] != "servers" || parts[4] != "sign-in") return null
-            // Only Jellyfin has a sign-in page yet (signInPath).
-            if (parts[2] != ServiceType.jellyfin.value || parts[3].isBlank()) return null
-            return SignIn(ServerRef(ServiceType.jellyfin, parts[3]))
+            if (parts.size !in 5..6 || parts[0] != "settings" || parts[1] != "servers" || parts[3].isBlank()) return null
+            val service = ServiceType.known.firstOrNull { it.value == parts[2] } ?: return null
+            val server = ServerRef(service, parts[3])
+            return when (parts.drop(4)) {
+                // Only Jellyfin has a sign-in page yet (signInPath).
+                listOf("sign-in") -> SignIn(server).takeIf { service == ServiceType.jellyfin }
+                listOf("addresses") -> ServerAddresses(server)
+                listOf("addresses", "add") -> AddServerAddress(server)
+                else -> null
+            }
         }
     }
 }
@@ -89,9 +108,53 @@ internal fun backStep(step: Int, route: Route): BackStep = when {
  */
 internal data class Shown(val route: Route, val opener: String?, val visit: Int)
 
+/** The History API, behind an interface so [BrowserRouter] can be tested without a browser. */
+internal interface BrowserHistory {
+    /** `location.pathname`. */
+    val path: String
+
+    /** The step stored in the current entry, or -1 for an entry the app did not make (the first page load of the tab). */
+    val step: Int
+
+    /** The opener stored in the current entry, if any. */
+    val opener: String?
+
+    fun push(step: Int, path: String)
+
+    /** Rewrites the current entry's state, and its URL unless [path] is null (which keeps the query and fragment). */
+    fun replace(step: Int, opener: String?, path: String?)
+
+    fun back()
+
+    /** Calls [handler] after Back, Forward or a jump in the browser's history list. */
+    fun onPopState(handler: () -> Unit)
+
+    fun scrollToTop()
+}
+
+/** The browser's `window.history` and `location`. */
+internal object WindowHistory : BrowserHistory {
+    override val path: String get() = locationPath()
+
+    override val step: Int get() = currentStep()
+
+    override val opener: String? get() = currentOpener()
+
+    override fun push(step: Int, path: String) = pushState(step, path)
+
+    override fun replace(step: Int, opener: String?, path: String?) = replaceState(step, opener, path)
+
+    override fun back() = historyBack()
+
+    override fun onPopState(handler: () -> Unit) = addPopStateListener(handler)
+
+    override fun scrollToTop() = windowScrollToTop()
+}
+
+// js() calls must be the whole body of a top-level function.
+
 private fun locationPath(): String = js("window.location.pathname")
 
-/** The step stored in the current history entry, or -1 for an entry the app did not make (the first page load of the tab). */
 private fun currentStep(): Int = js("(function (s) { return s && typeof s.step === 'number' ? s.step : -1; })(window.history.state)")
 
 private fun currentOpener(): String? = js("(function (s) { return s && typeof s.opener === 'string' ? s.opener : null; })(history.state)")
@@ -99,7 +162,7 @@ private fun currentOpener(): String? = js("(function (s) { return s && typeof s.
 @Suppress("UNUSED_PARAMETER")
 private fun pushState(step: Int, path: String): Unit = js("window.history.pushState({ step: step }, '', path)")
 
-/** Rewrites the current entry's state, and its URL unless [path] is null (an undefined URL keeps the query and fragment). */
+/** An undefined URL keeps the query and fragment. */
 @Suppress("UNUSED_PARAMETER")
 private fun replaceState(step: Int, opener: String?, path: String?): Unit =
     js("window.history.replaceState({ step: step, opener: opener }, '', path === null ? undefined : path)")
@@ -107,20 +170,20 @@ private fun replaceState(step: Int, opener: String?, path: String?): Unit =
 private fun historyBack(): Unit = js("window.history.back()")
 
 @Suppress("UNUSED_PARAMETER")
-private fun onPopState(handler: () -> Unit): Unit = js("window.addEventListener('popstate', function () { handler(); })")
+private fun addPopStateListener(handler: () -> Unit): Unit = js("window.addEventListener('popstate', function () { handler(); })")
 
-private fun scrollToTop(): Unit = js("window.scrollTo(0, 0)")
+private fun windowScrollToTop(): Unit = js("window.scrollTo(0, 0)")
 
 /**
  * Routing through the History API: the [shown] page follows the URL; Back, Forward and reloads work. Every page opened is a new history
  * entry (as on desktop, docs/architecture.md). Each entry records its step, so a Back from the first page opened in the tab shows that
  * page's parent rather than leaving the app, and what opened the next page, so focus goes back there on return.
  */
-internal class BrowserRouter {
-    private var step = currentStep()
+internal class BrowserRouter(private val history: BrowserHistory = WindowHistory) {
+    private var step = history.step
     private var visit = 0
 
-    private val _shown = MutableStateFlow(Shown(Route.parse(locationPath()), opener = null, visit))
+    private val _shown = MutableStateFlow(Shown(Route.parse(history.path), opener = null, visit))
     val shown: StateFlow<Shown> = _shown.asStateFlow()
 
     private val route: Route get() = _shown.value.route
@@ -129,11 +192,11 @@ internal class BrowserRouter {
         // A reload keeps the entry's state; a fresh tab gets step 0.
         if (step < 0) {
             step = 0
-            replaceState(step, opener = null, path = null)
+            history.replace(step, opener = null, path = null)
         }
-        onPopState {
-            step = currentStep().coerceAtLeast(0)
-            show(Route.parse(locationPath()), currentOpener())
+        history.onPopState {
+            step = history.step.coerceAtLeast(0)
+            show(Route.parse(history.path), history.opener)
         }
     }
 
@@ -142,24 +205,25 @@ internal class BrowserRouter {
      * (a double click, or its sidebar entry, opens it once).
      */
     fun navigate(route: Route, opener: String?) {
-        if (route.path == locationPath()) return
-        replaceState(step, opener, path = null)
+        // Parsed, so `/settings/` counts as Settings (W6).
+        if (route == Route.parse(history.path)) return
+        history.replace(step, opener, path = null)
         step += 1
-        pushState(step, route.path)
+        history.push(step, route.path)
         show(route, opener = null)
-        scrollToTop()
+        history.scrollToTop()
     }
 
     /** Shows [route] in place of the current entry, so Back skips the page it replaces (a finished step, such as adding a server). */
     fun replace(route: Route) {
-        replaceState(step, opener = null, route.path)
+        history.replace(step, opener = null, route.path)
         show(route, opener = null)
-        scrollToTop()
+        history.scrollToTop()
     }
 
     fun back() {
         when (val next = backStep(step, route)) {
-            BackStep.History -> historyBack()
+            BackStep.History -> history.back()
             is BackStep.Replace -> replace(next.route)
             BackStep.None -> Unit
         }

@@ -1,5 +1,8 @@
 package com.skeksik.current.core.database
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,6 +15,7 @@ class FallbackSecretStoreTest {
         val values = mutableMapOf<String, String>()
         var writesFail = false
         var removesFail = false
+        override var changedElsewhere: Flow<String?> = flowOf("token")
 
         override fun probe(): Boolean = available
 
@@ -41,6 +45,12 @@ class FallbackSecretStoreTest {
         store.remove("token")
         assertTrue(backend.values.isEmpty())
         assertNull(store.get("token"))
+    }
+
+    @Test
+    fun changesFromOtherTabsPassOnlyWhileStorageWorks() = runBlocking {
+        assertEquals(listOf<String?>("token"), FallbackSecretStore(FakeStorage(), SecretStorage.Browser).changedElsewhere.toList())
+        assertEquals(emptyList(), FallbackSecretStore(FakeStorage(available = false), SecretStorage.Browser).changedElsewhere.toList())
     }
 
     @Test
