@@ -29,6 +29,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -109,9 +110,13 @@ internal class StoredJellyfinAccounts(
     /** Signed out here, with the stored token not removed yet: [authorizedClient] must not read it back. */
     private val signingOut = MutableStateFlow<Set<ServerRef>>(emptySet())
 
-    /** Puts saved sessions into the capabilities state, then checks each with its server in the background. */
-    fun restore(): Job =
-        scope.launch {
+    /**
+     * Puts saved sessions into the capabilities state, then checks each with its server in the background. From then on, follows the
+     * sessions other copies of the app sharing the stores (browser tabs) start and end.
+     */
+    fun restore(): Job {
+        follow()
+        return scope.launch {
             servers.servers.value.filter { it.ref.service == ServiceType.jellyfin }.forEach { server ->
                 val token = secrets.get(tokenKey(server.ref))
                 val user = settings.get(userKey(server.ref))?.let(::decodeUser)
@@ -124,10 +129,56 @@ internal class StoredJellyfinAccounts(
                 launch { verify(server, token) }
             }
         }
+    }
+
+    /**
+     * Another copy wrote a token or a user: this copy takes on what the stores hold now, so every copy converges on the last write. It
+     * never writes a token: the copy that wrote has already stored or removed the session, and ended it on the server.
+     */
+    private fun follow() {
+        // The servers a change touches; every one for a cleared store (a null key).
+        fun touched(key: String?, owner: (String) -> ServerRef?): List<ServerRef> =
+            if (key == null) (servers.servers.value.map { it.ref } + tokens.value.keys).distinct() else listOfNotNull(owner(key))
+        // Undispatched, so each listens before restore returns: a change made right after is not missed.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            secrets.changedElsewhere.collect { key -> touched(key) { tokenOwner(it) }.forEach { adopt(it) } }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            settings.changedElsewhere.collect { key -> touched(key) { userOwner(it) }.forEach { adopt(it) } }
+        }
+    }
+
+    /**
+     * Takes on [server]'s session as the stores hold it now. While this copy signs [server] out, its own sign-out finishes first and
+     * adopts after, with [askWhoWithoutUser]: its sign-out removed the user of a session another copy started meanwhile, so the server
+     * says who it is. Following another copy never asks: there a missing user means that copy is signing out, and the token goes next.
+     */
+    private suspend fun adopt(server: ServerRef, askWhoWithoutUser: Boolean = false) {
+        if (server.service != ServiceType.jellyfin || server in signingOut.value) return
+        secretsLock.withLock {
+            val stored = secrets.get(tokenKey(server))
+            if (stored == null) {
+                val signedIn = capabilities.capabilities.value.status(server)?.signedIn == true
+                if (tokens.value[server] == null && !signedIn) return@withLock
+                tokens.update { it - server }
+                capabilities.update(server) { it.copy(signedIn = false, user = null) }
+                return@withLock
+            }
+            tokens.update { it + (server to stored) }
+            val user = settings.get(userKey(server))?.let(::decodeUser)
+            if (user != null) {
+                markSignedIn(server, user.toUser(server))
+            } else if (askWhoWithoutUser) {
+                servers.server(server)?.let { saved -> scope.launch { verify(saved, stored) } }
+            }
+        }
+    }
 
     private suspend fun verify(server: SavedServer, token: String) {
         try {
             val user = clientFor(server, token).use { client -> client.request { get("Users/Me").body<UserDto>() } }
+            // Signed out or replaced meanwhile, here or in another copy: the answer is about a session no longer kept.
+            if (tokens.value[server.ref] != token) return
             remember(server.ref, user)
             capabilities.update(server.ref) { it.copy(reachable = true) }
         } catch (e: ServiceException) {
@@ -218,6 +269,8 @@ internal class StoredJellyfinAccounts(
             } finally {
                 signingOut.update { it - server }
             }
+            // Another copy may have signed in meanwhile: its session stays stored, and this copy takes it on.
+            adopt(server, askWhoWithoutUser = true)
             if (token == null || saved == null || source == null) return@launch
             // Without a proved address soon, the server keeps the session: better than sending the token to an unproved address.
             val address = proved ?: withTimeoutOrNull(LOGOUT_WAITS_AT_MOST) { source.awaitCurrent() } ?: return@launch
@@ -332,6 +385,15 @@ internal class StoredJellyfinAccounts(
 
         /** In settings: not secret, and needed to show who is signed in while the server is offline. */
         fun userKey(server: ServerRef) = "jellyfin.${server.key}.user"
+
+        fun tokenOwner(key: String): ServerRef? = ownerOf(key, "jellyfin/", "/token")
+
+        fun userOwner(key: String): ServerRef? = ownerOf(key, "jellyfin.", ".user")
+
+        private fun ownerOf(key: String, start: String, end: String): ServerRef? {
+            if (!key.startsWith(start) || !key.endsWith(end) || key.length <= start.length + end.length) return null
+            return ServerRef(ServiceType.jellyfin, key.substring(start.length, key.length - end.length))
+        }
 
         /** Jellyfin writes ids as 32 hex characters, but some fields may carry dashes or capitals. */
         fun normalisedId(id: String) = id.replace("-", "").lowercase()

@@ -10,6 +10,7 @@ import com.skeksik.current.data.jellyfin.jellyfinModule
 import com.skeksik.current.feature.home.HomeViewModel
 import com.skeksik.current.feature.settings.AboutViewModel
 import com.skeksik.current.feature.settings.PlaybackSupportViewModel
+import com.skeksik.current.feature.settings.ServerAddressesViewModel
 import com.skeksik.current.feature.settings.ServerSetupViewModel
 import com.skeksik.current.feature.settings.ServersViewModel
 import com.skeksik.current.feature.settings.SignInViewModel
@@ -19,7 +20,8 @@ import org.koin.core.Koin
 import org.koin.dsl.koinApplication
 
 /**
- * The current page: [kind] is "home", "settings", "addServer", "signIn", "playbackSupport" or "notFound". [hasBack] is true for pages
+ * The current page: [kind] is "home", "settings", "addServer", "signIn", "serverAddresses", "addServerAddress", "playbackSupport" or
+ * "notFound". [hasBack] is true for pages
  * below a sidebar entry's page, which show a Back button. [opener] is set when Back or Forward returned to this page: the
  * `data-focus-id` of what opened the page that left, to focus again. Each navigation gets a new view, even to the same page.
  */
@@ -83,6 +85,20 @@ class CurrentWeb {
         return SignInPage(holdViewModel { SignInViewModel(koin.get(), server) }, name)
     }
 
+    /** The addresses of the server named by [path], an Addresses page's path. */
+    fun serverAddressesPage(path: String): ServerAddressesPage {
+        val server = requireNotNull(Route.parse(path) as? Route.ServerAddresses) { "Not an Addresses page: $path" }.server
+        return ServerAddressesPage(holdViewModel { ServerAddressesViewModel(server, koin.get(), koin.get(), koin.get()) }, server)
+    }
+
+    /** Add server for one more address of the server named by [path], an Add address page's path. */
+    fun addServerAddressPage(path: String): AddServerPage {
+        val server = requireNotNull(Route.parse(path) as? Route.AddServerAddress) { "Not an Add address page: $path" }.server
+        val name = koin.get<ServerRepository>().server(server)?.name
+        val holder = holdViewModel { ServerSetupViewModel(koin.get(), koin.get(), koin.get<MutableCapabilitiesState>(), addTo = server) }
+        return AddServerPage(holder, addingAddress = true, serverName = name)
+    }
+
     fun playbackSupportPage() = PlaybackSupportPage(holdViewModel { PlaybackSupportViewModel { mediaSupport.await() } })
 }
 
@@ -92,6 +108,8 @@ private fun Route.toView(opener: String?) = RouteView(
         Route.Settings -> "settings"
         Route.AddServer -> "addServer"
         is Route.SignIn -> "signIn"
+        is Route.ServerAddresses -> "serverAddresses"
+        is Route.AddServerAddress -> "addServerAddress"
         Route.PlaybackSupport -> "playbackSupport"
         is Route.NotFound -> "notFound"
     },

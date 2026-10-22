@@ -464,6 +464,18 @@ h1:focus-visible {
   gap: var(--space-s);
 }
 
+.address-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-m);
+  margin: 0;
+}
+
+.in-use {
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .code {
   font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
   font-size: var(--type-display);

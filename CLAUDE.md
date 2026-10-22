@@ -102,7 +102,8 @@ local network permission on Android (ADR 0020), `HomeViewModel` and `HomeLocalNe
 shared components in `core:designsystem`, destinations registered per feature, sidebar, home and settings screens with a server's addresses in `composeUi`, Koin
 wiring in `shared`; docs/architecture.md), the platform shells (the SwiftUI placeholder reads one `Shared` type to prove the
 framework links), the browser probes and web device profile (`core:playback`), `PlaybackSupportViewModel` (`feature:settings`), the `web` facade and the React app (the same shell as desktop: sidebar, home,
-settings, add server, sign in). The October 2026 fix batch (PRs 41-46, docs/reviews/2026-10) added the web CSP, the packaged desktop app
+settings, add server, sign in, a server's addresses), with tabs of one browser following each other's saved servers and sessions. The
+October 2026 fix batch (PRs 41-46, docs/reviews/2026-10) added the web CSP, the packaged desktop app
 (per-user MSI, version from `current.version`), Android backup rules and Back keys that work anywhere while Esc never goes back.
 Plan (docs/roadmap.md): Windows desktop and web first; the first usable version is Jellyfin browse + play (M1-M2), starting with spikes.
 

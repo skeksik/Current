@@ -4,9 +4,10 @@ import { Page } from './components';
 import { useObservable } from './hooks';
 import { Icon, type IconName } from './icons';
 import { Link, NavProvider } from './nav';
-import { AddServer } from './pages/AddServer';
+import { AddServer, AddServerAddress } from './pages/AddServer';
 import { Home } from './pages/Home';
 import { PlaybackSupport } from './pages/PlaybackSupport';
+import { ServerAddresses } from './pages/ServerAddresses';
 import { Settings } from './pages/Settings';
 import { SignIn } from './pages/SignIn';
 import { strings, webStrings } from './strings';
@@ -14,7 +15,12 @@ import { strings, webStrings } from './strings';
 /** The sidebar's entries, top to bottom; `owns` tells which pages highlight an entry. */
 const sidebar: { label: string; icon: IconName; path: string; owns: string[] }[] = [
   { label: strings.navHome, icon: 'home', path: '/', owns: ['home'] },
-  { label: strings.navSettings, icon: 'settings', path: '/settings', owns: ['settings', 'addServer', 'signIn', 'playbackSupport'] },
+  {
+    label: strings.navSettings,
+    icon: 'settings',
+    path: '/settings',
+    owns: ['settings', 'addServer', 'signIn', 'serverAddresses', 'addServerAddress', 'playbackSupport'],
+  },
 ];
 
 /** The desktop shell's layout: the sidebar on the left, the current page beside it (on narrow windows, the sidebar above it). */
@@ -34,6 +40,8 @@ function Shell({ route }: { route: RouteView }) {
     case 'settings': page = <Settings />; break;
     case 'addServer': page = <AddServer />; break;
     case 'signIn': page = <SignIn path={route.path} />; break;
+    case 'serverAddresses': page = <ServerAddresses path={route.path} />; break;
+    case 'addServerAddress': page = <AddServerAddress path={route.path} />; break;
     case 'playbackSupport': page = <PlaybackSupport />; break;
     default: page = <NotFound />;
   }

@@ -7,6 +7,8 @@ import com.skeksik.current.core.model.ServerAddress
 import com.skeksik.current.core.model.ServerRef
 import com.skeksik.current.core.model.ServiceType
 import com.skeksik.current.feature.home.HomeUiState
+import com.skeksik.current.feature.settings.AddressRow
+import com.skeksik.current.feature.settings.ServerAddressesUiState
 import com.skeksik.current.feature.settings.ServerRow
 import com.skeksik.current.feature.settings.ServerSetupProblem
 import com.skeksik.current.feature.settings.ServerSetupUiState
@@ -54,6 +56,8 @@ class ShellPagesTest {
         assertNull(second.signedInAs)
         assertEquals(true, second.offline)
         assertNull(second.signInPath)
+        assertEquals("/settings/servers/jellyfin/0a1b2c/addresses", first.addressesPath)
+        assertEquals("/settings/servers/stash/3d4e5f/addresses", second.addressesPath)
     }
 
     @Test
@@ -95,6 +99,59 @@ class ShellPagesTest {
     }
 
     @Test
+    fun anAddedAddressAlwaysGoesBack() {
+        val address = listOf(ServerAddress("https://media.example.com", AddressScope.Internet))
+        val saved = ServerSetupUiState.Saved("media", SavedServer(jellyfin, "id", "Living room", address)).toView(addingAddress = true)
+        assertEquals("saved", saved.kind)
+        assertNull(saved.nextPath)
+    }
+
+    @Test
+    fun aFoundServerOnPlainHttpOnTheInternetWithoutAVersion() {
+        val found = ServerSetupUiState.Found(
+            input = "media.example.com",
+            address = "http://media.example.com:8096",
+            name = "Living room",
+            version = null,
+            scope = AddressScope.Internet,
+            plainHttpOnInternet = true,
+        ).toView()
+        assertEquals(false, found.local)
+        assertEquals(true, found.plainHttpOnInternet)
+        assertNull(found.version)
+    }
+
+    @Test
+    fun addressRowsKeepTheirOrderScopeAndTheOneInUse() {
+        val view = ServerAddressesUiState(
+            name = "Living room",
+            addresses = listOf(
+                AddressRow("http://192.168.1.10:8096", AddressScope.Local, plainHttpOnInternet = false, inUse = true, canRemove = true),
+                AddressRow("http://media.example.com", AddressScope.Internet, plainHttpOnInternet = true, inUse = false, canRemove = true),
+            ),
+            reachable = true,
+        ).toView("/settings/servers/jellyfin/0a1b2c/addresses/add")
+        assertEquals(true, view.saved)
+        assertEquals("Living room", view.name)
+        assertEquals(false, view.unreachable)
+        assertEquals("/settings/servers/jellyfin/0a1b2c/addresses/add", view.addPath)
+        val (local, internet) = view.addresses.toList()
+        assertEquals("http://192.168.1.10:8096", local.url)
+        assertEquals("Local", local.scope)
+        assertEquals(true, local.inUse)
+        assertEquals("Internet", internet.scope)
+        assertEquals(true, internet.plainHttpOnInternet)
+        assertEquals(false, internet.inUse)
+    }
+
+    @Test
+    fun addressesAreUnreachableOnlyOnceACheckFailed() {
+        assertEquals(false, ServerAddressesUiState(reachable = null).toView("/x").unreachable)
+        assertEquals(true, ServerAddressesUiState(reachable = false).toView("/x").unreachable)
+        assertEquals(false, ServerAddressesUiState(saved = false).toView("/x").saved)
+    }
+
+    @Test
     fun signInStatesCarryTheFormTheCodeOrTheEnd() {
         val form = SignInUiState.Form("alex", "secret", quickConnect = true, working = false, problem = SignInProblem.WrongCredentials)
             .toView()
@@ -107,6 +164,10 @@ class ShellPagesTest {
         assertEquals("quickConnect", code.kind)
         assertEquals("123456", code.code)
         assertEquals("signedIn", SignInUiState.SignedIn("alex").toView().kind)
+
+        val working = SignInUiState.Form("alex", "secret", quickConnect = false, working = true, problem = null).toView()
+        assertEquals(true, working.working)
+        assertNull(working.problem)
     }
 
     /**
@@ -136,5 +197,6 @@ class ShellPagesTest {
             SignInProblem.entries.map { it.name },
             "SignInProblemName in webApp/src/strings.ts",
         )
+        assertEquals(listOf("Local", "Internet"), AddressScope.entries.map { it.name }, "AddressScopeName in webApp/src/strings.ts")
     }
 }
