@@ -2863,6 +2863,17 @@ JAWS users need the bridge (fix B or C above).
 - Known minor issue (no fix yet): in landscape on Android the notice covers part of a focused button at the bottom of the page while
   it shows (about 4 s).
 
+Re-run (Refresh focus), desktop only, 2026-10-22, PR 51 at 742bedd. Same setup as above, keyboard only, signed out. Two stand-ins
+with the same server id on `127.0.0.1:18096` and `127.0.0.1:18097`, each answering in 3 s, so the page has controls after Refresh
+(with one address, Tab after Refresh wraps to the sidebar on its own).
+- 1, Refresh from the keyboard: **pass.** Enter on Refresh showed the spinner and "Checking every address…" for about 3 s; focus and
+  its ring stayed on Refresh throughout. A second Enter during the check added nothing: one request per address for that check. After
+  it, Tab went to the first address's Move down, as before the check.
+- 2, background recheck: **pass.** Focus left on Refresh; the 5-minute recheck (spinner showing) kept focus and the ring on Refresh.
+- 3, offline and back: **pass.** With both stand-ins stopped, Refresh gave "Stand-in does not answer at any of these addresses right
+  now." within about 1 s; the "Currently using" block showed no address and no row said "In use". Focus stayed on Refresh. With
+  `127.0.0.1:18096` started again, Refresh gave Reachable with that address, and its row said "In use" again.
+
 ## Single instance on desktop (read 2026-10-21 in the JDK 21 javadoc, the Win32 docs and the Compose `application` source on `jb-main`; tested on Linux in a container)
 Design: docs/architecture.md, "Single instance (desktop)". What it relies on:
 - The lock dies with the process. `FileLock`: "A file-lock object is initially valid. It remains valid until the lock is released by
