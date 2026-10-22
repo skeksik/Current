@@ -139,3 +139,16 @@ The player's UX rules (keyboard, pointer, scrubber, touch, subtitles, Next Up, P
 | Web | React + TypeScript over Kotlin/JS (ADR 0011) | HTML video + hls.js, device profile from browser probes (ADR 0011) |
 
 Order of work (docs/roadmap.md): Windows desktop and web first, then Android and Apple, then TV.
+
+### Single instance (desktop)
+One running app per user on a machine, so two processes never write the same settings files (`AppFolders.config()`, `AppFolders.local()`).
+`main()` claims the app before Koin starts, through `SingleInstance` (desktopApp; `FileLockSingleInstance` is the implementation):
+- The claim is an exclusive `FileChannel.tryLock` on `instance.lock` in `AppFolders.local()`. The OS drops the lock when the process
+  ends, however it ends, so a crash leaves nothing that blocks the next start. The lock file itself stays.
+- The holder listens on an ephemeral port bound to 127.0.0.1 and writes `instance.port` (protocol, port, a random 32-byte token, its
+  process id; owner-only on POSIX). It deletes that file on a normal exit; a stale one is overwritten by the next holder.
+- A later launch reads `instance.port`, lets the holder take the foreground on Windows (`AllowSetForegroundWindow`), sends one line,
+  `CURRENT/1 <token> activate`, and exits once it reads `OK`. The holder restores its window and brings it forward. A wrong token or
+  any other line is closed without an answer. If the holder does not answer within about 2 s, the later launch still exits.
+- The version and the command word leave room for more commands (deep links, files to open); `activate` is the only one.
+Sources and limits: docs/platform-notes.md, "Single instance on desktop".
